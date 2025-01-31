@@ -1,0 +1,5 @@
+/.idea
+/.venv
+/AnsweringAgent/Data/train_data
+/AnsweringAgent/results
+/AnsweringAgent/fine-tuned-t5-model
