@@ -1,0 +1,8 @@
+**/.DS_Store
+/.venv
+/AnsweringAgent/src/data/train_data.csv
+/AnsweringAgent/results
+/AnsweringAgent/fine-tuned-t5-model
+/.idea
+__pycache__/
+AnsweringAgent/.DS_Store
