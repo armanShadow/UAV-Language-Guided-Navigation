@@ -1,0 +1,368 @@
+2025-03-04 11:35:11,144 - INFO - Using device: cpu
+2025-03-04 11:36:39,419 - INFO - Using device: cpu
+2025-03-04 11:38:40,227 - INFO - Using device: cpu
+2025-03-04 11:40:33,212 - INFO - Using device: cpu
+2025-03-04 11:43:42,850 - INFO - Using device: cpu
+2025-03-04 11:46:20,273 - INFO - Using device: cpu
+2025-03-04 11:51:21,875 - INFO - Using device: cpu
+2025-03-04 11:53:36,990 - INFO - Using device: cpu
+2025-03-04 11:57:05,994 - INFO - Using device: cpu
+2025-03-04 11:58:28,533 - INFO - Using device: cpu
+2025-03-04 12:00:40,612 - INFO - Using device: cpu
+2025-03-04 12:02:07,227 - INFO - Using device: cpu
+2025-03-04 12:03:18,536 - INFO - Using device: cpu
+2025-03-04 12:03:32,689 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3504
+2025-03-04 12:04:16,986 - INFO - Epoch: 1/200000, Batch: 10/651, Loss: 10.1709
+2025-03-04 12:05:53,952 - INFO - Using device: mps
+2025-03-04 12:08:14,335 - INFO - Using device: mps
+2025-03-04 12:09:47,423 - INFO - Using device: mps
+2025-03-04 12:12:51,236 - INFO - Using device: mps
+2025-03-04 12:14:48,654 - INFO - Using device: mps
+2025-03-04 12:17:09,468 - INFO - Using device: mps
+2025-03-04 12:19:39,340 - INFO - Using device: mps
+2025-03-04 12:22:01,113 - INFO - Using device: mps
+2025-03-04 12:22:17,253 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3332
+2025-03-04 12:22:23,830 - INFO - Epoch: 1/200000, Batch: 10/651, Loss: nan
+2025-03-04 12:22:30,076 - INFO - Epoch: 1/200000, Batch: 20/651, Loss: nan
+2025-03-04 12:22:36,356 - INFO - Epoch: 1/200000, Batch: 30/651, Loss: nan
+2025-03-04 12:22:42,681 - INFO - Epoch: 1/200000, Batch: 40/651, Loss: nan
+2025-03-04 12:22:49,070 - INFO - Epoch: 1/200000, Batch: 50/651, Loss: nan
+2025-03-04 12:22:55,500 - INFO - Epoch: 1/200000, Batch: 60/651, Loss: nan
+2025-03-04 12:27:36,493 - INFO - Using device: mps
+2025-03-04 12:30:55,818 - INFO - Using device: mps
+2025-03-04 12:38:05,814 - INFO - Using device: mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.0.conv_0.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.0.conv_0.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.0.conv_0.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.1.conv_1.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.1.conv_1.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.1.conv_1.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.2.conv_2.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.2.conv_2.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.2.conv_2.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.3.conv_3.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.3.conv_3.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.3.conv_3.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.5.conv_5.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.5.conv_5.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.5.conv_5.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.6.conv_6.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.6.conv_6.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.6.conv_6.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.7.conv_7.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.7.conv_7.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.7.conv_7.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,129 - WARNING - Parameter module_list.9.conv_9.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.9.conv_9.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.9.conv_9.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.10.conv_10.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.10.conv_10.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.10.conv_10.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.12.conv_12.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.12.conv_12.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.12.conv_12.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.13.conv_13.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.13.conv_13.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.13.conv_13.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.14.conv_14.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.14.conv_14.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.14.conv_14.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.16.conv_16.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.16.conv_16.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.16.conv_16.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.17.conv_17.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.17.conv_17.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.17.conv_17.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.19.conv_19.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.19.conv_19.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.19.conv_19.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.20.conv_20.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.20.conv_20.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.20.conv_20.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.22.conv_22.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.22.conv_22.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.22.conv_22.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.23.conv_23.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.23.conv_23.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.23.conv_23.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.25.conv_25.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.25.conv_25.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.25.conv_25.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.26.conv_26.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.26.conv_26.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.26.conv_26.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.28.conv_28.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.28.conv_28.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.28.conv_28.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.29.conv_29.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.29.conv_29.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.29.conv_29.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.31.conv_31.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.31.conv_31.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.31.conv_31.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.32.conv_32.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.32.conv_32.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.32.conv_32.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.34.conv_34.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.34.conv_34.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.34.conv_34.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.35.conv_35.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.35.conv_35.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.35.conv_35.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.37.conv_37.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.37.conv_37.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.37.conv_37.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.38.conv_38.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.38.conv_38.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.38.conv_38.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.39.conv_39.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.39.conv_39.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.39.conv_39.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.41.conv_41.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.41.conv_41.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.41.conv_41.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.42.conv_42.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,130 - WARNING - Parameter module_list.42.conv_42.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.42.conv_42.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.44.conv_44.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.44.conv_44.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.44.conv_44.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.45.conv_45.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.45.conv_45.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.45.conv_45.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.47.conv_47.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.47.conv_47.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.47.conv_47.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.48.conv_48.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.48.conv_48.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.48.conv_48.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.50.conv_50.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.50.conv_50.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.50.conv_50.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.51.conv_51.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.51.conv_51.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.51.conv_51.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.53.conv_53.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.53.conv_53.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.53.conv_53.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.54.conv_54.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.54.conv_54.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.54.conv_54.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.56.conv_56.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.56.conv_56.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.56.conv_56.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.57.conv_57.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.57.conv_57.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.57.conv_57.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.59.conv_59.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.59.conv_59.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.59.conv_59.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.60.conv_60.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.60.conv_60.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.60.conv_60.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.62.conv_62.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.62.conv_62.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.62.conv_62.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.63.conv_63.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.63.conv_63.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.63.conv_63.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.64.conv_64.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.64.conv_64.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.64.conv_64.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.66.conv_66.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.66.conv_66.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.66.conv_66.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.67.conv_67.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.67.conv_67.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.67.conv_67.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.69.conv_69.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.69.conv_69.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.69.conv_69.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.70.conv_70.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.70.conv_70.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.70.conv_70.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.72.conv_72.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.72.conv_72.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.72.conv_72.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.73.conv_73.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.73.conv_73.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.73.conv_73.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:07,131 - WARNING - Parameter module_list.75.conv_75.conv.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,132 - WARNING - Parameter module_list.75.conv_75.batch_norm.weight is on mps:0 instead of mps
+2025-03-04 12:38:07,132 - WARNING - Parameter module_list.75.conv_75.batch_norm.bias is on mps:0 instead of mps
+2025-03-04 12:38:16,875 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3398
+2025-03-04 12:38:23,007 - INFO - Epoch: 1/200000, Batch: 10/651, Loss: nan
+2025-03-04 12:38:28,834 - INFO - Epoch: 1/200000, Batch: 20/651, Loss: nan
+2025-03-04 12:38:34,715 - INFO - Epoch: 1/200000, Batch: 30/651, Loss: nan
+2025-03-04 12:38:40,627 - INFO - Epoch: 1/200000, Batch: 40/651, Loss: nan
+2025-03-04 12:38:46,558 - INFO - Epoch: 1/200000, Batch: 50/651, Loss: nan
+2025-03-04 12:38:52,513 - INFO - Epoch: 1/200000, Batch: 60/651, Loss: nan
+2025-03-04 12:38:58,521 - INFO - Epoch: 1/200000, Batch: 70/651, Loss: nan
+2025-03-04 12:39:04,458 - INFO - Epoch: 1/200000, Batch: 80/651, Loss: nan
+2025-03-04 12:39:10,497 - INFO - Epoch: 1/200000, Batch: 90/651, Loss: nan
+2025-03-04 12:39:16,540 - INFO - Epoch: 1/200000, Batch: 100/651, Loss: nan
+2025-03-04 12:39:22,558 - INFO - Epoch: 1/200000, Batch: 110/651, Loss: nan
+2025-03-04 12:41:51,430 - INFO - Using device: mps
+2025-03-04 12:57:20,748 - INFO - Using device: mps
+2025-03-04 12:57:33,403 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3112
+2025-03-04 12:57:39,769 - INFO - Epoch: 1/200000, Batch: 10/651, Loss: nan
+2025-03-04 12:57:46,002 - INFO - Epoch: 1/200000, Batch: 20/651, Loss: nan
+2025-03-04 12:57:52,274 - INFO - Epoch: 1/200000, Batch: 30/651, Loss: nan
+2025-03-04 12:58:55,255 - INFO - Using device: mps
+2025-03-04 12:59:06,192 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3585
+2025-03-04 12:59:12,640 - INFO - Epoch: 1/200000, Batch: 10/651, Loss: nan
+2025-03-04 12:59:18,880 - INFO - Epoch: 1/200000, Batch: 20/651, Loss: nan
+2025-03-04 13:00:58,814 - INFO - Using device: mps
+2025-03-04 13:01:10,482 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3470
+2025-03-04 13:01:10,655 - WARNING - NaN detected in Conv2d layer 0 weights
+2025-03-04 13:01:10,697 - WARNING - NaN detected in BatchNorm layer 1 weights
+2025-03-04 13:01:10,728 - WARNING - NaN detected in BatchNorm layer 1 bias
+2025-03-04 13:01:10,729 - WARNING - NaN detected in Conv2d layer 3 weights
+2025-03-04 13:01:10,732 - WARNING - NaN detected in BatchNorm layer 4 weights
+2025-03-04 13:01:10,735 - WARNING - NaN detected in BatchNorm layer 4 bias
+2025-03-04 13:01:10,736 - WARNING - NaN detected in Linear layer 7 weights
+2025-03-04 13:01:10,745 - WARNING - NaN detected in Linear layer 9 weights
+2025-03-04 13:01:10,748 - WARNING - NaN detected in Linear layer 11 weights
+2025-03-04 13:01:10,753 - WARNING - NaN detected after layer 0 (Conv2d)
+2025-03-04 13:01:10,819 - WARNING - NaN detected after layer 3 (Conv2d)
+2025-03-04 13:01:10,829 - WARNING - NaN detected after layer 7 (Linear)
+2025-03-04 13:01:10,841 - WARNING - NaN detected after layer 9 (Linear)
+2025-03-04 13:01:10,847 - WARNING - NaN detected after layer 11 (Linear)
+2025-03-04 13:01:11,879 - WARNING - NaN detected in Conv2d layer 0 weights
+2025-03-04 13:01:11,880 - WARNING - NaN detected in BatchNorm layer 1 weights
+2025-03-04 13:01:11,880 - WARNING - NaN detected in BatchNorm layer 1 bias
+2025-03-04 13:01:11,880 - WARNING - NaN detected in Conv2d layer 3 weights
+2025-03-04 13:01:11,881 - WARNING - NaN detected in BatchNorm layer 4 weights
+2025-03-04 13:01:11,881 - WARNING - NaN detected in BatchNorm layer 4 bias
+2025-03-04 13:01:11,882 - WARNING - NaN detected in Linear layer 7 weights
+2025-03-04 13:01:11,883 - WARNING - NaN detected in Linear layer 9 weights
+2025-03-04 13:01:11,883 - WARNING - NaN detected in Linear layer 11 weights
+2025-03-04 13:01:11,885 - WARNING - NaN detected after layer 0 (Conv2d)
+2025-03-04 13:01:11,891 - WARNING - NaN detected after layer 3 (Conv2d)
+2025-03-04 13:01:11,898 - WARNING - NaN detected after layer 7 (Linear)
+2025-03-04 13:01:11,901 - WARNING - NaN detected after layer 9 (Linear)
+2025-03-04 13:01:11,904 - WARNING - NaN detected after layer 11 (Linear)
+2025-03-04 13:03:45,275 - INFO - Using device: mps
+2025-03-04 13:09:14,151 - INFO - Using device: mps
+2025-03-04 13:09:26,622 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3982
+2025-03-04 13:09:26,801 - WARNING - NaN detected in layer 0 (Conv2d) weights before forward pass
+2025-03-04 13:09:26,806 - WARNING - NaN detected in layer 0 (Conv2d) bias before forward pass
+2025-03-04 13:09:26,810 - WARNING - NaN detected after layer 1 (BatchNorm2d)
+2025-03-04 13:09:26,832 - WARNING - NaN detected in layer 3 (Conv2d) weights before forward pass
+2025-03-04 13:09:26,836 - WARNING - NaN detected in layer 3 (Conv2d) bias before forward pass
+2025-03-04 13:09:26,842 - WARNING - NaN detected after layer 4 (BatchNorm2d)
+2025-03-04 13:09:26,846 - WARNING - NaN detected in layer 7 (Linear) weights before forward pass
+2025-03-04 13:09:26,849 - WARNING - NaN detected in layer 7 (Linear) bias before forward pass
+2025-03-04 13:09:26,854 - WARNING - NaN detected in layer 9 (Linear) weights before forward pass
+2025-03-04 13:09:26,857 - WARNING - NaN detected in layer 9 (Linear) bias before forward pass
+2025-03-04 13:09:26,861 - WARNING - NaN detected in layer 11 (Linear) weights before forward pass
+2025-03-04 13:09:26,863 - WARNING - NaN detected in layer 11 (Linear) bias before forward pass
+2025-03-04 13:09:27,797 - WARNING - NaN detected in layer 0 (Conv2d) weights before forward pass
+2025-03-04 13:09:27,797 - WARNING - NaN detected in layer 0 (Conv2d) bias before forward pass
+2025-03-04 13:09:27,801 - WARNING - NaN detected after layer 1 (BatchNorm2d)
+2025-03-04 13:09:27,802 - WARNING - NaN detected in layer 3 (Conv2d) weights before forward pass
+2025-03-04 13:09:27,802 - WARNING - NaN detected in layer 3 (Conv2d) bias before forward pass
+2025-03-04 13:09:27,808 - WARNING - NaN detected after layer 4 (BatchNorm2d)
+2025-03-04 13:09:27,810 - WARNING - NaN detected in layer 7 (Linear) weights before forward pass
+2025-03-04 13:09:27,810 - WARNING - NaN detected in layer 7 (Linear) bias before forward pass
+2025-03-04 13:09:27,815 - WARNING - NaN detected in layer 9 (Linear) weights before forward pass
+2025-03-04 13:09:27,816 - WARNING - NaN detected in layer 9 (Linear) bias before forward pass
+2025-03-04 13:09:27,821 - WARNING - NaN detected in layer 11 (Linear) weights before forward pass
+2025-03-04 13:09:27,821 - WARNING - NaN detected in layer 11 (Linear) bias before forward pass
+2025-03-04 13:09:28,432 - WARNING - NaN detected in layer 0 (Conv2d) weights before forward pass
+2025-03-04 13:09:28,433 - WARNING - NaN detected in layer 0 (Conv2d) bias before forward pass
+2025-03-04 13:09:28,439 - WARNING - NaN detected after layer 1 (BatchNorm2d)
+2025-03-04 13:09:28,440 - WARNING - NaN detected in layer 3 (Conv2d) weights before forward pass
+2025-03-04 13:09:28,440 - WARNING - NaN detected in layer 3 (Conv2d) bias before forward pass
+2025-03-04 13:09:28,448 - WARNING - NaN detected after layer 4 (BatchNorm2d)
+2025-03-04 13:09:28,450 - WARNING - NaN detected in layer 7 (Linear) weights before forward pass
+2025-03-04 13:09:28,451 - WARNING - NaN detected in layer 7 (Linear) bias before forward pass
+2025-03-04 13:09:28,456 - WARNING - NaN detected in layer 9 (Linear) weights before forward pass
+2025-03-04 13:09:28,456 - WARNING - NaN detected in layer 9 (Linear) bias before forward pass
+2025-03-04 13:09:28,460 - WARNING - NaN detected in layer 11 (Linear) weights before forward pass
+2025-03-04 13:09:28,460 - WARNING - NaN detected in layer 11 (Linear) bias before forward pass
+2025-03-04 13:09:29,089 - WARNING - NaN detected in layer 0 (Conv2d) weights before forward pass
+2025-03-04 13:09:29,089 - WARNING - NaN detected in layer 0 (Conv2d) bias before forward pass
+2025-03-04 13:09:29,093 - WARNING - NaN detected after layer 1 (BatchNorm2d)
+2025-03-04 13:09:29,093 - WARNING - NaN detected in layer 3 (Conv2d) weights before forward pass
+2025-03-04 13:09:29,094 - WARNING - NaN detected in layer 3 (Conv2d) bias before forward pass
+2025-03-04 13:09:29,100 - WARNING - NaN detected after layer 4 (BatchNorm2d)
+2025-03-04 13:09:29,101 - WARNING - NaN detected in layer 7 (Linear) weights before forward pass
+2025-03-04 13:09:29,102 - WARNING - NaN detected in layer 7 (Linear) bias before forward pass
+2025-03-04 13:09:29,107 - WARNING - NaN detected in layer 9 (Linear) weights before forward pass
+2025-03-04 13:09:29,108 - WARNING - NaN detected in layer 9 (Linear) bias before forward pass
+2025-03-04 13:09:29,112 - WARNING - NaN detected in layer 11 (Linear) weights before forward pass
+2025-03-04 13:09:29,112 - WARNING - NaN detected in layer 11 (Linear) bias before forward pass
+2025-03-04 13:17:50,232 - INFO - Using device: mps
+2025-03-04 13:18:53,507 - INFO - Using device: mps
+2025-03-04 13:19:06,637 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3015
+2025-03-04 13:19:06,828 - WARNING - NaN detected in layer 0 (Conv2d) weights before forward pass
+2025-03-04 13:19:06,830 - WARNING - NaN detected in layer 0 (Conv2d) bias before forward pass
+2025-03-04 13:19:06,834 - WARNING - NaN detected after layer 1 (BatchNorm2d)
+2025-03-04 13:19:06,886 - WARNING - NaN detected in layer 3 (Conv2d) weights before forward pass
+2025-03-04 13:19:06,887 - WARNING - NaN detected in layer 3 (Conv2d) bias before forward pass
+2025-03-04 13:19:06,895 - WARNING - NaN detected after layer 4 (BatchNorm2d)
+2025-03-04 13:19:06,899 - WARNING - NaN detected in layer 7 (Linear) weights before forward pass
+2025-03-04 13:19:06,935 - WARNING - NaN detected in layer 7 (Linear) bias before forward pass
+2025-03-04 13:19:06,943 - WARNING - NaN detected in layer 9 (Linear) weights before forward pass
+2025-03-04 13:19:06,950 - WARNING - NaN detected in layer 9 (Linear) bias before forward pass
+2025-03-04 13:19:06,954 - WARNING - NaN detected in layer 11 (Linear) weights before forward pass
+2025-03-04 13:19:06,959 - WARNING - NaN detected in layer 11 (Linear) bias before forward pass
+2025-03-04 13:19:07,835 - WARNING - NaN detected in layer 0 (Conv2d) weights before forward pass
+2025-03-04 13:19:07,837 - WARNING - NaN detected in layer 0 (Conv2d) bias before forward pass
+2025-03-04 13:19:07,841 - WARNING - NaN detected after layer 1 (BatchNorm2d)
+2025-03-04 13:19:07,842 - WARNING - NaN detected in layer 3 (Conv2d) weights before forward pass
+2025-03-04 13:19:07,843 - WARNING - NaN detected in layer 3 (Conv2d) bias before forward pass
+2025-03-04 13:19:07,849 - WARNING - NaN detected after layer 4 (BatchNorm2d)
+2025-03-04 13:19:07,850 - WARNING - NaN detected in layer 7 (Linear) weights before forward pass
+2025-03-04 13:19:07,883 - WARNING - NaN detected in layer 7 (Linear) bias before forward pass
+2025-03-04 13:19:07,889 - WARNING - NaN detected in layer 9 (Linear) weights before forward pass
+2025-03-04 13:19:07,895 - WARNING - NaN detected in layer 9 (Linear) bias before forward pass
+2025-03-04 13:19:07,899 - WARNING - NaN detected in layer 11 (Linear) weights before forward pass
+2025-03-04 13:19:07,904 - WARNING - NaN detected in layer 11 (Linear) bias before forward pass
+2025-03-04 13:19:08,532 - WARNING - NaN detected in layer 0 (Conv2d) weights before forward pass
+2025-03-04 13:19:08,534 - WARNING - NaN detected in layer 0 (Conv2d) bias before forward pass
+2025-03-04 13:19:08,539 - WARNING - NaN detected after layer 1 (BatchNorm2d)
+2025-03-04 13:19:08,540 - WARNING - NaN detected in layer 3 (Conv2d) weights before forward pass
+2025-03-04 13:19:08,540 - WARNING - NaN detected in layer 3 (Conv2d) bias before forward pass
+2025-03-04 13:19:08,546 - WARNING - NaN detected after layer 4 (BatchNorm2d)
+2025-03-04 13:19:08,548 - WARNING - NaN detected in layer 7 (Linear) weights before forward pass
+2025-03-04 13:19:08,580 - WARNING - NaN detected in layer 7 (Linear) bias before forward pass
+2025-03-04 13:19:08,585 - WARNING - NaN detected in layer 9 (Linear) weights before forward pass
+2025-03-04 13:19:08,592 - WARNING - NaN detected in layer 9 (Linear) bias before forward pass
+2025-03-04 13:19:08,597 - WARNING - NaN detected in layer 11 (Linear) weights before forward pass
+2025-03-04 13:19:08,602 - WARNING - NaN detected in layer 11 (Linear) bias before forward pass
+2025-03-04 13:19:09,229 - WARNING - NaN detected in layer 0 (Conv2d) weights before forward pass
+2025-03-04 13:19:09,231 - WARNING - NaN detected in layer 0 (Conv2d) bias before forward pass
+2025-03-04 13:19:09,236 - WARNING - NaN detected after layer 1 (BatchNorm2d)
+2025-03-04 13:19:09,237 - WARNING - NaN detected in layer 3 (Conv2d) weights before forward pass
+2025-03-04 13:19:09,238 - WARNING - NaN detected in layer 3 (Conv2d) bias before forward pass
+2025-03-04 13:19:09,246 - WARNING - NaN detected after layer 4 (BatchNorm2d)
+2025-03-04 13:19:09,248 - WARNING - NaN detected in layer 7 (Linear) weights before forward pass
+2025-03-04 13:19:09,282 - WARNING - NaN detected in layer 7 (Linear) bias before forward pass
+2025-03-04 13:19:09,289 - WARNING - NaN detected in layer 9 (Linear) weights before forward pass
+2025-03-04 13:19:09,295 - WARNING - NaN detected in layer 9 (Linear) bias before forward pass
+2025-03-04 13:19:09,300 - WARNING - NaN detected in layer 11 (Linear) weights before forward pass
+2025-03-04 13:19:09,306 - WARNING - NaN detected in layer 11 (Linear) bias before forward pass
+2025-03-04 13:21:15,876 - INFO - Using device: mps
+2025-03-04 13:34:55,743 - INFO - Using device: mps
+2025-03-04 13:35:07,275 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3041
+2025-03-04 13:37:43,170 - INFO - Using device: mps
+2025-03-04 13:37:43,934 - INFO - Forcing FeatureExtractor to use CPU
+2025-03-04 13:37:43,935 - INFO - Forcing Darknet to use CPU
+2025-03-04 13:39:57,815 - INFO - Using device: cpu
+2025-03-04 13:39:58,276 - INFO - Forcing FeatureExtractor to use CPU
+2025-03-04 13:39:58,276 - INFO - Forcing Darknet to use CPU
+2025-03-04 13:40:11,408 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3537
+2025-03-04 13:40:53,788 - INFO - Epoch: 1/200000, Batch: 10/651, Loss: 10.1622
+2025-03-04 13:48:34,590 - INFO - Using device: cpu
+2025-03-04 13:48:35,051 - INFO - Forcing FeatureExtractor to use CPU
+2025-03-04 13:48:35,051 - INFO - Forcing Darknet to use CPU
+2025-03-04 13:48:49,052 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3659
+2025-03-04 13:49:31,813 - INFO - Epoch: 1/200000, Batch: 10/651, Loss: 10.2578
+2025-03-04 13:50:14,678 - INFO - Epoch: 1/200000, Batch: 20/651, Loss: 10.0330
+2025-03-04 13:50:58,296 - INFO - Epoch: 1/200000, Batch: 30/651, Loss: 9.9663
+2025-03-04 13:51:41,534 - INFO - Epoch: 1/200000, Batch: 40/651, Loss: 9.7964
+2025-03-04 13:52:24,261 - INFO - Epoch: 1/200000, Batch: 50/651, Loss: 9.6025
+2025-03-04 13:57:09,148 - INFO - Using device: cpu
+2025-03-04 13:57:09,573 - INFO - Forcing Darknet to use CPU

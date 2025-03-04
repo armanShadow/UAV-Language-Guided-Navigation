@@ -1,6 +1,5 @@
 import json
 import pandas as pd
-from datasets import Dataset
 
 def load_data(path):
     # Load the JSON file as an array
@@ -33,8 +32,8 @@ def load_data(path):
                 "answer" : answer,
                 'first_instruction' : first_instruction,
                 'history' : data_array[i+j]["pre_dialogs"],
-                'current_view': data_array[i+j-1]["gt_path_corners"][-1],
-                'previous_views': previous_views[:-1],
+                'current_view_coord': data_array[i+j-1]["gt_path_corners"][-1],
+                'previous_views_coord': previous_views[:-1],
                 'map_name': data_array[i+j]["map_name"],
                 'gps_botm_left': data_array[i+j]["gps_botm_left"],
                 'gps_top_right': data_array[i+j]["gps_top_right"],
@@ -46,14 +45,15 @@ def load_data(path):
 
     return data
 
-train_data = load_data('../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json')
-train_df = pd.DataFrame(train_data, columns=['question', 'answer', 'first_instruction', 'history', 'current_view', 'previous_views', 'map_name', 'gps_botm_left', 'gps_top_right', 'lng_ratio', 'lat_ratio'])
+train_data = load_data('../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json')
+train_df = pd.DataFrame(train_data, columns=['question', 'answer', 'first_instruction', 'history', 'current_view_coord', 'previous_views_coord', 'map_name', 'gps_botm_left', 'gps_top_right', 'lng_ratio', 'lat_ratio'])
 
-val_seen_data = load_data('../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_seen_data.json')
-val_seen_df = pd.DataFrame(val_seen_data, columns=['question', 'answer', 'first_instruction', 'history', 'current_view', 'previous_views', 'map_name', 'gps_botm_left', 'gps_top_right', 'lng_ratio', 'lat_ratio'])
+val_seen_data = load_data('../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_seen_data.json')
+val_seen_df = pd.DataFrame(val_seen_data, columns=['question', 'answer', 'first_instruction', 'history', 'current_view_coord', 'previous_views_coord', 'map_name', 'gps_botm_left', 'gps_top_right', 'lng_ratio', 'lat_ratio'])
 
-val_unseen_data = load_data('../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_unseen_data.json')
-val_unseen_df = pd.DataFrame(val_unseen_data, columns=['question', 'answer', 'first_instruction', 'history', 'current_view', 'previous_views', 'map_name', 'gps_botm_left', 'gps_top_right', 'lng_ratio', 'lat_ratio'])
+val_unseen_data = load_data(
+    '../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_unseen_data.json')
+val_unseen_df = pd.DataFrame(val_unseen_data, columns=['question', 'answer', 'first_instruction', 'history', 'current_view_coord', 'previous_views_coord', 'map_name', 'gps_botm_left', 'gps_top_right', 'lng_ratio', 'lat_ratio'])
 
 dataFrame_all = pd.concat([train_df, val_seen_df, val_unseen_df], ignore_index=True)
-dataFrame_all.to_csv('train_data', index=False)
+dataFrame_all.to_csv('train_data.csv', index=False)
