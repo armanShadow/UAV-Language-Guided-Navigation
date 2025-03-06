@@ -45,8 +45,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     best_model_path = None
     
     # Initialize gradient scaler for mixed precision training
-    scaler = None  # No scaler needed for CPU training
-        
+    scaler = torch.cuda.amp.GradScaler() if device.type == 'cuda' else None
+    
     for epoch in range(num_epochs):
         model.train()
         total_loss = 0
@@ -56,12 +56,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             current_view = batch['current_view_image'].to(device)
             labels = batch['text_label'].to(device)
             
-            # Ensure all model components are on the correct device
-            model.to_device(device)
-            
             # Forward pass with mixed precision
-            if device.type in ['cuda', 'mps'] and scaler is not None:
-                with torch.amp.autocast(device_type=device.type):
+            if device.type == 'cuda' and scaler is not None:
+                with torch.cuda.amp.autocast():
                     outputs = model(text_input, current_view)
                     outputs_reshaped = outputs.reshape(-1, outputs.size(-1))
                     labels_reshaped = labels.reshape(-1)
@@ -96,9 +93,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 current_view = batch['current_view_image'].to(device)
                 labels = batch['text_label'].to(device)
                 
-                # Ensure all model components are on the correct device
-                model.to_device(device)
-                
                 outputs = model(text_input, current_view)
                 outputs_reshaped = outputs.reshape(-1, outputs.size(-1))
                 labels_reshaped = labels.reshape(-1)
@@ -121,7 +115,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 'model_state_dict': model.state_dict(),
                 'epoch': epoch + 1,
                 'val_loss': val_loss,
-            }, best_model_path, _use_new_zipfile_serialization=True)
+            }, best_model_path)
             logger.info(f'New best model saved (val_loss: {val_loss:.4f})')
         
         # Save checkpoint
@@ -132,8 +126,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict(),
             'val_loss': val_loss,
-        }, checkpoint_path, _use_new_zipfile_serialization=True)
-        logger.info(f'Saved checkpoint at epoch {epoch+1}')
+        }, checkpoint_path)
 
 def main():
     # Set up logging
@@ -146,8 +139,8 @@ def main():
         ]
     )
     
-    # Set device (force CPU)
-    device = torch.device("cpu")
+    # Set device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f'Using device: {device}')
     
     # Initialize tokenizer
@@ -170,7 +163,7 @@ def main():
         generator=torch.Generator().manual_seed(42)  # For reproducibility
     )
     
-    # Create data loaders
+    # Create data loaders with pin_memory for faster data transfer to GPU
     train_loader = DataLoader(
         train_dataset,
         batch_size=4,
@@ -196,7 +189,7 @@ def main():
         darknet_config_path='../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/yolo_v3.cfg',
         darknet_weights_path='../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/best.pt'
     )
-    model.to_device(device)
+    model.to(device)
     
     # Initialize optimizer and loss function
     optimizer = optim.AdamW(model.parameters(), lr=1e-5, weight_decay=0.01)

@@ -28,8 +28,8 @@ class TrainingConfig:
     eval_freq: int = 1000
     num_workers: int = 4
     pin_memory: bool = True
-    mixed_precision: bool = False
-    device: str = 'cpu'
+    mixed_precision: bool = True
+    device: str = 'cuda'
     seed: int = 42
 
 @dataclass
