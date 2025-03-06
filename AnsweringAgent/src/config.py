@@ -47,11 +47,13 @@ class Config:
     model: ModelConfig = ModelConfig()
     training: TrainingConfig = TrainingConfig()
     data: DataConfig = DataConfig()
-    checkpoint_dir: str = 'checkpoints'
-    log_dir: str = 'logs'
+    checkpoint_dir: str = 'AnsweringAgent/outputs/checkpoints'
+    log_dir: str = 'AnsweringAgent/outputs/logs'
+    results_dir: str = 'AnsweringAgent/outputs/results'
     
     def __post_init__(self):
         """Create necessary directories."""
         import os
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-        os.makedirs(self.log_dir, exist_ok=True) 
+        os.makedirs(self.log_dir, exist_ok=True)
+        os.makedirs(self.results_dir, exist_ok=True) 

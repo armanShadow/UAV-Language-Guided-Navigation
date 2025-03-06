@@ -134,7 +134,7 @@ def main():
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('training.log'),
+            logging.FileHandler('../outputs/logs/training.log'),
             logging.StreamHandler()
         ]
     )
