@@ -200,7 +200,7 @@ def main():
     
     # Initialize optimizer and loss function
     optimizer = optim.AdamW(model.parameters(), lr=1e-5, weight_decay=0.01)
-    criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
+    criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id, reduction='mean')
     
     # Create save directory
     save_dir = 'checkpoints'
