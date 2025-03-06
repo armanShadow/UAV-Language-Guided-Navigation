@@ -36,7 +36,7 @@ class TrainingConfig:
 class DataConfig:
     """Configuration for data loading and preprocessing."""
     train_csv_path: str = 'data/train_data.csv'
-    avdn_image_dir: str = '/export/openhome/vaziri/datasets/AVDN/train_images'
+    avdn_image_dir: str = '../../../datasets/AVDN/train_images'
     max_previous_views: int = 4
     train_val_split: float = 0.95
     max_length: int = 512
