@@ -14,25 +14,12 @@ from config import Config
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 class AnsweringDataset(Dataset):
-    def __init__(self,
-                 csv_path: str,
-                 tokenizer: BertTokenizerFast,
-                 max_length: int = 512,
-                 max_previous_views: int = 4):
-        """
-        Dataset for the answering agent.
-        
-        Args:
-            csv_path (str): Path to the CSV file containing the data
-            tokenizer (BertTokenizerFast): BERT tokenizer
-            max_length (int): Maximum sequence length for text
-            max_previous_views (int): Maximum number of previous views to include
-        """
-        self.config = Config()
-        self.avdn_image_dir = self.config.avdn_image_dir
+    def __init__(self, config, csv_path, tokenizer):
+        self.config = config
+        self.csv_path = csv_path
         self.tokenizer = tokenizer
-        self.max_length = max_length
-        self.max_previous_views = max_previous_views
+        self.image_dir = config.avdn_image_dir
+        self.max_previous_views = config.max_previous_views
         
         # Initialize normalizer
         self.normalizer = AnsweringAgentNormalizer()
@@ -65,7 +52,7 @@ class AnsweringDataset(Dataset):
         # Process data using normalizer
         processed_data = self.normalizer.process_data(
             item_dict,
-            self.avdn_image_dir
+            self.image_dir
         )
         
         # Convert processed images to tensors

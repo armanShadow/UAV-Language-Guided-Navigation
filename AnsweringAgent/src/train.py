@@ -11,6 +11,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from models.answering_agent import AnsweringAgent
 from data.dataset import AnsweringDataset
+from config import Config
 
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
     """Compute accuracy and other metrics."""
@@ -146,12 +147,13 @@ def main():
     # Initialize tokenizer
     tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
     
+    config = Config()
+    
     # Create dataset
     dataset = AnsweringDataset(
+        config=config,
         csv_path='data/train_data.csv',
-        avdn_image_dir='../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images',
         tokenizer=tokenizer,
-        max_previous_views=4
     )
     
     # Split dataset into train and validation
