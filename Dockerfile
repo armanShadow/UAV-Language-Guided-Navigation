@@ -17,15 +17,19 @@ RUN apt-get update && apt-get install -y \
 COPY AnsweringAgent/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy the codebase
-COPY . .
+# Copy only the necessary code files
+COPY AnsweringAgent/src/ AnsweringAgent/src/
+COPY Aerial-Vision-and-Dialog-Navigation/src/ Aerial-Vision-and-Dialog-Navigation/src/
+COPY Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/ Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/
+COPY Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/ Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/
+COPY Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/et_haa/ Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/et_haa/
+COPY Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/lstm_haa/ Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/lstm_haa/
+
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV CUDA_VISIBLE_DEVICES=0
 
 # Create directory for checkpoints
-RUN mkdir -p AnsweringAgent/checkpoints
-
-# Set the default command
-CMD ["python3", "AnsweringAgent/src/train.py"] 
+RUN mkdir -p Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images
+ 
