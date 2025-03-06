@@ -370,3 +370,7 @@
 2025-03-05 18:16:28,405 - INFO - Forcing Darknet to use CPU
 2025-03-05 18:16:43,510 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3422
 2025-03-05 18:17:26,821 - INFO - Epoch: 1/200000, Batch: 10/651, Loss: 10.1638
+2025-03-06 19:17:23,713 - INFO - Using device: cuda
+2025-03-06 19:17:32,310 - INFO - Forcing Darknet to use CPU
+2025-03-06 19:26:15,205 - INFO - Using device: cuda
+2025-03-06 19:26:24,194 - INFO - Forcing Darknet to use CPU

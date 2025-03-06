@@ -40,7 +40,4 @@ RUN mkdir -p Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images
 
 # Create output directories within AnsweringAgent
 RUN mkdir -p AnsweringAgent/outputs/{checkpoints,logs,results}
-
-# Set the default command
-CMD ["python3", "AnsweringAgent/src/train.py"]
  
