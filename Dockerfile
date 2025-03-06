@@ -29,3 +29,4 @@ ENV CUDA_VISIBLE_DEVICES=0
 
 # Create project directory
 RUN mkdir -p UAV-Language-Guided-Navigation
+RUN mkdir -p datasets
