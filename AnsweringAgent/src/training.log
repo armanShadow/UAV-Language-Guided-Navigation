@@ -366,3 +366,7 @@
 2025-03-04 13:52:24,261 - INFO - Epoch: 1/200000, Batch: 50/651, Loss: 9.6025
 2025-03-04 13:57:09,148 - INFO - Using device: cpu
 2025-03-04 13:57:09,573 - INFO - Forcing Darknet to use CPU
+2025-03-05 18:16:27,967 - INFO - Using device: cpu
+2025-03-05 18:16:28,405 - INFO - Forcing Darknet to use CPU
+2025-03-05 18:16:43,510 - INFO - Epoch: 1/200000, Batch: 0/651, Loss: 10.3422
+2025-03-05 18:17:26,821 - INFO - Epoch: 1/200000, Batch: 10/651, Loss: 10.1638

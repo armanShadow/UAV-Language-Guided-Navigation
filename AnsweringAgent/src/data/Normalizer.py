@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import json
+import os
 from typing import List, Tuple, Union, Dict, Any
 from transformers import BertTokenizerFast
 
@@ -75,37 +76,40 @@ class AnsweringAgentNormalizer:
                 - attention_mask: Attention mask for padding
                 - token_type_ids: Token type IDs for BERT
         """
-        # Get text inputs and convert to lowercase
-        question = data['question'].lower().strip()
-        first_instruction = data['first_instruction'].lower().strip()
-        history = data['history'].lower().strip()
+        # Get text inputs
+        question = data['question'].strip()
+        first_instruction = data['first_instruction'].strip()
+        history = data['history'].strip()
         
         # Concatenate with special tokens for each input type and [SEP] between contexts
-        concatenated_text = f"[QUE] {question} [SEP] [FIRST INS] {first_instruction} [SEP] [HIST] {history}"
+        concatenated_text = f"[ASKED QUE] {question} [SEP] [FIRST INS] {first_instruction} [SEP] [HIST] {history}"
         
-        # Tokenize text using BERT tokenizer
-        tokenized_input_text = self.tokenizer(
+        # Tokenize text
+        tokenized_text = self.tokenizer(
             concatenated_text,
-            max_length=max_length,
             padding='max_length',
             truncation=True,
+            max_length=max_length,
             return_tensors='pt'
         )
         
-        # Tokenize label with proper batch handling
+        # Get label text
+        label_text = data['answer'].strip()
+        
+        # Tokenize label
         tokenized_label = self.tokenizer(
-            data["answer"],
+            label_text,
+            padding='max_length',
             truncation=True,
-            padding="max_length",
             max_length=128,
-            return_tensors="pt"
+            return_tensors='pt'
         )
         
         # Remove the batch dimension from label if it's 1
         if tokenized_label['input_ids'].size(0) == 1:
             tokenized_label = {k: v.squeeze(0) for k, v in tokenized_label.items()}
         
-        return tokenized_input_text, tokenized_label
+        return tokenized_text, tokenized_label
 
     def normalize_position(self, lat: float, lon: float) -> Tuple[float, float]:
         """Normalize GPS positions to a [0,1] scale.
@@ -123,74 +127,81 @@ class AnsweringAgentNormalizer:
                   (self.GPS_RANGES['lon']['max'] - self.GPS_RANGES['lon']['min'])
         return norm_lat, norm_lon
 
-    def gps_to_img_coords(self, gps: List[float], ob: Dict[str, Any]) -> Tuple[int, int]:
-        """Convert GPS coordinates to pixel coordinates.
+    def gps_to_img_coords(self, gps: List[float], gps_botm_left: np.ndarray, 
+                         gps_top_right: np.ndarray, lat_ratio: float, lng_ratio: float) -> np.ndarray:
+        """
+        Convert GPS coordinates to image coordinates using AVDN's approach.
         
         Args:
-            gps (List[float]): GPS coordinates [lon, lat]
-            ob (Dict[str, Any]): Object containing GPS conversion parameters
+            gps: GPS coordinates [longitude, latitude] representing a corner
+            gps_botm_left: Bottom left GPS coordinates of the image
+            gps_top_right: Top right GPS coordinates of the image
+            lat_ratio: Latitude ratio for scaling
+            lng_ratio: Longitude ratio for scaling
             
         Returns:
-            Tuple[int, int]: Pixel coordinates (x, y)
+            np.ndarray: Image coordinates (x, y)
         """
-        # Ensure gps_botm_left and gps_top_right are lists of floats
-        gps_botm_left = ob['gps_botm_left']
-        gps_top_right = ob['gps_top_right']
+        # Convert inputs to numpy arrays if they aren't already
+        gps = np.array(gps)
+        gps_botm_left = np.array(gps_botm_left)
+        gps_top_right = np.array(gps_top_right)
+        
+        x = int(round((gps[1] - gps_botm_left[1]) / lat_ratio))
+        y = int(round((gps_top_right[0] - gps[0]) / lng_ratio))
+        return np.array([x, y], dtype=np.float32)
 
-        if isinstance(gps_botm_left, str):
-            gps_botm_left = json.loads(gps_botm_left)
-        if isinstance(gps_top_right, str):
-            gps_top_right = json.loads(gps_top_right)
-
-        # Convert all values to float
-        gps_botm_left = list(map(float, gps_botm_left))
-        gps_top_right = list(map(float, gps_top_right))
-        gps = list(map(float, gps))
-
-        lng_ratio = float(ob['lng_ratio'])
-        lat_ratio = float(ob['lat_ratio'])
-
-        return int(round((gps[1] - gps_botm_left[1]) / lat_ratio)), \
-               int(round((gps_top_right[0] - gps[0]) / lat_ratio))
-
-    def get_direction(self, start: np.ndarray, end: np.ndarray) -> float:
-        """Compute rotation angle for alignment based on AVDN method.
+    def normalize_coordinates(self, coords: np.ndarray, gps_botm_left: np.ndarray, 
+                            gps_top_right: np.ndarray, lat_ratio: float, lng_ratio: float) -> np.ndarray:
+        """
+        Normalize coordinates using AVDN's approach.
         
         Args:
-            start (np.ndarray): Starting point coordinates
-            end (np.ndarray): Ending point coordinates
+            coords: Coordinates to normalize
+            gps_botm_left: Bottom left GPS coordinates
+            gps_top_right: Top right GPS coordinates
+            lat_ratio: Latitude ratio for scaling
+            lng_ratio: Longitude ratio for scaling
             
         Returns:
-            float: Rotation angle in degrees
+            np.ndarray: Normalized coordinates in [0,1] range
         """
-        vec = np.array(end) - np.array(start)
-        if vec[1] > 0:
-            _angle = np.arctan(vec[0] / vec[1]) / 1.57 * 90
-        elif vec[1] < 0:
-            _angle = np.arctan(vec[0] / vec[1]) / 1.57 * 90 + 180
-        else:
-            _angle = 90 if np.sign(vec[0]) == 1 else 270
-        return (360 - _angle + 90) % 360
+        # Convert to image coordinates
+        img_coords = np.array([self.gps_to_img_coords(coord, gps_botm_left, gps_top_right, lat_ratio, lng_ratio) 
+                              for coord in coords])
+        
+        # Calculate image dimensions in GPS coordinates
+        img_width = (gps_top_right[0] - gps_botm_left[0]) / lng_ratio
+        img_height = (gps_top_right[1] - gps_botm_left[1]) / lat_ratio
+        
+        # Normalize to [0, 1] range
+        normalized = img_coords / np.array([img_width, img_height])
+        return normalized
 
-    def normalize_view_area(self, view_area: List[List[float]], data: Dict[str, Any], image: np.ndarray, output_size: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
+    def normalize_view_area(self, view_area: List[List[float]], gps_botm_left: np.ndarray, 
+                          gps_top_right: np.ndarray, lat_ratio: float, lng_ratio: float,
+                          image: np.ndarray, output_size: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
         """Normalize a single view area by converting GPS coordinates to image coordinates and applying perspective transform.
         
         Args:
-            view_area (List[List[float]]): List of GPS coordinates representing view area corners
-            data (Dict[str, Any]): Dictionary containing GPS conversion parameters
-            image (np.ndarray): Original image to transform
-            output_size (Tuple[int, int]): Output image size (width, height)
+            view_area: List of 4 GPS coordinates representing view area corners
+            gps_botm_left: Bottom left GPS coordinates of the image
+            gps_top_right: Top right GPS coordinates of the image
+            lat_ratio: Latitude ratio for scaling
+            lng_ratio: Longitude ratio for scaling
+            image: Original image to transform
+            output_size: Output image size (width, height)
             
         Returns:
             Tuple[np.ndarray, np.ndarray]: 
                 - Transformed image
                 - View area corners in image coordinates
         """
-        # Convert GPS coordinates to image coordinates
-        img_coord_corners = np.array(
-            [self.gps_to_img_coords(coord, data) for coord in view_area], 
-            dtype=np.float32
-        )
+        # Convert GPS coordinates to image coordinates for all corners
+        img_coord_corners = np.array([
+            self.gps_to_img_coords(corner, gps_botm_left, gps_top_right, lat_ratio, lng_ratio)
+            for corner in view_area
+        ], dtype=np.float32)
         
         # Apply perspective transformation
         width, height = output_size
@@ -200,76 +211,81 @@ class AnsweringAgentNormalizer:
         M = cv2.getPerspectiveTransform(img_coord_corners, dst_pts)
         transformed_image = cv2.warpPerspective(image, M, (width, height))
         
-         # Normalize image
+        # Normalize image
         transformed_image = self.normalize_pixel_values(transformed_image)
 
         return transformed_image, img_coord_corners
-
-    
 
     def process_data(self, data: Dict[str, Any], image_dir: str, output_size: Tuple[int, int] = (224, 224)) -> Dict[str, Any]:
         """Process image, GPS coordinates, and normalize view areas using AVDN transformations.
         
         Args:
-            data (Dict[str, Any]): Dictionary containing view area information
-            image_dir (str): Directory containing the image files
-            output_size (Tuple[int, int]): Output image size (width, height)
+            data: Dictionary containing observation data
+            image_dir: Directory containing satellite images
+            output_size: Size of the output image (width, height)
             
         Returns:
-            Dict[str, Any]: Processed data dictionary
+            Dict[str, Any]: Processed data with normalized coordinates and transformed images
         """
-        # Load and process image
-        file_path = f"{image_dir}/{data['map_name']}.tif"
-        image = self.load_image(file_path)
-
-        # Normalize current view area
-        current_view = json.loads(data["current_view_coord"])
-        rotated_image, img_coord_view_area_corners = self.normalize_view_area(
-            current_view, data, image, output_size
-        )
-
-        data["current_view_coord"] = img_coord_view_area_corners
-        data["current_view_image"] = rotated_image
-
-        # Normalize previous view areas if they exist and are not empty
-        if "previous_views_coord" in data and data["previous_views_coord"]:
-            previous_views_coord = json.loads(data["previous_views_coord"])
-            if previous_views_coord:  # Check if the list is not empty
-                data["previous_views_coord"] = [
-                    self.normalize_view_area(view, data, image, output_size)[1]
-                    for view in previous_views_coord
-                ]
-                data["previous_views_image"] = [
-                    self.normalize_view_area(view, data, image, output_size)[0]
-                    for view in previous_views_coord
-                ]
-            else:
-                # Remove empty previous views from data
-                if isinstance(data, pd.Series):
-                    data = data.drop("previous_views_coord")
-                else:
-                    data.pop("previous_views_coord", None)
+        processed_data = data.copy()
         
-        # Normalize concatenated text using BERT tokenizer
+        # Process text data
         tokenized_input_text, tokenized_label = self.normalize_text(data)
-        data['text_input'] = tokenized_input_text
-        data['text_label'] = tokenized_label
+        processed_data['text_input'] = tokenized_input_text
+        processed_data['text_label'] = tokenized_label
         
-        # Normalize GPS coordinates
-        data['gps_botm_left'] = self.normalize_position(
-            *json.loads(data['gps_botm_left'])
-        )
-        data['gps_top_right'] = self.normalize_position(
-            *json.loads(data['gps_top_right'])
-        )
+        # Convert string coordinates to numpy arrays if they are strings
+        gps_botm_left = np.array(json.loads(data['gps_botm_left']))
+        gps_top_right = np.array(json.loads(data['gps_top_right']))
 
-        return data
+        lat_ratio = float(data['lat_ratio'])
+        lng_ratio = float(data['lng_ratio'])
+        
+        # Process current view coordinates
+        if 'current_view_coord' in data:
+            # Convert string coordinates to numpy array
+            current_view_coord = np.array(json.loads(data['current_view_coord']))
+            processed_data['current_view_coord_normalized'] = self.normalize_coordinates(
+                current_view_coord, gps_botm_left, gps_top_right, lat_ratio, lng_ratio
+            )
+            
+            # Transform current view to standard size
+            transformed_image, img_coord_corners = self.normalize_view_area(
+                current_view_coord.tolist(), gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
+                cv2.imread(os.path.join(image_dir, str(data['map_name']) + '.tif'), 1),
+                output_size
+            )
+            processed_data['current_view_image'] = transformed_image
+            processed_data['current_view_coord_pixel'] = img_coord_corners
+        
+        # Process previous views coordinates
+        if 'previous_views_coord' in data:
+            # Convert string coordinates to numpy arrays
+            previous_views_coord = [np.array(view_coords) for view_coords in json.loads(data['previous_views_coord'])]
+            processed_data['previous_views_coord_normalized'] = [
+                self.normalize_coordinates(view_coords, gps_botm_left, gps_top_right, lat_ratio, lng_ratio)
+                for view_coords in previous_views_coord
+            ]
+            
+            # Transform previous views to standard size
+            processed_data['previous_views_image'] = []
+            processed_data['previous_views_coord_pixel'] = []
+            for view_coords in previous_views_coord:
+                transformed_image, img_coord_corners = self.normalize_view_area(
+                    view_coords.tolist(), gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
+                    cv2.imread(os.path.join(image_dir, str(data['map_name']) + '.tif'), 1),
+                    output_size
+                )
+                processed_data['previous_views_image'].append(transformed_image)
+                processed_data['previous_views_coord_pixel'].append(img_coord_corners)
+        
+        return processed_data
 
 
 # Example usage
 if __name__ == '__main__':
     train_df = pd.read_csv('train_data.csv')
-    result = train_df[train_df['map_name'] == 2128].iloc[-1]
+    result = train_df[train_df['map_name'] == 2128].iloc[1]
     image_dir = "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images"
     
     # Initialize normalizer
