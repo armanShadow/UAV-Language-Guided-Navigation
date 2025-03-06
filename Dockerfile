@@ -23,21 +23,9 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy only the necessary code files
-COPY AnsweringAgent/src/ AnsweringAgent/src/
-COPY Aerial-Vision-and-Dialog-Navigation/src/ Aerial-Vision-and-Dialog-Navigation/src/
-COPY Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/ Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/
-COPY Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/ Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/
-COPY Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/et_haa/ Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/et_haa/
-COPY Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/lstm_haa/ Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/lstm_haa/
-
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV CUDA_VISIBLE_DEVICES=0
 
-# Create directory for train_images
-RUN mkdir -p Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images
-
-# Create output directories within AnsweringAgent
-RUN mkdir -p AnsweringAgent/outputs/{checkpoints,logs,results}
- 
+# Create project directory
+RUN mkdir -p UAV-Language-Guided-Navigation
