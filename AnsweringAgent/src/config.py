@@ -56,6 +56,15 @@ class Config:
     log_dir: str = 'AnsweringAgent/outputs/logs'
     results_dir: str = 'AnsweringAgent/outputs/results'
     
+    # Dataset paths
+    avdn_image_dir: str = str(DATASET_ROOT / "train_images")
+    max_previous_views: int = 4
+    
+    # You can add other config parameters here
+    batch_size: int = 32
+    learning_rate: float = 1e-4
+    num_epochs: int = 100
+    
     def __post_init__(self):
         """Create necessary directories."""
         import os
