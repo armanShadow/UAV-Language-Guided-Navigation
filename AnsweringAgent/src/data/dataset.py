@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional
 from data.Normalizer import AnsweringAgentNormalizer
+from config import Config
 
 # Set tokenizer parallelism environment variable
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -15,7 +16,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 class AnsweringDataset(Dataset):
     def __init__(self,
                  csv_path: str,
-                 avdn_image_dir: str,
                  tokenizer: BertTokenizerFast,
                  max_length: int = 512,
                  max_previous_views: int = 4):
@@ -24,12 +24,12 @@ class AnsweringDataset(Dataset):
         
         Args:
             csv_path (str): Path to the CSV file containing the data
-            avdn_image_dir (str): Path to AVDN's train_images directory
             tokenizer (BertTokenizerFast): BERT tokenizer
             max_length (int): Maximum sequence length for text
             max_previous_views (int): Maximum number of previous views to include
         """
-        self.avdn_image_dir = avdn_image_dir
+        self.config = Config()
+        self.avdn_image_dir = self.config.avdn_image_dir
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.max_previous_views = max_previous_views

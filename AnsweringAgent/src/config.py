@@ -1,5 +1,10 @@
 from dataclasses import dataclass
 from typing import Optional
+from pathlib import Path
+
+# Update paths for Docker container structure
+PROJECT_ROOT = Path("/app/UAV-Language_Guided_Navigation")
+DATASET_ROOT = Path("/app/datasets/AVDN")
 
 @dataclass
 class ModelConfig:
@@ -36,7 +41,7 @@ class TrainingConfig:
 class DataConfig:
     """Configuration for data loading and preprocessing."""
     train_csv_path: str = 'data/train_data.csv'
-    avdn_image_dir: str = '../../../datasets/AVDN/train_images'
+    avdn_image_dir: str = str(DATASET_ROOT / "train_images")
     max_previous_views: int = 4
     train_val_split: float = 0.95
     max_length: int = 512
