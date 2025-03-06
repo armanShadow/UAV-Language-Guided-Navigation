@@ -42,7 +42,7 @@ class FeatureExtractor(nn.Module):
         self.darknet = Darknet(config_path, img_size, device='cpu')
         
         # Load weights to CPU with weights_only=True for security
-        new_state = torch.load(weights_path, map_location='cpu', weights_only=True)
+        new_state = torch.load(weights_path, map_location='cpu')
         state = self.darknet.state_dict()
         
         # Update state dict with new weights

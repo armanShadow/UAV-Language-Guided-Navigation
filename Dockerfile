@@ -1,3 +1,6 @@
+# run the container:
+# docker run --shm-size=8g -v /home2/vaziri/UAV-Language-Guided-Navigation/Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images:/app/Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images:ro --rm -it answering-agent-train
+
 # Use PyTorch 1.11.0 with CUDA 11.3
 FROM pytorch/pytorch:1.11.0-cuda11.3-cudnn8-runtime
 
@@ -14,7 +17,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY AnsweringAgent/requirements.txt .
+COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy only the necessary code files
