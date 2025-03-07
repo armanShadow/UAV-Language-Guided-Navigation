@@ -51,6 +51,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     for epoch in range(num_epochs):
         model.train()
         total_loss = 0
+        
+        # Clear GPU cache at the start of each epoch
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
+        
         for batch_idx, batch in enumerate(train_loader):
             # Move data to device
             text_input = {k: v.to(device) for k, v in batch['text_input'].items()}
@@ -67,6 +72,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 
                 # Backward pass with gradient scaling
                 scaler.scale(loss).backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 scaler.step(optimizer)
                 scaler.update()
             else:
@@ -76,13 +82,24 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 labels_reshaped = labels.reshape(-1)
                 loss = criterion(outputs_reshaped, labels_reshaped)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
             
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
             total_loss += loss.item()
+            
+            # Synchronize CUDA operations
+            if device.type == 'cuda':
+                torch.cuda.synchronize()
             
             if batch_idx % 10 == 0:
                 logger.info(f'Epoch: {epoch+1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}')
+                
+                # Log GPU memory usage
+                if device.type == 'cuda':
+                    memory_allocated = torch.cuda.memory_allocated(device) / 1024**2
+                    memory_cached = torch.cuda.memory_reserved(device) / 1024**2
+                    logger.info(f'GPU Memory: Allocated: {memory_allocated:.2f}MB, Cached: {memory_cached:.2f}MB')
         
         # Validation phase
         model.eval()
@@ -109,14 +126,17 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            if best_model_path:
+            if best_model_path and os.path.exists(best_model_path):
                 os.remove(best_model_path)
             best_model_path = os.path.join(checkpoint_dir, f'best_model_epoch_{epoch+1}.pt')
+            
+            # Save model state
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'epoch': epoch + 1,
                 'val_loss': val_loss,
             }, best_model_path)
+            
             logger.info(f'New best model saved (val_loss: {val_loss:.4f})')
         
         # Save checkpoint
@@ -127,7 +147,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict(),
             'val_loss': val_loss,
+            'scaler_state_dict': scaler.state_dict() if scaler is not None else None,
         }, checkpoint_path)
+        
+        # Clear GPU cache at the end of each epoch
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
 
 def main():
     # Set up logging

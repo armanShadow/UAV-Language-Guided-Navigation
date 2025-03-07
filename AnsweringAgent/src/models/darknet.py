@@ -186,27 +186,25 @@ class YOLOLayer(nn.Module):
 class Darknet(nn.Module):
     """Darknet backbone for feature extraction."""
     
-    def __init__(self, config_path: str, img_size: int = 416, device: str = 'cpu'):
+    def __init__(self, config_path: str, img_size: int = 416):
         """
         Initialize Darknet model.
         
         Args:
             config_path: Path to model configuration file
             img_size: Input image size
-            device: Device to run the model on
         """
         super(Darknet, self).__init__()
-        # Force CPU usage
-        self.device = torch.device('cpu')
-        logger.info(f"Forcing Darknet to use CPU")
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        logger.info(f"Initializing Darknet on device: {self.device}")
         
         self.module_defs = self._parse_model_config(config_path)
         self.module_defs[0]['height'] = img_size
         self.module_list, self.output_filters = create_modules(self.module_defs)
         self.img_size = img_size
         
-        # Ensure everything is on CPU
-        self.to('cpu')
+        # Move to appropriate device
+        self.to(self.device)
         
     def _parse_model_config(self, path: str) -> List[Dict[str, Any]]:
         """
