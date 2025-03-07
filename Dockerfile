@@ -1,8 +1,5 @@
 # run the container:
-# docker run --gpus all --shm-size=8g
-# -v $(pwd)/AnsweringAgent/outputs:/app/AnsweringAgent/outputs
-# -v $(pwd)/Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images:/app/Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images:ro
-# --rm -it answering-agent-train
+# docker run --gpus all --shm-size=8g -v $(pwd):/app/UAV-Language-Guided-Navigation -v /export/openhome/vaziri/datasets:/app/datasets --rm -it armanshadow/ualgn:AnsweringAgentTrain
 
 # Use PyTorch 1.11.0 with CUDA 11.3
 FROM pytorch/pytorch:1.11.0-cuda11.3-cudnn8-runtime

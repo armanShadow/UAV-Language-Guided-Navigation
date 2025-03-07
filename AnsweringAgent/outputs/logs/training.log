@@ -374,3 +374,5 @@
 2025-03-06 19:17:32,310 - INFO - Forcing Darknet to use CPU
 2025-03-06 19:26:15,205 - INFO - Using device: cuda
 2025-03-06 19:26:24,194 - INFO - Forcing Darknet to use CPU
+2025-03-07 00:26:08,233 - INFO - Using device: cuda
+2025-03-07 00:26:14,652 - INFO - Forcing Darknet to use CPU
