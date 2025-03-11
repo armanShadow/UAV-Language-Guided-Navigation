@@ -148,8 +148,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         batch_size, seq_len, vocab_size = outputs.size()
                         
                         # Reshape outputs and labels consistently
-                        outputs_reshaped = outputs.view(-1, vocab_size)  # [batch_size * seq_len, vocab_size]
-                        labels_reshaped = labels.view(-1)  # [batch_size * seq_len]
+                        outputs_reshaped = outputs.contiguous().view(batch_size * seq_len, vocab_size)  # [batch_size * seq_len, vocab_size]
+                        labels_reshaped = labels.contiguous().view(batch_size * seq_len)  # [batch_size * seq_len]
                         
                         # Verify shapes match
                         assert outputs_reshaped.size(0) == labels_reshaped.size(0), \
