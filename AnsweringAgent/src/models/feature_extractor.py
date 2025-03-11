@@ -100,14 +100,22 @@ class FeatureExtractor(nn.Module):
             return current_features
         
         # Move previous views to device and stack
-        previous_views = [view.to(self.device) for view in previous_views]
-        prev_views_tensor = torch.stack(previous_views, dim=1)  # [batch_size, num_views, channels, height, width]
-        
+        if isinstance(previous_views, list):
+            previous_views = [view.to(self.device) for view in previous_views]
+            prev_views_tensor = torch.stack(previous_views, dim=1)  # [batch_size, num_views, channels, height, width]
+        else:
+            # If it's already a tensor
+            prev_views_tensor = previous_views.to(self.device)
+            
         # Extract features from previous views
         num_prev_views = prev_views_tensor.size(1)
         prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])  # [batch_size * num_views, C, H, W]
         prev_features = self._extract_features(prev_views_reshaped)  # [batch_size * num_views, hidden_size]
         prev_features = prev_features.view(batch_size, num_prev_views, -1)  # [batch_size, num_views, hidden_size]
+        
+        # Verify dimensions match
+        assert current_features.size(-1) == prev_features.size(-1), \
+            f"Feature dimensions mismatch: current {current_features.size(-1)} vs previous {prev_features.size(-1)}"
         
         # Combine current and previous features using attention (matching AVDN)
         all_features = torch.cat([
@@ -117,22 +125,42 @@ class FeatureExtractor(nn.Module):
         
         # Apply attention mechanism
         aggregated_features, _ = self.view_attention(
-            current_features,  # Use current view as query
-            all_features,  # Use all features as context
+            current_features,  # Use current view as query [batch_size, hidden_size]
+            all_features,      # Use all features as context [batch_size, num_views + 1, hidden_size]
         )
         
         return aggregated_features
         
     def _extract_features(self, x: torch.Tensor) -> torch.Tensor:
-        """Extract features from input tensor using Darknet and flatten layers."""
-        # Extract features through Darknet
-        features = self.darknet(x)
+        """Extract features from input tensor using Darknet and flatten layers.
         
-        # Reshape and process features (matching AVDN's architecture)
-        features = features.view(features.size(0), -1, 7, 7)
+        Args:
+            x (torch.Tensor): Input tensor [batch_size, channels, height, width]
+            
+        Returns:
+            torch.Tensor: Extracted features [batch_size, hidden_size]
+        """
+        # Resize input to Darknet size if necessary
+        if x.size(-1) != self.input_size or x.size(-2) != self.input_size:
+            x = F.interpolate(x, size=(self.input_size, self.input_size), 
+                            mode='bilinear', align_corners=True)
+        
+        # Extract features through Darknet
+        features = self.darknet(x)  # [batch_size, channels, height, width]
+        
+        # Verify feature dimensions
+        if features.dim() == 3:
+            features = features.unsqueeze(0)  # Add batch dimension if missing
+        
+        # Reshape to expected dimensions
+        features = features.view(features.size(0), 512, 7, 7)  # Ensure correct channel dimension
         
         # Process through flatten layers
-        output = self.flatten(features)
+        output = self.flatten(features)  # [batch_size, hidden_size]
+        
+        # Verify output dimensions
+        assert output.size(-1) == self.hidden_size, \
+            f"Output dimension {output.size(-1)} does not match hidden size {self.hidden_size}"
         
         return output
 
