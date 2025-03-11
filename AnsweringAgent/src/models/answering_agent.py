@@ -108,6 +108,21 @@ class AnsweringAgent(nn.Module):
         # Initialize positional encoding
         self.pos_encoder = PositionalEncoding(config.model.hidden_size)
         
+        # Initialize feature fusion layer
+        self.feature_fusion = nn.Sequential(
+            nn.Linear(config.model.hidden_size * 2, config.model.hidden_size),
+            nn.ReLU(),
+            nn.Dropout(config.model.dropout),
+            nn.Linear(config.model.hidden_size, config.model.hidden_size)
+        )
+        
+        # Initialize feature attention
+        self.feature_attention = MultiModalAttention(
+            hidden_size=config.model.hidden_size,
+            num_heads=config.model.num_attention_heads,
+            dropout=config.model.dropout
+        )
+        
         # Initialize decoder
         decoder_layer = nn.TransformerDecoderLayer(
             d_model=config.model.hidden_size,
