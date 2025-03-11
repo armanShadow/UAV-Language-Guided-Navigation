@@ -49,7 +49,7 @@ class FeatureExtractor(nn.Module):
         self.config = config
         self.device = torch.device(config.training.device)
         self.hidden_size = config.model.hidden_size
-        self.input_size = 224  # Size from AVDN Normalizer
+        self.input_size = config.model.img_size  # Size from AVDN Normalizer
         
         # Initialize Darknet backbone
         self._init_darknet(config)
