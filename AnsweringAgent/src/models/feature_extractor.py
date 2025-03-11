@@ -49,6 +49,7 @@ class FeatureExtractor(nn.Module):
         self.config = config
         self.device = torch.device(config.training.device)
         self.hidden_size = config.model.hidden_size
+        self.visual_feature_size = 384  # AVDN's visual feature dimension
         self.input_size = config.model.img_size  # Size from AVDN Normalizer
         
         # Initialize Darknet backbone
@@ -56,6 +57,13 @@ class FeatureExtractor(nn.Module):
         
         # Initialize feature processing layers
         self._init_feature_layers()
+        
+        # Initialize projection layer to match BERT dimension if needed
+        self.project_to_bert = nn.Sequential(
+            nn.Linear(self.visual_feature_size, self.hidden_size),
+            nn.LayerNorm(self.hidden_size),
+            nn.Dropout(config.model.dropout)
+        )
         
         # Move model to device
         self.to(self.device)
@@ -89,57 +97,13 @@ class FeatureExtractor(nn.Module):
         Returns:
             torch.Tensor: Aggregated visual features [batch_size, hidden_size]
         """
-        # Ensure inputs are on the correct device
-        current_view = current_view.to(self.device)
-        batch_size = current_view.size(0)
+        # Extract and aggregate features in AVDN dimension space
+        features = super().forward(current_view, previous_views)
         
-        # Extract features from current view
-        current_features = self._extract_features(current_view)  # [batch_size, hidden_size]
-        logger.info(f"Current features shape: {current_features.shape}")
+        # Project to BERT dimension space
+        features = self.project_to_bert(features)
         
-        if not previous_views:  # Handle empty list or None
-            return current_features
-        
-        # Move previous views to device and stack
-        if isinstance(previous_views, list):
-            previous_views = [view.to(self.device) for view in previous_views]
-            prev_views_tensor = torch.stack(previous_views, dim=1)  # [batch_size, num_views, channels, height, width]
-        else:
-            # If it's already a tensor
-            prev_views_tensor = previous_views.to(self.device)
-            
-        # Log shapes for debugging
-        logger.info(f"Previous views tensor shape: {prev_views_tensor.shape}")
-        
-        # Extract features from previous views
-        num_prev_views = prev_views_tensor.size(1)
-        prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])  # [batch_size * num_views, C, H, W]
-        logger.info(f"Reshaped previous views shape: {prev_views_reshaped.shape}")
-        
-        prev_features = self._extract_features(prev_views_reshaped)  # [batch_size * num_views, hidden_size]
-        logger.info(f"Previous features shape before reshape: {prev_features.shape}")
-        
-        prev_features = prev_features.view(batch_size, num_prev_views, -1)  # [batch_size, num_views, hidden_size]
-        logger.info(f"Previous features shape after reshape: {prev_features.shape}")
-        
-        # Verify dimensions match
-        logger.info(f"Comparing dimensions - current: {current_features.size(-1)}, previous: {prev_features.size(-1)}")
-        assert current_features.size(-1) == prev_features.size(-1), \
-            f"Feature dimensions mismatch: current {current_features.size(-1)} vs previous {prev_features.size(-1)}"
-        
-        # Combine current and previous features using attention (matching AVDN)
-        all_features = torch.cat([
-            current_features.unsqueeze(1),  # [batch_size, 1, hidden_size]
-            prev_features  # [batch_size, num_views, hidden_size]
-        ], dim=1)  # [batch_size, num_views + 1, hidden_size]
-        
-        # Apply attention mechanism
-        aggregated_features, _ = self.view_attention(
-            current_features,  # Use current view as query [batch_size, hidden_size]
-            all_features,      # Use all features as context [batch_size, num_views + 1, hidden_size]
-        )
-        
-        return aggregated_features
+        return features
         
     def _init_feature_layers(self):
         """Initialize feature processing layers."""
@@ -157,7 +121,7 @@ class FeatureExtractor(nn.Module):
             nn.LayerNorm(384)  # Add normalization for stability
         )
         
-        # View attention for weighted aggregation
+        # View attention for weighted aggregation (using AVDN dimension)
         self.view_attention = SoftDotAttention(384)  # Match AVDN dimension
         
         # Initialize weights
@@ -204,9 +168,15 @@ class FeatureExtractor(nn.Module):
         """Verify that the output dimensions match the expected hidden size."""
         dummy_input = torch.randn(1, 3, self.input_size, self.input_size, device=self.device)
         with torch.no_grad():
-            output = self._extract_features(dummy_input)
-        assert output.size(-1) == self.hidden_size, \
-            f"Feature extractor output size {output.size(-1)} != hidden size {self.hidden_size}"
+            # Verify AVDN feature dimension
+            features = self._extract_features(dummy_input)
+            assert features.size(-1) == self.visual_feature_size, \
+                f"Visual feature size {features.size(-1)} != expected size {self.visual_feature_size}"
+            
+            # Verify final output dimension matches BERT
+            output = self.project_to_bert(features)
+            assert output.size(-1) == self.hidden_size, \
+                f"Final output size {output.size(-1)} != BERT hidden size {self.hidden_size}"
         
     def _init_darknet(self, config: Config):
         """Initialize and load Darknet backbone.
