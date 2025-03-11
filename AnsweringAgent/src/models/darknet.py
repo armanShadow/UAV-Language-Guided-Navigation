@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Dict, Any, Tuple
-import logging
-
-logger = logging.getLogger(__name__)
+from utils.logger import get_logger
+from config import Config
+logger = get_logger()
 
 def create_modules(module_defs: List[Dict[str, Any]]) -> Tuple[nn.ModuleList, List[int]]:
     """
@@ -186,22 +186,21 @@ class YOLOLayer(nn.Module):
 class Darknet(nn.Module):
     """Darknet backbone for feature extraction."""
     
-    def __init__(self, config_path: str, img_size: int = 416):
+    def __init__(self, config: Config):
         """
         Initialize Darknet model.
         
         Args:
-            config_path: Path to model configuration file
-            img_size: Input image size
+            config: Configuration object
         """
         super(Darknet, self).__init__()
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device(config.training.device)
         logger.info(f"Initializing Darknet on device: {self.device}")
         
-        self.module_defs = self._parse_model_config(config_path)
-        self.module_defs[0]['height'] = img_size
+        self.module_defs = self._parse_model_config(config.model.config_path)
+        self.module_defs[0]['height'] = config.model.img_size
         self.module_list, self.output_filters = create_modules(self.module_defs)
-        self.img_size = img_size
+        self.img_size = config.model.img_size
         
         # Move to appropriate device
         self.to(self.device)

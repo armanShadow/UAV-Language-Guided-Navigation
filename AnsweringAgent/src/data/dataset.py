@@ -14,25 +14,25 @@ from config import Config
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 class AnsweringDataset(Dataset):
-    def __init__(self, config, csv_path, tokenizer):
+    def __init__(self, config: Config, tokenizer):
         self.config = config
-        self.csv_path = csv_path
+        self.csv_path = config.data.train_csv_path
         self.tokenizer = tokenizer
-        self.image_dir = config.avdn_image_dir
-        self.max_previous_views = config.max_previous_views
+        self.image_dir = config.data.avdn_image_dir
+        self.max_previous_views = config.data.max_previous_views
         
         # Initialize normalizer
         self.normalizer = AnsweringAgentNormalizer()
         
         # Load data from CSV
-        self.data = pd.read_csv(csv_path)
+        self.data = pd.read_csv(self.csv_path)
     
     def __len__(self) -> int:
         return len(self.data)
     
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """
-        Get a data item.
+        Get a data item with proper device handling.
         
         Args:
             idx (int): Index of the item to get
@@ -44,26 +44,24 @@ class AnsweringDataset(Dataset):
                 - previous_views_image: Previous views image tensor (if available)
                 - text_label: Tokenized answer label
         """
-        item = self.data.iloc[idx]
+        # Get the data
+        data = self.data.iloc[idx]
         
-        # Convert pandas Series to dict for normalizer
-        item_dict = item.to_dict()
-        
-        # Process data using normalizer
+        # Process the data using normalizer
         processed_data = self.normalizer.process_data(
-            item_dict,
+            data,
             self.image_dir
         )
         
-        # Convert processed images to tensors
-        current_view = torch.from_numpy(processed_data['current_view_image']).float()
+        # The image is already a tensor from the normalizer, just ensure it's float
+        current_view = processed_data['current_view_image'].float()
         current_view = current_view.permute(2, 0, 1)  # Convert to (C, H, W)
         
         # Process previous views if available
         if 'previous_views_image' in processed_data:
             previous_views = []
             for img in processed_data['previous_views_image']:
-                prev_view = torch.from_numpy(img).float()
+                prev_view = img.float()
                 prev_view = prev_view.permute(2, 0, 1)  # Convert to (C, H, W)
                 previous_views.append(prev_view)
             
@@ -81,17 +79,10 @@ class AnsweringDataset(Dataset):
             # Create a tensor of zero tensors with shape (max_previous_views, C, H, W)
             previous_views = torch.zeros((self.max_previous_views, 3, 224, 224), dtype=torch.float32)
         
-        # Get text inputs and labels and convert to resizable tensors
-        text_inputs = {
-            'input_ids': processed_data['text_input']['input_ids'].squeeze(0).clone(),
-            'attention_mask': processed_data['text_input']['attention_mask'].squeeze(0).clone(),
-            'token_type_ids': processed_data['text_input']['token_type_ids'].squeeze(0).clone()
-        }
-        text_label = processed_data['text_label']['input_ids'].squeeze(0).clone()
-        
+        # Return tensors in CPU, DataLoader will handle device transfer
         return {
-            'text_input': text_inputs,
+            'text_input': processed_data['text_input'],
+            'text_label': processed_data['text_label']['input_ids'],
             'current_view_image': current_view,
-            'previous_views_image': previous_views,
-            'text_label': text_label
+            'previous_views_image': previous_views
         } 

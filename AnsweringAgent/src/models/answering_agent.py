@@ -4,9 +4,11 @@ from transformers import BertModel, BertTokenizer
 from models.feature_extractor import FeatureExtractor
 from typing import Dict, Tuple, Optional
 import math
-import logging
+from utils.logger import get_logger
+from config import Config
 
-logger = logging.getLogger(__name__)
+# Get the logger instance
+logger = get_logger()
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
@@ -86,71 +88,56 @@ class MultiModalAttention(nn.Module):
         return self.out_proj(attn_output)
 
 class AnsweringAgent(nn.Module):
-    def __init__(self, 
-                 bert_model_name: str = 'bert-base-uncased',
-                 hidden_size: int = 768,
-                 dropout: float = 0.5,
-                 feat_dropout: float = 0.4,
-                 darknet_config_path: str = None,
-                 darknet_weights_path: str = None):
+    def __init__(self, config: Config):
         super().__init__()
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device(config.training.device)
         
         # Initialize BERT
-        self.bert = BertModel.from_pretrained(bert_model_name)
-        self.bert_dropout = nn.Dropout(dropout)
+        self.bert = BertModel.from_pretrained(config.model.bert_model_name)
+        self.bert_dropout = nn.Dropout(config.model.dropout)
         
-        # Initialize feature extractor
-        self.feature_extractor = FeatureExtractor(
-            config_path=darknet_config_path,
-            weights_path=darknet_weights_path,
-            img_size=416
-        )
+        # Initialize feature extractor with device info
+        self.feature_extractor = FeatureExtractor(config)
         
         # Initialize feature attention
         self.feature_attention = nn.MultiheadAttention(
-            embed_dim=hidden_size,
-            num_heads=8,
-            dropout=feat_dropout
+            embed_dim=config.model.hidden_size,
+            num_heads=config.model.num_attention_heads,
+            dropout=config.model.feat_dropout
         )
         
         # Initialize feature fusion
         self.feature_fusion = nn.Sequential(
-            nn.Linear(hidden_size * 2, hidden_size),
-            nn.LayerNorm(hidden_size),
+            nn.Linear(config.model.hidden_size * 2, config.model.hidden_size),
+            nn.LayerNorm(config.model.hidden_size),
             nn.ReLU(),
-            nn.Dropout(feat_dropout)
+            nn.Dropout(config.model.dropout)
         )
         
         # Initialize positional encoding
-        self.pos_encoder = PositionalEncoding(hidden_size)
+        self.pos_encoder = PositionalEncoding(config.model.hidden_size)
         
         # Initialize decoder
         decoder_layer = nn.TransformerDecoderLayer(
-            d_model=hidden_size,
-            nhead=8,
-            dim_feedforward=hidden_size * 4,
-            dropout=dropout,
+            d_model=config.model.hidden_size,
+            nhead=config.model.num_attention_heads,
+            dim_feedforward=config.model.feedforward_dim,
+            dropout=config.model.dropout,
             activation='relu'
         )
-        self.decoder = nn.TransformerDecoder(
-            decoder_layer,
-            num_layers=6
-        )
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=config.model.num_decoder_layers)
         
-        # Initialize output layer
-        self.output_layer = nn.Linear(hidden_size, self.bert.config.vocab_size)
+        # Add output projection layer
+        self.output_projection = nn.Linear(config.model.hidden_size, config.model.vocab_size)
         
         # Initialize weights
         self._init_weights()
         
-        # Move model to GPU
+        # Move model to device
         self.to(self.device)
         
-    def to_device(self, device):
-        """Move model to specified device."""
-        self.device = device
-        self.to(device)
+        # Verify all components are on correct devices
+        self._verify_device_placement()
         
     def _init_weights(self):
         """Initialize model weights."""
@@ -162,9 +149,9 @@ class AnsweringAgent(nn.Module):
                     nn.init.zeros_(m.bias)
                     
         # Initialize output layer
-        nn.init.xavier_normal_(self.output_layer.weight, gain=1.0)
-        if self.output_layer.bias is not None:
-            nn.init.zeros_(self.output_layer.bias)
+        nn.init.xavier_normal_(self.output_projection.weight, gain=1.0)
+        if self.output_projection.bias is not None:
+            nn.init.zeros_(self.output_projection.bias)
             
         # Initialize decoder
         for p in self.decoder.parameters():
@@ -184,80 +171,45 @@ class AnsweringAgent(nn.Module):
             self.load_state_dict(checkpoint)
         logger.info(f"Loaded checkpoint from {checkpoint_path}")
         
-    def forward(self, 
-                text_input: Dict[str, torch.Tensor],
-                current_view: torch.Tensor,
-                previous_views: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, text_input, current_view, previous_views):
         """
         Forward pass of the model.
-        
         Args:
-            text_input: Dictionary containing BERT input tensors
-            current_view: Current view image tensor
-            previous_views: Optional tensor of previous views
-            
-        Returns:
-            torch.Tensor: Output logits for answer generation
+            text_input (dict): Dictionary containing BERT inputs
+            current_view (torch.Tensor): Current view image tensor
+            previous_views (list): List of previous view image tensors
         """
-        # Move inputs to device
-        text_input = {k: v.to(self.device) for k, v in text_input.items()}
-        current_view = current_view.to(self.device)
-        if previous_views is not None:
-            previous_views = previous_views.to(self.device)
-            
-        # Extract text features using BERT
-        text_outputs = self.bert(**text_input)
+        # Ensure all text inputs are on the correct device
+        text_input = {k: v.to(text_input['input_ids'].device) for k, v in text_input.items()}
+        
+        # Reshape text inputs to remove extra dimension
+        text_input = {k: v.squeeze(1) for k, v in text_input.items()}
+        
+        # Process text input with BERT
+        text_outputs = self.bert(
+            **text_input
+        )
         text_features = text_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
         
-        # Extract visual features
-        visual_features = self.feature_extractor(current_view)  # [batch_size, hidden_size]
+        # Get visual features
+        visual_features = self.feature_extractor(current_view, previous_views)  # [batch_size, hidden_size]
         
         # Expand visual features to match sequence length
         visual_features = visual_features.unsqueeze(1).expand(-1, text_features.size(1), -1)
         
-        # Apply multi-modal attention
-        fused_features, _ = self.feature_attention(
-            text_features,
-            visual_features,
-            visual_features,
-            key_padding_mask=text_input['attention_mask']
+        # Combine features (using text features as target and visual features as memory)
+        decoder_output = self.decoder(
+            tgt=text_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
+            memory=visual_features.transpose(0, 1)  # [seq_len, batch_size, hidden_size]
         )
         
-        # Additional feature fusion
-        combined_features = torch.cat([fused_features, visual_features], dim=-1)
-        fused_features = self.feature_fusion(combined_features)  # [batch_size, seq_len, hidden_size]
+        # Transpose back to [batch_size, seq_len, hidden_size]
+        decoder_output = decoder_output.transpose(0, 1)
         
-        # Create decoder input with learned embeddings
-        batch_size = fused_features.size(0)
-        seq_len = fused_features.size(1)
-        decoder_input = fused_features.clone()  # Use fused features as initial input
+        # Project to vocabulary size
+        output = self.output_projection(decoder_output)  # [batch_size, seq_len, vocab_size]
         
-        # Add positional encoding
-        decoder_input = self.pos_encoder(decoder_input.transpose(0, 1)).transpose(0, 1)
-        
-        # Generate sequence using decoder
-        # Reshape to [seq_len, batch_size, hidden_size] for transformer
-        decoder_input = decoder_input.transpose(0, 1)  # [seq_len, batch_size, hidden_size]
-        fused_features = fused_features.transpose(0, 1)  # [seq_len, batch_size, hidden_size]
-        
-        # Generate sequence using decoder
-        decoder_output = self.decoder(
-            decoder_input,  # [seq_len, batch_size, hidden_size]
-            fused_features  # [seq_len, batch_size, hidden_size]
-        ).transpose(0, 1)  # Back to [batch_size, seq_len, hidden_size]
-        
-        # Generate logits for each position
-        logits = self.output_layer(decoder_output)  # [batch_size, seq_len, vocab_size]
-        
-        # Ensure output sequence length matches label sequence length (128)
-        if logits.size(1) > 128:
-            logits = logits[:, :128, :]
-        elif logits.size(1) < 128:
-            # Pad with zeros if needed
-            pad_size = 128 - logits.size(1)
-            logits = torch.nn.functional.pad(logits, (0, 0, 0, pad_size))
-        
-        return logits
+        return output
     
     def generate_answer(self, 
                        text_input: Dict[str, torch.Tensor],
@@ -296,3 +248,48 @@ class AnsweringAgent(nn.Module):
             
         self.train()
         return answer 
+
+    def combine_features(self, text_features, visual_features):
+        """
+        Combines text and visual features using attention and fusion.
+        
+        Args:
+            text_features (torch.Tensor): Text features from BERT [batch_size, seq_len, hidden_size]
+            visual_features (torch.Tensor): Visual features [batch_size, hidden_size]
+            
+        Returns:
+            torch.Tensor: Combined features [batch_size, seq_len, hidden_size]
+        """
+        batch_size = text_features.size(0)
+        
+        # Expand visual features to match sequence length
+        visual_features = visual_features.unsqueeze(1)  # [batch_size, 1, hidden_size]
+        
+        # Apply positional encoding to visual features
+        visual_features = self.pos_encoder(visual_features)
+        
+        # Apply feature attention between text and visual features
+        attended_features, _ = self.feature_attention(
+            text_features.transpose(0, 1),    # [seq_len, batch_size, hidden_size]
+            visual_features.transpose(0, 1),   # [1, batch_size, hidden_size]
+            visual_features.transpose(0, 1)    # [1, batch_size, hidden_size]
+        )
+        
+        # Transpose back to [batch_size, seq_len, hidden_size]
+        attended_features = attended_features.transpose(0, 1)
+        
+        # Concatenate and fuse text and attended visual features
+        combined = torch.cat([text_features, attended_features], dim=-1)  # [batch_size, seq_len, hidden_size*2]
+        fused_features = self.feature_fusion(combined)  # [batch_size, seq_len, hidden_size]
+        
+        return fused_features 
+
+    def _verify_device_placement(self):
+        """Verify all components are on the correct device."""
+        for name, param in self.named_parameters():
+            if param.data.device != self.device:
+                raise RuntimeError(f"Parameter {name} is not on the correct device. Expected {self.device}, found {param.data.device}")
+        for buffer in self.buffers():
+            if buffer.device != self.device:
+                raise RuntimeError(f"Buffer {buffer} is not on the correct device. Expected {self.device}, found {buffer.device}")
+        logger.info("All components are on the correct device.") 

@@ -255,8 +255,8 @@ class AnsweringAgentNormalizer:
                 cv2.imread(os.path.join(image_dir, str(data['map_name']) + '.tif'), 1),
                 output_size
             )
-            processed_data['current_view_image'] = transformed_image
-            processed_data['current_view_coord_pixel'] = img_coord_corners
+            processed_data['current_view_image'] = torch.from_numpy(transformed_image)
+            processed_data['current_view_coord_pixel'] = torch.from_numpy(img_coord_corners)
         
         # Process previous views coordinates
         if 'previous_views_coord' in data:
@@ -276,8 +276,8 @@ class AnsweringAgentNormalizer:
                     cv2.imread(os.path.join(image_dir, str(data['map_name']) + '.tif'), 1),
                     output_size
                 )
-                processed_data['previous_views_image'].append(transformed_image)
-                processed_data['previous_views_coord_pixel'].append(img_coord_corners)
+                processed_data['previous_views_image'].append(torch.from_numpy(transformed_image))
+                processed_data['previous_views_coord_pixel'].append(torch.from_numpy(img_coord_corners))
         
         return processed_data
 

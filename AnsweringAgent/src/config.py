@@ -1,10 +1,14 @@
 from dataclasses import dataclass
 from typing import Optional
 from pathlib import Path
+import os
+import torch
+import subprocess
+
 
 # Update paths for Docker container structure
-PROJECT_ROOT = Path("/app/UAV-Language_Guided_Navigation")
-DATASET_ROOT = Path("/app/datasets/AVDN")
+PROJECT_ROOT = Path("/app/UAV-Language-Guided-Navigation")
+DATASET_ROOT = Path("/app/datasets")
 
 @dataclass
 class ModelConfig:
@@ -18,11 +22,20 @@ class ModelConfig:
     feedforward_dim: int = 3072  # 4 * hidden_size
     max_seq_length: int = 512
     max_answer_length: int = 128
+    vocab_size: int = 30522  # BERT vocabulary size for bert-base-uncased
+
+def get_nvidia_smi_output():
+    """Get GPU information directly from nvidia-smi."""
+    try:
+        output = subprocess.check_output(['nvidia-smi'], universal_newlines=True)
+        return output
+    except Exception as e:
+        return f"Error running nvidia-smi: {str(e)}"
 
 @dataclass
 class TrainingConfig:
     """Configuration for training settings."""
-    batch_size: int = 4
+    batch_size: int = 4  # Base batch size
     num_epochs: int = 200000
     learning_rate: float = 1e-5
     weight_decay: float = 0.01
@@ -31,43 +44,64 @@ class TrainingConfig:
     log_freq: int = 2
     save_freq: int = 1000
     eval_freq: int = 1000
-    num_workers: int = 4
+    num_workers: int = 4  # Base workers
     pin_memory: bool = True
     mixed_precision: bool = True
     device: str = 'cuda'
+    num_gpus: int = 1  # Change from 3 to 1
+    primary_gpu: int = 0
     seed: int = 42
+    checkpoint_frequency: int = 10000  # Save checkpoint every N epochs
+    scheduler_factor: float = 0.5
+    scheduler_patience: int = 5
+    scheduler_verbose: bool = True
+
+    def __post_init__(self):
+        if not torch.cuda.is_available():
+            print("CUDA not available, using CPU")
+            self.device = 'cpu'
+        else:
+            self.device = 'cuda:0'  # Always use first GPU
+            print(f"Using single GPU: {self.device}")
+        
+        # Remove multi-GPU settings if they exist
+        if hasattr(self, 'multi_gpu'):
+            delattr(self, 'multi_gpu')
 
 @dataclass
 class DataConfig:
     """Configuration for data loading and preprocessing."""
-    train_csv_path: str = 'data/train_data.csv'
-    avdn_image_dir: str = str(DATASET_ROOT / "train_images")
+    train_csv_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/train_data.csv")
+    avdn_image_dir: str = str(DATASET_ROOT / "AVDN/train_images")
+    darknet_config_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/yolo_v3.cfg")
+    darknet_weights_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/best.pt")
     max_previous_views: int = 4
     train_val_split: float = 0.95
     max_length: int = 512
 
+    def __post_init__(self):
+        """Verify paths exist."""
+        paths = [self.train_csv_path, self.avdn_image_dir, 
+                self.darknet_config_path, self.darknet_weights_path]
+        for path in paths:
+            if not os.path.exists(path):
+                print(f"Warning: Path does not exist: {path}")
+
 @dataclass
 class Config:
     """Main configuration class combining all settings."""
+    checkpoint_dir: str = str(PROJECT_ROOT/ 'AnsweringAgent/outputs/checkpoints')
+    log_dir: str = str(PROJECT_ROOT/ 'AnsweringAgent/outputs/logs')
+
     model: ModelConfig = ModelConfig()
     training: TrainingConfig = TrainingConfig()
     data: DataConfig = DataConfig()
-    checkpoint_dir: str = 'AnsweringAgent/outputs/checkpoints'
-    log_dir: str = 'AnsweringAgent/outputs/logs'
-    results_dir: str = 'AnsweringAgent/outputs/results'
     
-    # Dataset paths
-    avdn_image_dir: str = str(DATASET_ROOT / "train_images")
-    max_previous_views: int = 4
-    
-    # You can add other config parameters here
-    batch_size: int = 32
-    learning_rate: float = 1e-4
-    num_epochs: int = 100
-    
+
+   
+
     def __post_init__(self):
-        """Create necessary directories."""
-        import os
+        """Create necessary directories and setup full logger."""
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
-        os.makedirs(self.results_dir, exist_ok=True) 
+        
