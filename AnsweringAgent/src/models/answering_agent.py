@@ -202,11 +202,41 @@ class AnsweringAgent(nn.Module):
         Returns:
             torch.Tensor: Output logits [batch_size, seq_len, vocab_size]
         """
-        batch_size = text_input['input_ids'].size(0)
-        seq_len = text_input['input_ids'].size(1)  # Get sequence length from input
+        # Ensure input tensors are properly shaped
+        input_ids = text_input['input_ids']
+        attention_mask = text_input.get('attention_mask', None)
+        token_type_ids = text_input.get('token_type_ids', None)
+        
+        # Log original shapes
+        logger.info(f"Original input_ids shape: {input_ids.shape}")
+        if attention_mask is not None:
+            logger.info(f"Original attention_mask shape: {attention_mask.shape}")
+        if token_type_ids is not None:
+            logger.info(f"Original token_type_ids shape: {token_type_ids.shape}")
+        
+        # Ensure tensors are 2D [batch_size, seq_len]
+        if input_ids.dim() > 2:
+            input_ids = input_ids.view(-1, input_ids.size(-1))
+        if attention_mask is not None and attention_mask.dim() > 2:
+            attention_mask = attention_mask.view(-1, attention_mask.size(-1))
+        if token_type_ids is not None and token_type_ids.dim() > 2:
+            token_type_ids = token_type_ids.view(-1, token_type_ids.size(-1))
+            
+        # Get dimensions
+        batch_size = input_ids.size(0)
+        seq_len = input_ids.size(1)
         
         logger.info(f"Input sequence length: {seq_len}")
         logger.info(f"Input batch size: {batch_size}")
+        logger.info(f"Reshaped input_ids shape: {input_ids.shape}")
+        
+        # Update text_input with reshaped tensors
+        text_input = {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'token_type_ids': token_type_ids
+        }
+        text_input = {k: v for k, v in text_input.items() if v is not None}
         
         # Ensure all inputs are on the correct device
         text_input = {k: v.to(self.device) for k, v in text_input.items()}
