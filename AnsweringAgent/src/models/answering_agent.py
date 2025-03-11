@@ -90,29 +90,20 @@ class MultiModalAttention(nn.Module):
 class AnsweringAgent(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
+        self.config = config
         self.device = torch.device(config.training.device)
         
-        # Initialize BERT
+        # Initialize BERT and tokenizer
         self.bert = BertModel.from_pretrained(config.model.bert_model_name)
+        self.tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
         self.bert_dropout = nn.Dropout(config.model.dropout)
         
-        # Initialize feature extractor with device info
+        # Verify hidden sizes match
+        assert config.model.hidden_size == self.bert.config.hidden_size, \
+            f"Config hidden size {config.model.hidden_size} != BERT hidden size {self.bert.config.hidden_size}"
+        
+        # Initialize feature extractor
         self.feature_extractor = FeatureExtractor(config)
-        
-        # Initialize feature attention
-        self.feature_attention = nn.MultiheadAttention(
-            embed_dim=config.model.hidden_size,
-            num_heads=config.model.num_attention_heads,
-            dropout=config.model.feat_dropout
-        )
-        
-        # Initialize feature fusion
-        self.feature_fusion = nn.Sequential(
-            nn.Linear(config.model.hidden_size * 2, config.model.hidden_size),
-            nn.LayerNorm(config.model.hidden_size),
-            nn.ReLU(),
-            nn.Dropout(config.model.dropout)
-        )
         
         # Initialize positional encoding
         self.pos_encoder = PositionalEncoding(config.model.hidden_size)
@@ -136,7 +127,7 @@ class AnsweringAgent(nn.Module):
         # Move model to device
         self.to(self.device)
         
-        # Verify all components are on correct devices
+        # Verify all components are on correct device
         self._verify_device_placement()
         
     def _init_weights(self):
@@ -176,31 +167,49 @@ class AnsweringAgent(nn.Module):
         Forward pass of the model.
         Args:
             text_input (dict): Dictionary containing BERT inputs
-            current_view (torch.Tensor): Current view image tensor
+            current_view (torch.Tensor): Current view image tensor [batch_size, C, H, W]
             previous_views (list): List of previous view image tensors
+        Returns:
+            torch.Tensor: Output logits [batch_size, seq_len, vocab_size]
         """
-        # Ensure all text inputs are on the correct device
-        text_input = {k: v.to(text_input['input_ids'].device) for k, v in text_input.items()}
+        batch_size = text_input['input_ids'].size(0)
         
-        # Reshape text inputs to remove extra dimension
-        text_input = {k: v.squeeze(1) for k, v in text_input.items()}
+        # Ensure all inputs are on the correct device
+        text_input = {k: v.to(self.device) for k, v in text_input.items()}
+        current_view = current_view.to(self.device)
+        if previous_views:
+            previous_views = [v.to(self.device) for v in previous_views]
         
         # Process text input with BERT
-        text_outputs = self.bert(
-            **text_input
-        )
+        text_outputs = self.bert(**text_input)
         text_features = text_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
+        text_features = self.bert_dropout(text_features)
+        
+        # Add positional encoding to text features
+        text_features = self.pos_encoder(text_features)
         
         # Get visual features
         visual_features = self.feature_extractor(current_view, previous_views)  # [batch_size, hidden_size]
         
+        # Verify feature dimensions
+        assert visual_features.size(-1) == self.config.model.hidden_size, \
+            f"Visual features dim {visual_features.size(-1)} != hidden size {self.config.model.hidden_size}"
+        
         # Expand visual features to match sequence length
         visual_features = visual_features.unsqueeze(1).expand(-1, text_features.size(1), -1)
         
-        # Combine features (using text features as target and visual features as memory)
+        # Create memory key padding mask (None for visual features as they're all valid)
+        memory_key_padding_mask = torch.zeros(batch_size, text_features.size(1), device=self.device).bool()
+        
+        # Create target mask to prevent attention to future tokens
+        target_mask = self.generate_square_subsequent_mask(text_features.size(1))
+        
+        # Combine features through decoder
         decoder_output = self.decoder(
             tgt=text_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
-            memory=visual_features.transpose(0, 1)  # [seq_len, batch_size, hidden_size]
+            memory=visual_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
+            tgt_mask=target_mask.to(self.device),
+            memory_key_padding_mask=memory_key_padding_mask
         )
         
         # Transpose back to [batch_size, seq_len, hidden_size]
@@ -211,43 +220,52 @@ class AnsweringAgent(nn.Module):
         
         return output
     
+    def generate_square_subsequent_mask(self, sz: int) -> torch.Tensor:
+        """Generate square mask for transformer decoder."""
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+    
     def generate_answer(self, 
                        text_input: Dict[str, torch.Tensor],
                        current_view: torch.Tensor,
-                       previous_views: torch.Tensor = None,
+                       previous_views: Optional[list] = None,
                        max_length: int = 128,
                        num_beams: int = 4) -> str:
-        """
-        Generate an answer using beam search.
-        
-        Args:
-            text_input (Dict[str, torch.Tensor]): Dictionary containing tokenized text inputs
-            current_view (torch.Tensor): Current view image tensor
-            previous_views (torch.Tensor, optional): Previous views tensor
-            max_length (int): Maximum length of generated answer
-            num_beams (int): Number of beams for beam search
-            
-        Returns:
-            str: Generated answer
-        """
+        """Generate an answer using beam search."""
         self.eval()
         with torch.no_grad():
+            # Move inputs to device
+            text_input = {k: v.to(self.device) for k, v in text_input.items()}
+            current_view = current_view.to(self.device)
+            if previous_views:
+                previous_views = [v.to(self.device) for v in previous_views]
+            
             # Get initial logits
             logits = self(text_input, current_view, previous_views)
             
-            # Initialize beam search
-            beam_outputs = self.tokenizer.beam_search(
-                logits,
+            # Get start token ID (usually [CLS])
+            start_token_id = self.tokenizer.cls_token_id
+            
+            # Initialize sequence with start token
+            input_ids = torch.full((1, 1), start_token_id, dtype=torch.long, device=self.device)
+            
+            # Generate tokens
+            output_ids = self.tokenizer.generate(
+                input_ids=input_ids,
                 max_length=max_length,
                 num_beams=num_beams,
-                early_stopping=True
+                early_stopping=True,
+                pad_token_id=self.tokenizer.pad_token_id,
+                bos_token_id=self.tokenizer.bos_token_id,
+                eos_token_id=self.tokenizer.eos_token_id
             )
             
-            # Decode the best sequence
-            answer = self.tokenizer.decode(beam_outputs[0], skip_special_tokens=True)
-            
+            # Decode the generated sequence
+            answer = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        
         self.train()
-        return answer 
+        return answer
 
     def combine_features(self, text_features, visual_features):
         """
