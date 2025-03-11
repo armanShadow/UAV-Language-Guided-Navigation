@@ -46,6 +46,8 @@ class SinusoidalPositionalEncoding(nn.Module):
 class MultiModalAttention(nn.Module):
     def __init__(self, hidden_size: int, num_heads: int = 8, dropout: float = 0.1):
         super().__init__()
+        assert hidden_size % num_heads == 0, f"hidden_size {hidden_size} must be divisible by num_heads {num_heads}"
+        
         self.num_heads = num_heads
         self.hidden_size = hidden_size
         self.head_dim = hidden_size // num_heads
@@ -59,33 +61,46 @@ class MultiModalAttention(nn.Module):
         
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, 
                 key_padding_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        batch_size = query.size(0)
+        # Get sizes
+        tgt_len, batch_size, embed_dim = query.size()
+        src_len = key.size(0)
         
-        # Project queries, keys, and values
-        q = self.q_proj(query).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        k = self.k_proj(key).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        v = self.v_proj(value).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        scaling = float(self.head_dim) ** -0.5
+        
+        # Project and reshape
+        q = self.q_proj(query)
+        k = self.k_proj(key)
+        v = self.v_proj(value)
+        
+        # Reshape to [batch_size, num_heads, seq_len, head_dim]
+        q = q.contiguous().view(tgt_len, batch_size * self.num_heads, self.head_dim).transpose(0, 1)
+        k = k.contiguous().view(src_len, batch_size * self.num_heads, self.head_dim).transpose(0, 1)
+        v = v.contiguous().view(src_len, batch_size * self.num_heads, self.head_dim).transpose(0, 1)
         
         # Compute attention scores
-        attn_weights = torch.matmul(q, k.transpose(-2, -1)) * self.scaling
+        attn_weights = torch.bmm(q, k.transpose(1, 2)) * scaling
         
         if key_padding_mask is not None:
             # Convert attention mask to boolean (0 -> True for padding, 1 -> False for non-padding)
             key_padding_mask = (key_padding_mask == 0)
+            attn_weights = attn_weights.view(batch_size, self.num_heads, tgt_len, src_len)
             attn_weights = attn_weights.masked_fill(
                 key_padding_mask.unsqueeze(1).unsqueeze(2),
                 float('-inf')
             )
+            attn_weights = attn_weights.view(batch_size * self.num_heads, tgt_len, src_len)
         
         attn_weights = torch.softmax(attn_weights, dim=-1)
         attn_weights = self.dropout(attn_weights)
         
         # Apply attention to values
-        attn_output = torch.matmul(attn_weights, v)
+        attn_output = torch.bmm(attn_weights, v)
         
         # Reshape and project output
-        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, -1, self.hidden_size)
-        return self.out_proj(attn_output)
+        attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, batch_size, embed_dim)
+        attn_output = self.out_proj(attn_output)
+        
+        return attn_output
 
 class AnsweringAgent(nn.Module):
     def __init__(self, config: Config):
@@ -313,29 +328,40 @@ class AnsweringAgent(nn.Module):
         Returns:
             torch.Tensor: Combined features [batch_size, seq_len, hidden_size]
         """
-        batch_size = text_features.size(0)
+        batch_size, seq_len, hidden_size = text_features.size()
+        
+        # Verify dimensions
+        assert hidden_size == self.config.model.hidden_size, \
+            f"Text features dimension {hidden_size} != hidden size {self.config.model.hidden_size}"
+        assert visual_features.size(-1) == hidden_size, \
+            f"Visual features dimension {visual_features.size(-1)} != hidden size {hidden_size}"
         
         # Expand visual features to match sequence length
         visual_features = visual_features.unsqueeze(1)  # [batch_size, 1, hidden_size]
         
         # Apply positional encoding to visual features
-        visual_features = self.pos_encoder(visual_features)
+        visual_features = self.pos_encoder(visual_features)  # [batch_size, 1, hidden_size]
+        
+        # Transpose inputs for attention (from [batch_size, seq_len, hidden_size] to [seq_len, batch_size, hidden_size])
+        text_features = text_features.transpose(0, 1)
+        visual_features = visual_features.transpose(0, 1)
         
         # Apply feature attention between text and visual features
-        attended_features, _ = self.feature_attention(
-            text_features.transpose(0, 1),    # [seq_len, batch_size, hidden_size]
-            visual_features.transpose(0, 1),   # [1, batch_size, hidden_size]
-            visual_features.transpose(0, 1)    # [1, batch_size, hidden_size]
+        attended_features = self.feature_attention(
+            query=text_features,              # [seq_len, batch_size, hidden_size]
+            key=visual_features,              # [1, batch_size, hidden_size]
+            value=visual_features             # [1, batch_size, hidden_size]
         )
         
         # Transpose back to [batch_size, seq_len, hidden_size]
         attended_features = attended_features.transpose(0, 1)
+        text_features = text_features.transpose(0, 1)
         
         # Concatenate and fuse text and attended visual features
         combined = torch.cat([text_features, attended_features], dim=-1)  # [batch_size, seq_len, hidden_size*2]
         fused_features = self.feature_fusion(combined)  # [batch_size, seq_len, hidden_size]
         
-        return fused_features 
+        return fused_features
 
     def _verify_device_placement(self):
         """Verify all components are on the correct device."""
