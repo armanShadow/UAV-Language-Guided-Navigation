@@ -43,8 +43,7 @@ class TrainingConfig:
     gradient_clip: float = 1.0
     warmup_steps: int = 1000
     log_freq: int = 2
-    save_freq: int = 1000
-    eval_freq: int = 1000
+    eval_freq: int = 1
     base_num_workers: int = 4  # Base workers per GPU
     pin_memory: bool = True
     mixed_precision: bool = True
