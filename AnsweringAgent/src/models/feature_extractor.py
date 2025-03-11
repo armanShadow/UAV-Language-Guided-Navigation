@@ -212,9 +212,18 @@ class FeatureExtractor(nn.Module):
         """Verify that the output dimensions match the expected hidden size."""
         dummy_input = torch.randn(1, 3, self.input_size, self.input_size, device=self.device)
         with torch.no_grad():
-            output = self._extract_features(dummy_input)
+            # Get AVDN features
+            avdn_features = self._extract_features(dummy_input)
+            # Project to BERT dimension
+            output = self.projection(avdn_features)
+            
+        # Verify AVDN features dimension
+        assert avdn_features.size(-1) == 384, \
+            f"AVDN feature size {avdn_features.size(-1)} != 384"
+            
+        # Verify final output dimension
         assert output.size(-1) == self.hidden_size, \
-            f"Feature extractor output size {output.size(-1)} != hidden size {self.hidden_size}"
+            f"Final output size {output.size(-1)} != hidden size {self.hidden_size}"
         
     def _init_darknet(self, config: Config):
         """Initialize and load Darknet backbone.
