@@ -225,12 +225,13 @@ class AnsweringAgent(nn.Module):
         # Get dimensions
         batch_size = input_ids.size(0)
         seq_len = input_ids.size(1)
+        target_seq_len = 128  # Expected output sequence length
         
         logger.info(f"Input sequence length: {seq_len}")
         logger.info(f"Input batch size: {batch_size}")
-        logger.info(f"Reshaped input_ids shape: {input_ids.shape}")
+        logger.info(f"Input shape: {input_ids.shape}")
         
-        # Update text_input with reshaped tensors
+        # Update text_input with properly shaped tensors
         text_input = {
             'input_ids': input_ids,
             'attention_mask': attention_mask,
@@ -291,8 +292,11 @@ class AnsweringAgent(nn.Module):
         logger.info(f"Decoder output shape: {decoder_output.shape}")
         
         # Project to vocabulary size
-        output = self.output_projection(decoder_output)  # [batch_size, seq_len, vocab_size]
-        logger.info(f"Final output shape: {output.shape}")
+        full_output = self.output_projection(decoder_output)  # [batch_size, seq_len, vocab_size]
+        
+        # Take only the first max_answer_length tokens for the output
+        output = full_output[:, :self.config.model.max_answer_length, :]
+        logger.info(f"Final output shape (truncated to answer length): {output.shape}")
         
         return output
     
