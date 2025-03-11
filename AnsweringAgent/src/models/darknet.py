@@ -197,7 +197,7 @@ class Darknet(nn.Module):
         self.device = torch.device(config.training.device)
         logger.info(f"Initializing Darknet on device: {self.device}")
         
-        self.module_defs = self._parse_model_config(config.model.config_path)
+        self.module_defs = self._parse_model_config(config.model.darknet_config_path)
         self.module_defs[0]['height'] = config.model.img_size
         self.module_list, self.output_filters = create_modules(self.module_defs)
         self.img_size = config.model.img_size
