@@ -131,8 +131,9 @@ class FeatureExtractor(nn.Module):
         batch_size = current_view.size(0)
         
         # Extract features from current view (in AVDN dimension)
+        logger.info("Processing current view...")
         current_features = self._extract_features(current_view)  # [batch_size, 384]
-        logger.info(f"Current features shape: {current_features.shape}")
+        logger.info(f"Current features shape after extraction: {current_features.shape}")
         
         if not previous_views:  # Handle empty list or None
             # Project to BERT dimension before returning
@@ -140,25 +141,33 @@ class FeatureExtractor(nn.Module):
         
         # Move previous views to device and stack
         if isinstance(previous_views, list):
+            logger.info(f"Previous views is a list of length {len(previous_views)}")
             previous_views = [view.to(self.device) for view in previous_views]
             prev_views_tensor = torch.stack(previous_views, dim=1)  # [batch_size, num_views, channels, height, width]
         else:
             # If it's already a tensor
+            logger.info("Previous views is already a tensor")
             prev_views_tensor = previous_views.to(self.device)
             
         # Log shapes for debugging
-        logger.info(f"Previous views tensor shape: {prev_views_tensor.shape}")
+        logger.info(f"Previous views tensor shape before reshape: {prev_views_tensor.shape}")
         
         # Extract features from previous views (in AVDN dimension)
         num_prev_views = prev_views_tensor.size(1)
         prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])  # [batch_size * num_views, C, H, W]
-        logger.info(f"Reshaped previous views shape: {prev_views_reshaped.shape}")
+        logger.info(f"Previous views shape after reshape: {prev_views_reshaped.shape}")
         
+        # Process each previous view
+        logger.info("Processing previous views...")
         prev_features = self._extract_features(prev_views_reshaped)  # [batch_size * num_views, 384]
-        logger.info(f"Previous features shape before reshape: {prev_features.shape}")
+        logger.info(f"Previous features shape after extraction: {prev_features.shape}")
+        
+        # Verify AVDN dimension before reshape
+        assert prev_features.size(-1) == 384, \
+            f"Previous features dimension {prev_features.size(-1)} != 384 before reshape"
         
         prev_features = prev_features.view(batch_size, num_prev_views, -1)  # [batch_size, num_views, 384]
-        logger.info(f"Previous features shape after reshape: {prev_features.shape}")
+        logger.info(f"Previous features final shape: {prev_features.shape}")
         
         # Verify dimensions match (should both be 384)
         logger.info(f"Comparing dimensions - current: {current_features.size(-1)}, previous: {prev_features.size(-1)}")
@@ -170,15 +179,20 @@ class FeatureExtractor(nn.Module):
             current_features.unsqueeze(1),  # [batch_size, 1, 384]
             prev_features  # [batch_size, num_views, 384]
         ], dim=1)  # [batch_size, num_views + 1, 384]
+        logger.info(f"Combined features shape: {all_features.shape}")
         
         # Apply attention mechanism (still in AVDN dimension)
         aggregated_features, _ = self.view_attention(
             current_features,  # Use current view as query [batch_size, 384]
             all_features,      # Use all features as context [batch_size, num_views + 1, 384]
         )
+        logger.info(f"Aggregated features shape: {aggregated_features.shape}")
         
         # Finally project to BERT dimension
-        return self.projection(aggregated_features)  # [batch_size, 768]
+        output = self.projection(aggregated_features)  # [batch_size, 768]
+        logger.info(f"Final output shape: {output.shape}")
+        
+        return output
 
     def _init_feature_layers(self):
         """Initialize feature processing layers."""
