@@ -72,9 +72,27 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             
             # Forward pass with mixed precision
             with torch.cuda.amp.autocast():
-                outputs = model(text_input, current_view, previous_views)
-                outputs_reshaped = outputs.reshape(-1, outputs.size(-1))
-                labels_reshaped = labels.reshape(-1)
+                outputs = model(text_input, current_view, previous_views)  # [batch_size, seq_len, vocab_size]
+                
+                # Log shapes for debugging
+                logger.debug(f"Original outputs shape: {outputs.shape}")
+                logger.debug(f"Original labels shape: {labels.shape}")
+                
+                # Get batch and sequence dimensions
+                batch_size, seq_len, vocab_size = outputs.size()
+                
+                # Reshape outputs and labels consistently
+                outputs_reshaped = outputs.view(-1, vocab_size)  # [batch_size * seq_len, vocab_size]
+                labels_reshaped = labels.view(-1)  # [batch_size * seq_len]
+                
+                # Log reshaped dimensions
+                logger.debug(f"Reshaped outputs shape: {outputs_reshaped.shape}")
+                logger.debug(f"Reshaped labels shape: {labels_reshaped.shape}")
+                
+                # Verify shapes match
+                assert outputs_reshaped.size(0) == labels_reshaped.size(0), \
+                    f"Mismatch in batch dimension after reshape: outputs {outputs_reshaped.size(0)} vs labels {labels_reshaped.size(0)}"
+                
                 loss = criterion(outputs_reshaped, labels_reshaped)
                 # Scale loss by gradient accumulation steps
                 loss = loss / config.training.gradient_accumulation_steps
@@ -123,9 +141,19 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     labels = batch['text_label'].to(device, non_blocking=True)
                     
                     with torch.cuda.amp.autocast():
-                        outputs = model(text_input, current_view, previous_views)
-                        outputs_reshaped = outputs.reshape(-1, outputs.size(-1))
-                        labels_reshaped = labels.reshape(-1)
+                        outputs = model(text_input, current_view, previous_views)  # [batch_size, seq_len, vocab_size]
+                        
+                        # Get batch and sequence dimensions
+                        batch_size, seq_len, vocab_size = outputs.size()
+                        
+                        # Reshape outputs and labels consistently
+                        outputs_reshaped = outputs.view(-1, vocab_size)  # [batch_size * seq_len, vocab_size]
+                        labels_reshaped = labels.view(-1)  # [batch_size * seq_len]
+                        
+                        # Verify shapes match
+                        assert outputs_reshaped.size(0) == labels_reshaped.size(0), \
+                            f"Validation: Mismatch in batch dimension after reshape: outputs {outputs_reshaped.size(0)} vs labels {labels_reshaped.size(0)}"
+                        
                         loss = criterion(outputs_reshaped, labels_reshaped)
                     val_loss += loss.item()
                     
