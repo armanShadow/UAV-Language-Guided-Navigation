@@ -75,19 +75,25 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 outputs = model(text_input, current_view, previous_views)  # [batch_size, seq_len, vocab_size]
                 
                 # Log shapes for debugging
-                logger.debug(f"Original outputs shape: {outputs.shape}")
-                logger.debug(f"Original labels shape: {labels.shape}")
+                logger.info(f"Original outputs shape: {outputs.shape}")
+                logger.info(f"Original labels shape: {labels.shape}")
                 
                 # Get batch and sequence dimensions
                 batch_size, seq_len, vocab_size = outputs.size()
                 
+                # Verify input shapes match
+                assert labels.size(0) == batch_size, \
+                    f"Batch size mismatch: outputs {batch_size} vs labels {labels.size(0)}"
+                assert labels.size(1) == seq_len, \
+                    f"Sequence length mismatch: outputs {seq_len} vs labels {labels.size(1)}"
+                
                 # Reshape outputs and labels consistently
-                outputs_reshaped = outputs.view(-1, vocab_size)  # [batch_size * seq_len, vocab_size]
-                labels_reshaped = labels.view(-1)  # [batch_size * seq_len]
+                outputs_reshaped = outputs.contiguous().view(batch_size * seq_len, vocab_size)  # [batch_size * seq_len, vocab_size]
+                labels_reshaped = labels.contiguous().view(batch_size * seq_len)  # [batch_size * seq_len]
                 
                 # Log reshaped dimensions
-                logger.debug(f"Reshaped outputs shape: {outputs_reshaped.shape}")
-                logger.debug(f"Reshaped labels shape: {labels_reshaped.shape}")
+                logger.info(f"Reshaped outputs shape: {outputs_reshaped.shape}")
+                logger.info(f"Reshaped labels shape: {labels_reshaped.shape}")
                 
                 # Verify shapes match
                 assert outputs_reshaped.size(0) == labels_reshaped.size(0), \

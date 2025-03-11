@@ -203,6 +203,7 @@ class AnsweringAgent(nn.Module):
             torch.Tensor: Output logits [batch_size, seq_len, vocab_size]
         """
         batch_size = text_input['input_ids'].size(0)
+        seq_len = text_input['input_ids'].size(1)  # Get sequence length from input
         
         # Ensure all inputs are on the correct device
         text_input = {k: v.to(self.device) for k, v in text_input.items()}
@@ -250,10 +251,10 @@ class AnsweringAgent(nn.Module):
             f"Visual features dim {visual_features.size(-1)} != hidden size {self.config.model.hidden_size}"
         
         # Combine text and visual features
-        combined_features = self.combine_features(text_features, visual_features)
+        combined_features = self.combine_features(text_features, visual_features)  # [batch_size, seq_len, hidden_size]
         
         # Create target mask to prevent attention to future tokens
-        target_mask = self.generate_square_subsequent_mask(combined_features.size(1))
+        target_mask = self.generate_square_subsequent_mask(seq_len)
         
         # Process through decoder
         decoder_output = self.decoder(
@@ -267,6 +268,13 @@ class AnsweringAgent(nn.Module):
         
         # Project to vocabulary size
         output = self.output_projection(decoder_output)  # [batch_size, seq_len, vocab_size]
+        
+        # Log shapes for debugging
+        logger.info(f"Text features shape: {text_features.shape}")
+        logger.info(f"Visual features shape: {visual_features.shape}")
+        logger.info(f"Combined features shape: {combined_features.shape}")
+        logger.info(f"Decoder output shape: {decoder_output.shape}")
+        logger.info(f"Final output shape: {output.shape}")
         
         return output
     
