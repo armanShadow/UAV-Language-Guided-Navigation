@@ -163,8 +163,8 @@ class FeatureExtractor(nn.Module):
             nn.LayerNorm(self.hidden_size)
         )
         
-        # View attention for weighted aggregation (using AVDN dimension)
-        self.view_attention = SoftDotAttention(384)  # Keep AVDN dimension for attention
+        # View attention for weighted aggregation (using BERT dimension)
+        self.view_attention = SoftDotAttention(self.hidden_size)  # Use BERT dimension for attention
         
         # Initialize weights
         self._init_weights()
@@ -238,22 +238,4 @@ class FeatureExtractor(nn.Module):
         
         # Freeze Darknet weights
         for param in self.darknet.parameters():
-            param.requires_grad = False
-        
-    def _extract_features(self, x: torch.Tensor) -> torch.Tensor:
-        """Extract features from input tensor using Darknet and flatten layers."""
-        # Resize input to Darknet size if necessary
-        if x.size(-1) != self.input_size:
-            x = F.interpolate(x, size=(self.input_size, self.input_size), 
-                            mode='bilinear', align_corners=True)
-        
-        # Extract features through Darknet
-        features = self.darknet(x)
-        
-        # Reshape and process features
-        features = features.view(features.size(0), -1, 7, 7)
-        
-        # Process through flatten layers
-        output = self.flatten(features)
-        
-        return output 
+            param.requires_grad = False 
