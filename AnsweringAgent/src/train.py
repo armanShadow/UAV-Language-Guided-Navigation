@@ -55,6 +55,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     # Enable cuDNN benchmarking for faster convolutions
     torch.backends.cudnn.benchmark = True
     
+    # Keep track of the last best model's epoch
+    last_best_epoch = None
+    
     for epoch in range(start_epoch, num_epochs):
         model.train()
         total_loss = 0
@@ -165,7 +168,19 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             
             # Save best model
             if val_loss < best_val_loss:
+                # Remove previous best model if it exists
+                if last_best_epoch is not None:
+                    prev_best_model = os.path.join(checkpoint_dir, f'best_model_epoch_{last_best_epoch}.pt')
+                    if os.path.exists(prev_best_model):
+                        try:
+                            os.remove(prev_best_model)
+                            logger.info(f"Removed previous best model from epoch {last_best_epoch}")
+                        except Exception as e:
+                            logger.warning(f"Failed to remove previous best model: {str(e)}")
+                
                 best_val_loss = val_loss
+                last_best_epoch = epoch + 1  # Update the last best epoch
+                
                 # Save model in a way that handles both single/multi-GPU
                 model_to_save = model.module if hasattr(model, 'module') else model
                 torch.save({
