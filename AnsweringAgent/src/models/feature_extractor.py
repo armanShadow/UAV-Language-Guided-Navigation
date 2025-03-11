@@ -152,8 +152,12 @@ class FeatureExtractor(nn.Module):
         # Log shapes for debugging
         logger.info(f"Previous views tensor shape before reshape: {prev_views_tensor.shape}")
         
-        # Extract features from previous views (in AVDN dimension)
+        # Get the actual batch size from the previous views tensor
+        actual_batch_size = prev_views_tensor.size(0)
         num_prev_views = prev_views_tensor.size(1)
+        logger.info(f"Actual batch size from previous views: {actual_batch_size}")
+        
+        # Extract features from previous views (in AVDN dimension)
         prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])  # [batch_size * num_views, C, H, W]
         logger.info(f"Previous views shape after reshape: {prev_views_reshaped.shape}")
         
@@ -166,7 +170,8 @@ class FeatureExtractor(nn.Module):
         assert prev_features.size(-1) == 384, \
             f"Previous features dimension {prev_features.size(-1)} != 384 before reshape"
         
-        prev_features = prev_features.view(batch_size, num_prev_views, -1)  # [batch_size, num_views, 384]
+        # Reshape using the actual batch size from previous views
+        prev_features = prev_features.view(actual_batch_size, num_prev_views, -1)  # [batch_size, num_views, 384]
         logger.info(f"Previous features final shape: {prev_features.shape}")
         
         # Verify dimensions match (should both be 384)
