@@ -35,7 +35,7 @@ def get_nvidia_smi_output():
 @dataclass
 class TrainingConfig:
     """Configuration for training settings."""
-    batch_size: int = 4  # Base batch size
+    base_batch_size: int = 4  # Base batch size per GPU
     num_epochs: int = 200000
     learning_rate: float = 1e-5
     weight_decay: float = 0.01
@@ -44,29 +44,42 @@ class TrainingConfig:
     log_freq: int = 2
     save_freq: int = 1000
     eval_freq: int = 1000
-    num_workers: int = 4  # Base workers
+    base_num_workers: int = 4  # Base workers per GPU
     pin_memory: bool = True
     mixed_precision: bool = True
     device: str = 'cuda'
-    num_gpus: int = 1  # Change from 3 to 1
     primary_gpu: int = 0
     seed: int = 42
-    checkpoint_frequency: int = 10000  # Save checkpoint every N epochs
+    checkpoint_frequency: int = 10000
     scheduler_factor: float = 0.5
     scheduler_patience: int = 5
     scheduler_verbose: bool = True
+    gradient_accumulation_steps: int = 1
 
     def __post_init__(self):
+        """Initialize GPU settings and scale batch size/workers."""
         if not torch.cuda.is_available():
             print("CUDA not available, using CPU")
             self.device = 'cpu'
+            self.num_gpus = 0
+            self.batch_size = self.base_batch_size
+            self.num_workers = self.base_num_workers
         else:
-            self.device = 'cuda:0'  # Always use first GPU
-            print(f"Using single GPU: {self.device}")
-        
-        # Remove multi-GPU settings if they exist
-        if hasattr(self, 'multi_gpu'):
-            delattr(self, 'multi_gpu')
+            self.num_gpus = torch.cuda.device_count()
+            self.device = f'cuda:{self.primary_gpu}'
+            # Scale batch size and workers by number of GPUs
+            self.batch_size = self.base_batch_size * self.num_gpus
+            self.num_workers = self.base_num_workers * self.num_gpus
+            
+            print(f"Using {self.num_gpus} GPUs")
+            print(f"Total batch size: {self.batch_size} ({self.base_batch_size} per GPU)")
+            print(f"Total workers: {self.num_workers} ({self.base_num_workers} per GPU)")
+            
+            # Log GPU information
+            for i in range(self.num_gpus):
+                gpu_name = torch.cuda.get_device_name(i)
+                memory_total = torch.cuda.get_device_properties(i).total_memory / 1024**2
+                print(f"GPU {i}: {gpu_name} - Total Memory: {memory_total:.1f}MB")
 
 @dataclass
 class DataConfig:

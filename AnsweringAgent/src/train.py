@@ -46,7 +46,7 @@ def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: i
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
                 num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf')):
-    """Train the model with mixed precision training."""
+    """Train the model with mixed precision training and gradient accumulation."""
     save_frequency = config.training.checkpoint_frequency
     
     # Enable automatic mixed precision training
@@ -58,6 +58,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     for epoch in range(start_epoch, num_epochs):
         model.train()
         total_loss = 0
+        optimizer.zero_grad(set_to_none=True)  # More memory efficient
         
         logger.info(f"Starting epoch {epoch+1}/{num_epochs}")
         logger.info(f'GPU Memory at epoch start: {log_gpu_memory()}')
@@ -72,27 +73,37 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # Forward pass with mixed precision
             with torch.cuda.amp.autocast():
                 outputs = model(text_input, current_view, previous_views)
-                print(f"Original outputs shape: {outputs.shape}")
-                print(f"Original labels shape: {labels.shape}")
                 outputs_reshaped = outputs.reshape(-1, outputs.size(-1))
                 labels_reshaped = labels.reshape(-1)
-                print(f"outputs_reshaped shape: {outputs_reshaped.shape}")
-                print(f"labels_reshaped shape: {labels_reshaped.shape}")
                 loss = criterion(outputs_reshaped, labels_reshaped)
+                # Scale loss by gradient accumulation steps
+                loss = loss / config.training.gradient_accumulation_steps
             
             # Backward pass with gradient scaling
             scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad(set_to_none=True)
             
-            total_loss += loss.item()
+            # Update weights if we've accumulated enough gradients
+            if (batch_idx + 1) % config.training.gradient_accumulation_steps == 0:
+                # Unscale gradients for clipping
+                scaler.unscale_(optimizer)
+                # Clip gradients
+                torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.gradient_clip)
+                # Optimizer step with scaling
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+            
+            total_loss += loss.item() * config.training.gradient_accumulation_steps
             
             # Log every 100 batches
             if batch_idx % 100 == 0:
                 avg_loss = total_loss / (batch_idx + 1)
                 logger.info(f'Epoch: {epoch+1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, Loss: {avg_loss:.4f}')
                 logger.info(f'GPU Memory: {log_gpu_memory()}')
+                
+                # Clear GPU cache if memory usage is high
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
         
         # Log epoch summary
         avg_epoch_loss = total_loss / len(train_loader)
@@ -117,6 +128,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         labels_reshaped = labels.reshape(-1)
                         loss = criterion(outputs_reshaped, labels_reshaped)
                     val_loss += loss.item()
+                    
+                    # Clear GPU cache periodically during validation
+                    if batch_idx % 100 == 0 and torch.cuda.is_available():
+                        torch.cuda.empty_cache()
             
             val_loss /= len(val_loader)
             logger.info(f'Validation Loss: {val_loss:.4f}')
@@ -125,8 +140,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # Save best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                # Save model in a way that handles both single/multi-GPU
+                model_to_save = model.module if hasattr(model, 'module') else model
                 torch.save({
-                    'model_state_dict': model.state_dict(),
+                    'model_state_dict': model_to_save.state_dict(),
                     'epoch': epoch + 1,
                     'val_loss': val_loss,
                 }, os.path.join(checkpoint_dir, f'best_model_epoch_{epoch+1}.pt'))
@@ -134,9 +151,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         
         # Save periodic checkpoint based on save_frequency
         if (epoch + 1) % save_frequency == 0:
+            # Save model in a way that handles both single/multi-GPU
+            model_to_save = model.module if hasattr(model, 'module') else model
             torch.save({
                 'epoch': epoch + 1,
-                'model_state_dict': model.state_dict(),
+                'model_state_dict': model_to_save.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
                 'val_loss': val_loss,
@@ -145,6 +164,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         
         # Log GPU memory after validation
         logger.info(f'After validation GPU Memory: {log_gpu_memory()}')
+        
+        # Clear GPU cache at the end of each epoch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 def log_gpu_memory():
     """Log GPU memory usage for all available GPUs."""
@@ -162,10 +185,14 @@ def main(checkpoint_path=None):
     # Initialize device
     if torch.cuda.is_available():
         device = torch.device(f'cuda:{config.training.primary_gpu}')
-        logger.info(f"Using {torch.cuda.device_count()} GPUs")
+        logger.info(f"Using {config.training.num_gpus} GPUs")
         
-        # Log GPU information once
-        for i in range(torch.cuda.device_count()):
+        # Enable cuDNN benchmarking and deterministic behavior
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = True
+        
+        # Log GPU information
+        for i in range(config.training.num_gpus):
             gpu_name = torch.cuda.get_device_name(i)
             memory_total = torch.cuda.get_device_properties(i).total_memory / 1024**2
             logger.info(f"GPU {i}: {gpu_name} - Total Memory: {memory_total:.1f}MB")
@@ -173,36 +200,43 @@ def main(checkpoint_path=None):
         device = torch.device('cpu')
         logger.warning("CUDA not available, using CPU")
 
+    # Set seeds for reproducibility
+    torch.manual_seed(config.training.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(config.training.seed)
+
     # Initialize tokenizer
     tokenizer = BertTokenizerFast.from_pretrained(config.model.bert_model_name)
     logger.info(f"Tokenizer initialized")
+    
     # Initialize model
     model = AnsweringAgent(config)
     logger.info(f"Model initialized")
 
-    # Modify GPU setup
-    if torch.cuda.device_count() > 1:
-        # Specify all available GPUs
-        gpu_ids = list(range(torch.cuda.device_count()))
-        model = nn.DataParallel(model, device_ids=gpu_ids)
-        # Move model to GPU after DataParallel
-        model = model.cuda()
+    # Multi-GPU setup
+    if config.training.num_gpus > 1:
+        # Use all available GPUs
+        model = nn.DataParallel(model)
+        model = model.to(device)
+        logger.info(f"Model wrapped with DataParallel using {config.training.num_gpus} GPUs")
     else:
-        model = model.cuda(config.training.primary_gpu)
+        model = model.to(device)
+        logger.info("Model moved to single GPU/CPU")
     
     # Force synchronization to ensure all GPUs are initialized
-    torch.cuda.synchronize()
-    logger.info(f"Synchronized all GPUs")
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        logger.info(f"GPU synchronization complete")
 
-    # Initialize optimizer after DataParallel
+    # Initialize optimizer with gradient clipping
     optimizer = optim.AdamW(
         model.parameters(), 
         lr=config.training.learning_rate,
         weight_decay=config.training.weight_decay
     )
     
-    # Initialize criterion on all GPUs
-    criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id).cuda()
+    # Initialize criterion on device
+    criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id).to(device)
     
     # Initialize scheduler
     scheduler = ReduceLROnPlateau(
@@ -217,7 +251,7 @@ def main(checkpoint_path=None):
     logger.info("Initial GPU memory after model initialization:")
     logger.info(log_gpu_memory())
     
-    # Create dataset
+    # Create dataset with scaled batch size and workers
     dataset = AnsweringDataset(
         config=config,
         tokenizer=tokenizer
@@ -233,7 +267,18 @@ def main(checkpoint_path=None):
     if checkpoint_path and os.path.exists(checkpoint_path):
         try:
             checkpoint = torch.load(checkpoint_path, map_location=device)
-            model.load_state_dict(checkpoint['model_state_dict'])
+            
+            # Handle loading state dict for both single/multi-GPU scenarios
+            if config.training.num_gpus > 1 and not isinstance(model, nn.DataParallel):
+                # If loading multi-GPU checkpoint into single GPU
+                state_dict = {k.replace('module.', ''): v for k, v in checkpoint['model_state_dict'].items()}
+            elif config.training.num_gpus <= 1 and 'module.' in list(checkpoint['model_state_dict'].keys())[0]:
+                # If loading single GPU checkpoint into multi-GPU
+                state_dict = {f'module.{k}': v for k, v in checkpoint['model_state_dict'].items()}
+            else:
+                state_dict = checkpoint['model_state_dict']
+                
+            model.load_state_dict(state_dict)
             start_epoch = checkpoint['epoch']
             best_val_loss = checkpoint.get('val_loss', float('inf'))
             
@@ -244,13 +289,21 @@ def main(checkpoint_path=None):
             # Load optimizer and scheduler states if they exist
             if 'optimizer_state_dict' in checkpoint:
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                # Move optimizer states to GPU if needed
+                if torch.cuda.is_available():
+                    for state in optimizer.state.values():
+                        for k, v in state.items():
+                            if isinstance(v, torch.Tensor):
+                                state[k] = v.to(device)
+                                
             if 'scheduler_state_dict' in checkpoint:
                 scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
                 
             logger.info(f"Resuming training from epoch {start_epoch} (checkpoint: {checkpoint_path})")
+            
         except Exception as e:
-            logger.error(f"Failed to load checkpoint: {e}")
-            logger.info("Starting training from scratch")
+            logger.error(f"Error loading checkpoint: {str(e)}")
+            raise e
     
     # Create train/val split
     if train_indices is None or val_indices is None:

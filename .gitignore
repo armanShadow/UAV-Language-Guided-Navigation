@@ -1,6 +1,8 @@
 **/.DS_Store
 /.venv
 /AnsweringAgent/results
+/AnsweringAgent/logs
+/AnsweringAgent/checkpoints
 /AnsweringAgent/fine-tuned-t5-model
 /.idea
 __pycache__/
