@@ -95,6 +95,7 @@ class FeatureExtractor(nn.Module):
         
         # Extract features from current view
         current_features = self._extract_features(current_view)  # [batch_size, hidden_size]
+        logger.info(f"Current features shape: {current_features.shape}")
         
         if not previous_views:  # Handle empty list or None
             return current_features
@@ -107,13 +108,22 @@ class FeatureExtractor(nn.Module):
             # If it's already a tensor
             prev_views_tensor = previous_views.to(self.device)
             
+        # Log shapes for debugging
+        logger.info(f"Previous views tensor shape: {prev_views_tensor.shape}")
+        
         # Extract features from previous views
         num_prev_views = prev_views_tensor.size(1)
         prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])  # [batch_size * num_views, C, H, W]
+        logger.info(f"Reshaped previous views shape: {prev_views_reshaped.shape}")
+        
         prev_features = self._extract_features(prev_views_reshaped)  # [batch_size * num_views, hidden_size]
+        logger.info(f"Previous features shape before reshape: {prev_features.shape}")
+        
         prev_features = prev_features.view(batch_size, num_prev_views, -1)  # [batch_size, num_views, hidden_size]
+        logger.info(f"Previous features shape after reshape: {prev_features.shape}")
         
         # Verify dimensions match
+        logger.info(f"Comparing dimensions - current: {current_features.size(-1)}, previous: {prev_features.size(-1)}")
         assert current_features.size(-1) == prev_features.size(-1), \
             f"Feature dimensions mismatch: current {current_features.size(-1)} vs previous {prev_features.size(-1)}"
         
@@ -140,23 +150,31 @@ class FeatureExtractor(nn.Module):
         Returns:
             torch.Tensor: Extracted features [batch_size, hidden_size]
         """
+        # Log input shape
+        logger.info(f"Input shape to _extract_features: {x.shape}")
+        
         # Resize input to Darknet size if necessary
         if x.size(-1) != self.input_size or x.size(-2) != self.input_size:
             x = F.interpolate(x, size=(self.input_size, self.input_size), 
                             mode='bilinear', align_corners=True)
+            logger.info(f"Resized input shape: {x.shape}")
         
         # Extract features through Darknet
         features = self.darknet(x)  # [batch_size, channels, height, width]
+        logger.info(f"Darknet output shape: {features.shape}")
         
         # Verify feature dimensions
         if features.dim() == 3:
             features = features.unsqueeze(0)  # Add batch dimension if missing
+            logger.info(f"Added batch dimension, new shape: {features.shape}")
         
         # Reshape to expected dimensions
         features = features.view(features.size(0), 512, 7, 7)  # Ensure correct channel dimension
+        logger.info(f"Reshaped features shape: {features.shape}")
         
         # Process through flatten layers
         output = self.flatten(features)  # [batch_size, hidden_size]
+        logger.info(f"Final output shape: {output.shape}")
         
         # Verify output dimensions
         assert output.size(-1) == self.hidden_size, \
@@ -207,17 +225,8 @@ class FeatureExtractor(nn.Module):
             nn.Flatten(),
             nn.Linear(64 * 7 * 7, 1024),
             nn.ReLU(),
-            nn.Linear(1024, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.hidden_size)  # Match BERT hidden size
-        )
-        
-        # Feature fusion attention
-        self.feature_fusion = nn.Sequential(
-            nn.Linear(self.hidden_size, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1),
-            nn.Softmax(dim=1)
+            nn.Linear(1024, self.hidden_size),  # Direct mapping to hidden_size
+            nn.LayerNorm(self.hidden_size)  # Add normalization for stability
         )
         
         # View attention for weighted aggregation
