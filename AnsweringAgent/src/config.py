@@ -66,21 +66,21 @@ class TrainingConfig:
             self.batch_size = self.base_batch_size
             self.num_workers = self.base_num_workers
         else:
-            self.num_gpus = torch.cuda.device_count()
+            # Force single GPU usage
+            self.num_gpus = 1
             self.device = f'cuda:{self.primary_gpu}'
-            # Scale batch size and workers by number of GPUs
-            self.batch_size = self.base_batch_size * self.num_gpus
-            self.num_workers = self.base_num_workers * self.num_gpus
+            # Use base values without scaling
+            self.batch_size = self.base_batch_size
+            self.num_workers = self.base_num_workers
             
-            print(f"Using {self.num_gpus} GPUs")
-            print(f"Total batch size: {self.batch_size} ({self.base_batch_size} per GPU)")
-            print(f"Total workers: {self.num_workers} ({self.base_num_workers} per GPU)")
+            print(f"Using single GPU (device {self.primary_gpu})")
+            print(f"Batch size: {self.batch_size}")
+            print(f"Number of workers: {self.num_workers}")
             
             # Log GPU information
-            for i in range(self.num_gpus):
-                gpu_name = torch.cuda.get_device_name(i)
-                memory_total = torch.cuda.get_device_properties(i).total_memory / 1024**2
-                print(f"GPU {i}: {gpu_name} - Total Memory: {memory_total:.1f}MB")
+            gpu_name = torch.cuda.get_device_name(self.primary_gpu)
+            memory_total = torch.cuda.get_device_properties(self.primary_gpu).total_memory / 1024**2
+            print(f"GPU {self.primary_gpu}: {gpu_name} - Total Memory: {memory_total:.1f}MB")
 
 @dataclass
 class DataConfig:

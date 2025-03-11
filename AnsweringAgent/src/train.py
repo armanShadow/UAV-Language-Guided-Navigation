@@ -185,17 +185,16 @@ def main(checkpoint_path=None):
     # Initialize device
     if torch.cuda.is_available():
         device = torch.device(f'cuda:{config.training.primary_gpu}')
-        logger.info(f"Using {config.training.num_gpus} GPUs")
+        logger.info(f"Using single GPU: {torch.cuda.get_device_name(config.training.primary_gpu)}")
         
         # Enable cuDNN benchmarking and deterministic behavior
         torch.backends.cudnn.benchmark = True
         torch.backends.cudnn.deterministic = True
         
         # Log GPU information
-        for i in range(config.training.num_gpus):
-            gpu_name = torch.cuda.get_device_name(i)
-            memory_total = torch.cuda.get_device_properties(i).total_memory / 1024**2
-            logger.info(f"GPU {i}: {gpu_name} - Total Memory: {memory_total:.1f}MB")
+        gpu_name = torch.cuda.get_device_name(config.training.primary_gpu)
+        memory_total = torch.cuda.get_device_properties(config.training.primary_gpu).total_memory / 1024**2
+        logger.info(f"GPU {config.training.primary_gpu}: {gpu_name} - Total Memory: {memory_total:.1f}MB")
     else:
         device = torch.device('cpu')
         logger.warning("CUDA not available, using CPU")
@@ -209,21 +208,12 @@ def main(checkpoint_path=None):
     tokenizer = BertTokenizerFast.from_pretrained(config.model.bert_model_name)
     logger.info(f"Tokenizer initialized")
     
-    # Initialize model
+    # Initialize model and move to device
     model = AnsweringAgent(config)
-    logger.info(f"Model initialized")
-
-    # Multi-GPU setup
-    if config.training.num_gpus > 1:
-        # Use all available GPUs
-        model = nn.DataParallel(model)
-        model = model.to(device)
-        logger.info(f"Model wrapped with DataParallel using {config.training.num_gpus} GPUs")
-    else:
-        model = model.to(device)
-        logger.info("Model moved to single GPU/CPU")
+    model = model.to(device)
+    logger.info("Model initialized and moved to device")
     
-    # Force synchronization to ensure all GPUs are initialized
+    # Force synchronization to ensure GPU is initialized
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         logger.info(f"GPU synchronization complete")
