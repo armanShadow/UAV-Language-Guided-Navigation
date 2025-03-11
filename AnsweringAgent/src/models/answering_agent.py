@@ -205,6 +205,8 @@ class AnsweringAgent(nn.Module):
         batch_size = text_input['input_ids'].size(0)
         seq_len = text_input['input_ids'].size(1)  # Get sequence length from input
         
+        logger.info(f"Input sequence length: {seq_len}")
+        
         # Ensure all inputs are on the correct device
         text_input = {k: v.to(self.device) for k, v in text_input.items()}
         current_view = current_view.to(self.device)
@@ -254,13 +256,17 @@ class AnsweringAgent(nn.Module):
         combined_features = self.combine_features(text_features, visual_features)  # [batch_size, seq_len, hidden_size]
         
         # Create target mask to prevent attention to future tokens
-        target_mask = self.generate_square_subsequent_mask(seq_len)
+        target_mask = self.generate_square_subsequent_mask(seq_len).to(self.device)
+        logger.info(f"Target mask shape: {target_mask.shape}")
         
         # Process through decoder
         decoder_output = self.decoder(
             tgt=combined_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
-            memory=visual_features.unsqueeze(0),    # [1, batch_size, hidden_size]
-            tgt_mask=target_mask.to(self.device)
+            memory=visual_features.unsqueeze(0).repeat(seq_len, 1, 1),  # [seq_len, batch_size, hidden_size]
+            tgt_mask=target_mask,
+            memory_mask=None,
+            tgt_key_padding_mask=None,
+            memory_key_padding_mask=None
         )
         
         # Transpose back to [batch_size, seq_len, hidden_size]
@@ -279,9 +285,19 @@ class AnsweringAgent(nn.Module):
         return output
     
     def generate_square_subsequent_mask(self, sz: int) -> torch.Tensor:
-        """Generate square mask for transformer decoder."""
-        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        """Generate square mask for transformer decoder.
+        
+        Args:
+            sz (int): Size of the square mask (sequence length)
+            
+        Returns:
+            torch.Tensor: Mask tensor of shape [sz, sz] with -inf for masked positions
+        """
+        # Create mask of shape [sz, sz]
+        mask = torch.triu(torch.ones(sz, sz), diagonal=1)
+        mask = mask.masked_fill(mask == 1, float('-inf'))
+        
+        logger.info(f"Generated mask shape: {mask.shape}")
         return mask
     
     def generate_answer(self, 
