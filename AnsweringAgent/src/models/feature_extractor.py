@@ -54,27 +54,8 @@ class FeatureExtractor(nn.Module):
         # Initialize Darknet backbone
         self._init_darknet(config)
         
-        # Feature flattening layers (matching AVDN architecture)
-        self.flatten = nn.Sequential(
-            nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 64, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Flatten(),
-            nn.Linear(64 * 7 * 7, 1024),
-            nn.ReLU(),
-            nn.Linear(1024, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.hidden_size)  # Match BERT hidden size
-        )
-        
-        # Attention for weighted aggregation of views (matching AVDN)
-        self.view_attention = SoftDotAttention(self.hidden_size)
-        
-        # Initialize weights
-        self._init_weights()
+        # Initialize feature processing layers
+        self._init_feature_layers()
         
         # Move model to device
         self.to(self.device)
@@ -203,35 +184,20 @@ class FeatureExtractor(nn.Module):
             nn.Linear(512, self.hidden_size)  # Match BERT hidden size
         )
         
-        # Initialize weights
-        for m in self.flatten.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.ones_(m.weight)
-                nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.Linear):
-                nn.init.xavier_normal_(m.weight, gain=1.0)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-        
-        # Attention for weighted aggregation of views
-        self.view_attention = nn.Sequential(
+        # Feature fusion attention
+        self.feature_fusion = nn.Sequential(
             nn.Linear(self.hidden_size, 256),
             nn.ReLU(),
             nn.Linear(256, 1),
             nn.Softmax(dim=1)
         )
         
-        # Initialize attention weights
-        for m in self.view_attention.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_normal_(m.weight, gain=1.0)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-                    
+        # View attention for weighted aggregation
+        self.view_attention = SoftDotAttention(self.hidden_size)
+        
+        # Initialize weights
+        self._init_weights()
+        
     def _extract_features(self, x: torch.Tensor) -> torch.Tensor:
         """Extract features from input tensor using Darknet and flatten layers."""
         # Resize input to Darknet size if necessary
