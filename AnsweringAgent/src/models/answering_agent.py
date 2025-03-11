@@ -223,7 +223,6 @@ class AnsweringAgent(nn.Module):
         assert seq_len <= self.config.model.max_seq_length, \
             f"Input sequence length {seq_len} exceeds maximum allowed length {self.config.model.max_seq_length}"
         
-        logger.info(f"Processing batch of size {batch_size} with sequence length {seq_len}")
         
         # Update text_input with properly shaped tensors
         text_input = {
@@ -284,7 +283,6 @@ class AnsweringAgent(nn.Module):
         
         # Take only the first max_answer_length tokens for the output
         output = full_output[:, :self.config.model.max_answer_length, :]
-        logger.info(f"Generated output of shape {output.shape}")
         
         return output
     
