@@ -78,97 +78,6 @@ class FeatureExtractor(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
     
-    def forward(self, current_view: torch.Tensor, previous_views: Optional[list] = None) -> torch.Tensor:
-        """
-        Forward pass with weighted aggregation of current and previous views.
-        
-        Args:
-            current_view: Current view tensor [batch_size, channels, height, width]
-            previous_views: List of previous view tensors, each [batch_size, channels, height, width]
-            
-        Returns:
-            torch.Tensor: Aggregated visual features [batch_size, hidden_size]
-        """
-        # Ensure inputs are on the correct device
-        current_view = current_view.to(self.device)
-        batch_size = current_view.size(0)
-        
-        # Extract features from current view
-        current_features = self._extract_features(current_view)  # [batch_size, hidden_size]
-        logger.info(f"Current features shape: {current_features.shape}")
-        
-        if not previous_views:  # Handle empty list or None
-            return current_features
-        
-        # Move previous views to device and stack
-        if isinstance(previous_views, list):
-            previous_views = [view.to(self.device) for view in previous_views]
-            prev_views_tensor = torch.stack(previous_views, dim=1)  # [batch_size, num_views, channels, height, width]
-        else:
-            # If it's already a tensor
-            prev_views_tensor = previous_views.to(self.device)
-            
-        # Log shapes for debugging
-        logger.info(f"Previous views tensor shape: {prev_views_tensor.shape}")
-        
-        # Extract features from previous views
-        num_prev_views = prev_views_tensor.size(1)
-        prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])  # [batch_size * num_views, C, H, W]
-        logger.info(f"Reshaped previous views shape: {prev_views_reshaped.shape}")
-        
-        prev_features = self._extract_features(prev_views_reshaped)  # [batch_size * num_views, hidden_size]
-        logger.info(f"Previous features shape before reshape: {prev_features.shape}")
-        
-        prev_features = prev_features.view(batch_size, num_prev_views, -1)  # [batch_size, num_views, hidden_size]
-        logger.info(f"Previous features shape after reshape: {prev_features.shape}")
-        
-        # Verify dimensions match
-        logger.info(f"Comparing dimensions - current: {current_features.size(-1)}, previous: {prev_features.size(-1)}")
-        assert current_features.size(-1) == prev_features.size(-1), \
-            f"Feature dimensions mismatch: current {current_features.size(-1)} vs previous {prev_features.size(-1)}"
-        
-        # Combine current and previous features using attention (matching AVDN)
-        all_features = torch.cat([
-            current_features.unsqueeze(1),  # [batch_size, 1, hidden_size]
-            prev_features  # [batch_size, num_views, hidden_size]
-        ], dim=1)  # [batch_size, num_views + 1, hidden_size]
-        
-        # Apply attention mechanism
-        aggregated_features, _ = self.view_attention(
-            current_features,  # Use current view as query [batch_size, hidden_size]
-            all_features,      # Use all features as context [batch_size, num_views + 1, hidden_size]
-        )
-        
-        return aggregated_features
-        
-    def _init_feature_layers(self):
-        """Initialize feature processing layers."""
-        # Feature flattening layers with explicit output size (AVDN architecture)
-        self.flatten = nn.Sequential(
-            nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 64, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Flatten(),
-            nn.Linear(64 * 7 * 7, 384),  # AVDN dimension
-            nn.ReLU(),
-            nn.LayerNorm(384)  # Add normalization for stability
-        )
-        
-        # Projection layer from AVDN dimension to BERT dimension
-        self.projection = nn.Sequential(
-            nn.Linear(384, self.hidden_size),  # Project from 384 to 768
-            nn.LayerNorm(self.hidden_size)
-        )
-        
-        # View attention for weighted aggregation (using BERT dimension)
-        self.view_attention = SoftDotAttention(self.hidden_size)  # Use BERT dimension for attention
-        
-        # Initialize weights
-        self._init_weights()
-        
     def _extract_features(self, x: torch.Tensor) -> torch.Tensor:
         """Extract features from input tensor using Darknet and flatten layers.
         
@@ -176,7 +85,7 @@ class FeatureExtractor(nn.Module):
             x (torch.Tensor): Input tensor [batch_size, channels, height, width]
             
         Returns:
-            torch.Tensor: Extracted features [batch_size, hidden_size]
+            torch.Tensor: Extracted features [batch_size, 384] (AVDN dimension)
         """
         # Log input shape
         logger.info(f"Input shape to _extract_features: {x.shape}")
@@ -201,15 +110,104 @@ class FeatureExtractor(nn.Module):
         logger.info(f"Reshaped features shape: {features.shape}")
         
         # Process through flatten layers to get AVDN features
-        avdn_features = self.flatten(features)  # [batch_size, 384]
-        logger.info(f"AVDN features shape: {avdn_features.shape}")
-        
-        # Project to BERT dimension
-        output = self.projection(avdn_features)  # [batch_size, 768]
-        logger.info(f"Final output shape: {output.shape}")
+        output = self.flatten(features)  # [batch_size, 384]
+        logger.info(f"AVDN features shape: {output.shape}")
         
         return output
 
+    def forward(self, current_view: torch.Tensor, previous_views: Optional[list] = None) -> torch.Tensor:
+        """
+        Forward pass with weighted aggregation of current and previous views.
+        
+        Args:
+            current_view: Current view tensor [batch_size, channels, height, width]
+            previous_views: List of previous view tensors, each [batch_size, channels, height, width]
+            
+        Returns:
+            torch.Tensor: Aggregated visual features [batch_size, hidden_size]
+        """
+        # Ensure inputs are on the correct device
+        current_view = current_view.to(self.device)
+        batch_size = current_view.size(0)
+        
+        # Extract features from current view (in AVDN dimension)
+        current_features = self._extract_features(current_view)  # [batch_size, 384]
+        logger.info(f"Current features shape: {current_features.shape}")
+        
+        if not previous_views:  # Handle empty list or None
+            # Project to BERT dimension before returning
+            return self.projection(current_features)
+        
+        # Move previous views to device and stack
+        if isinstance(previous_views, list):
+            previous_views = [view.to(self.device) for view in previous_views]
+            prev_views_tensor = torch.stack(previous_views, dim=1)  # [batch_size, num_views, channels, height, width]
+        else:
+            # If it's already a tensor
+            prev_views_tensor = previous_views.to(self.device)
+            
+        # Log shapes for debugging
+        logger.info(f"Previous views tensor shape: {prev_views_tensor.shape}")
+        
+        # Extract features from previous views (in AVDN dimension)
+        num_prev_views = prev_views_tensor.size(1)
+        prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])  # [batch_size * num_views, C, H, W]
+        logger.info(f"Reshaped previous views shape: {prev_views_reshaped.shape}")
+        
+        prev_features = self._extract_features(prev_views_reshaped)  # [batch_size * num_views, 384]
+        logger.info(f"Previous features shape before reshape: {prev_features.shape}")
+        
+        prev_features = prev_features.view(batch_size, num_prev_views, -1)  # [batch_size, num_views, 384]
+        logger.info(f"Previous features shape after reshape: {prev_features.shape}")
+        
+        # Verify dimensions match (should both be 384)
+        logger.info(f"Comparing dimensions - current: {current_features.size(-1)}, previous: {prev_features.size(-1)}")
+        assert current_features.size(-1) == prev_features.size(-1), \
+            f"Feature dimensions mismatch: current {current_features.size(-1)} vs previous {prev_features.size(-1)}"
+        
+        # Combine current and previous features using attention (in AVDN dimension)
+        all_features = torch.cat([
+            current_features.unsqueeze(1),  # [batch_size, 1, 384]
+            prev_features  # [batch_size, num_views, 384]
+        ], dim=1)  # [batch_size, num_views + 1, 384]
+        
+        # Apply attention mechanism (still in AVDN dimension)
+        aggregated_features, _ = self.view_attention(
+            current_features,  # Use current view as query [batch_size, 384]
+            all_features,      # Use all features as context [batch_size, num_views + 1, 384]
+        )
+        
+        # Finally project to BERT dimension
+        return self.projection(aggregated_features)  # [batch_size, 768]
+
+    def _init_feature_layers(self):
+        """Initialize feature processing layers."""
+        # Feature flattening layers with explicit output size (AVDN architecture)
+        self.flatten = nn.Sequential(
+            nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 64, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Flatten(),
+            nn.Linear(64 * 7 * 7, 384),  # AVDN dimension
+            nn.ReLU(),
+            nn.LayerNorm(384)  # Add normalization for stability
+        )
+        
+        # Projection layer from AVDN dimension to BERT dimension
+        self.projection = nn.Sequential(
+            nn.Linear(384, self.hidden_size),  # Project from 384 to 768
+            nn.LayerNorm(self.hidden_size)
+        )
+        
+        # View attention for weighted aggregation (using AVDN dimension)
+        self.view_attention = SoftDotAttention(384)  # Keep attention in AVDN dimension
+        
+        # Initialize weights
+        self._init_weights()
+        
     def _verify_output_dimensions(self):
         """Verify that the output dimensions match the expected hidden size."""
         dummy_input = torch.randn(1, 3, self.input_size, self.input_size, device=self.device)
