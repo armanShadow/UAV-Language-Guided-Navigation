@@ -129,6 +129,7 @@ class FeatureExtractor(nn.Module):
         # Ensure inputs are on the correct device
         current_view = current_view.to(self.device)
         batch_size = current_view.size(0)
+        logger.info(f"Current view batch size: {batch_size}")
         
         # Extract features from current view (in AVDN dimension)
         logger.info("Processing current view...")
@@ -155,7 +156,14 @@ class FeatureExtractor(nn.Module):
         # Get the actual batch size from the previous views tensor
         actual_batch_size = prev_views_tensor.size(0)
         num_prev_views = prev_views_tensor.size(1)
-        logger.info(f"Actual batch size from previous views: {actual_batch_size}")
+        logger.info(f"Previous views batch size: {actual_batch_size}")
+        
+        # Ensure current features match the batch size of previous views
+        if batch_size != actual_batch_size:
+            logger.info(f"Adjusting current features batch size from {batch_size} to {actual_batch_size}")
+            # Take only the first actual_batch_size samples from current_features
+            current_features = current_features[:actual_batch_size]
+            logger.info(f"Adjusted current features shape: {current_features.shape}")
         
         # Extract features from previous views (in AVDN dimension)
         prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])  # [batch_size * num_views, C, H, W]
@@ -179,22 +187,26 @@ class FeatureExtractor(nn.Module):
         assert current_features.size(-1) == prev_features.size(-1), \
             f"Feature dimensions mismatch: current {current_features.size(-1)} vs previous {prev_features.size(-1)}"
         
+        # Verify batch sizes match
+        assert current_features.size(0) == prev_features.size(0), \
+            f"Batch size mismatch: current {current_features.size(0)} vs previous {prev_features.size(0)}"
+        
         # Combine current and previous features using attention (in AVDN dimension)
         all_features = torch.cat([
-            current_features.unsqueeze(1),  # [batch_size, 1, 384]
-            prev_features  # [batch_size, num_views, 384]
-        ], dim=1)  # [batch_size, num_views + 1, 384]
+            current_features.unsqueeze(1),  # [actual_batch_size, 1, 384]
+            prev_features  # [actual_batch_size, num_views, 384]
+        ], dim=1)  # [actual_batch_size, num_views + 1, 384]
         logger.info(f"Combined features shape: {all_features.shape}")
         
         # Apply attention mechanism (still in AVDN dimension)
         aggregated_features, _ = self.view_attention(
-            current_features,  # Use current view as query [batch_size, 384]
-            all_features,      # Use all features as context [batch_size, num_views + 1, 384]
+            current_features,  # Use current view as query [actual_batch_size, 384]
+            all_features,      # Use all features as context [actual_batch_size, num_views + 1, 384]
         )
         logger.info(f"Aggregated features shape: {aggregated_features.shape}")
         
         # Finally project to BERT dimension
-        output = self.projection(aggregated_features)  # [batch_size, 768]
+        output = self.projection(aggregated_features)  # [actual_batch_size, 768]
         logger.info(f"Final output shape: {output.shape}")
         
         return output
