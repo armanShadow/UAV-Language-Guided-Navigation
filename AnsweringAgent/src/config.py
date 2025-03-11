@@ -23,7 +23,7 @@ class ModelConfig:
     max_seq_length: int = 512
     max_answer_length: int = 128
     vocab_size: int = 30522  # BERT vocabulary size for bert-base-uncased
-    image_size: int = 224  # Image size for Darknet/YOLO model
+    img_size: int = 224  # Image size for Darknet/YOLO model
 
 def get_nvidia_smi_output():
     """Get GPU information directly from nvidia-smi."""
