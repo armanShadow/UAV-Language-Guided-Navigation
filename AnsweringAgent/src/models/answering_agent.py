@@ -192,11 +192,35 @@ class AnsweringAgent(nn.Module):
         # Ensure all inputs are on the correct device
         text_input = {k: v.to(self.device) for k, v in text_input.items()}
         current_view = current_view.to(self.device)
-        if previous_views:
-            previous_views = [v.to(self.device) for v in previous_views]
+        if previous_views is not None:
+            if isinstance(previous_views, list):
+                previous_views = [v.to(self.device) for v in previous_views]
+            else:
+                previous_views = previous_views.to(self.device)
+        
+        # Validate input shapes
+        input_ids = text_input['input_ids']
+        attention_mask = text_input.get('attention_mask', None)
+        token_type_ids = text_input.get('token_type_ids', None)
+        
+        # Ensure input_ids is 2D [batch_size, seq_len]
+        if input_ids.dim() > 2:
+            input_ids = input_ids.squeeze()
+        if attention_mask is not None and attention_mask.dim() > 2:
+            attention_mask = attention_mask.squeeze()
+        if token_type_ids is not None and token_type_ids.dim() > 2:
+            token_type_ids = token_type_ids.squeeze()
+            
+        # Update text_input with corrected tensors
+        bert_inputs = {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'token_type_ids': token_type_ids
+        }
+        bert_inputs = {k: v for k, v in bert_inputs.items() if v is not None}
         
         # Process text input with BERT
-        text_outputs = self.bert(**text_input)
+        text_outputs = self.bert(**bert_inputs)
         text_features = text_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
         text_features = self.bert_dropout(text_features)
         
@@ -210,21 +234,17 @@ class AnsweringAgent(nn.Module):
         assert visual_features.size(-1) == self.config.model.hidden_size, \
             f"Visual features dim {visual_features.size(-1)} != hidden size {self.config.model.hidden_size}"
         
-        # Expand visual features to match sequence length
-        visual_features = visual_features.unsqueeze(1).expand(-1, text_features.size(1), -1)
-        
-        # Create memory key padding mask (None for visual features as they're all valid)
-        memory_key_padding_mask = torch.zeros(batch_size, text_features.size(1), device=self.device).bool()
+        # Combine text and visual features
+        combined_features = self.combine_features(text_features, visual_features)
         
         # Create target mask to prevent attention to future tokens
-        target_mask = self.generate_square_subsequent_mask(text_features.size(1))
+        target_mask = self.generate_square_subsequent_mask(combined_features.size(1))
         
-        # Combine features through decoder
+        # Process through decoder
         decoder_output = self.decoder(
-            tgt=text_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
-            memory=visual_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
-            tgt_mask=target_mask.to(self.device),
-            memory_key_padding_mask=memory_key_padding_mask
+            tgt=combined_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
+            memory=visual_features.unsqueeze(0),    # [1, batch_size, hidden_size]
+            tgt_mask=target_mask.to(self.device)
         )
         
         # Transpose back to [batch_size, seq_len, hidden_size]
