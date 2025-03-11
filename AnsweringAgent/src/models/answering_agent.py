@@ -206,6 +206,7 @@ class AnsweringAgent(nn.Module):
         seq_len = text_input['input_ids'].size(1)  # Get sequence length from input
         
         logger.info(f"Input sequence length: {seq_len}")
+        logger.info(f"Input batch size: {batch_size}")
         
         # Ensure all inputs are on the correct device
         text_input = {k: v.to(self.device) for k, v in text_input.items()}
@@ -216,44 +217,30 @@ class AnsweringAgent(nn.Module):
             else:
                 previous_views = previous_views.to(self.device)
         
-        # Validate input shapes
-        input_ids = text_input['input_ids']
-        attention_mask = text_input.get('attention_mask', None)
-        token_type_ids = text_input.get('token_type_ids', None)
-        
-        # Ensure input_ids is 2D [batch_size, seq_len]
-        if input_ids.dim() > 2:
-            input_ids = input_ids.squeeze()
-        if attention_mask is not None and attention_mask.dim() > 2:
-            attention_mask = attention_mask.squeeze()
-        if token_type_ids is not None and token_type_ids.dim() > 2:
-            token_type_ids = token_type_ids.squeeze()
-            
-        # Update text_input with corrected tensors
-        bert_inputs = {
-            'input_ids': input_ids,
-            'attention_mask': attention_mask,
-            'token_type_ids': token_type_ids
-        }
-        bert_inputs = {k: v for k, v in bert_inputs.items() if v is not None}
-        
         # Process text input with BERT
-        text_outputs = self.bert(**bert_inputs)
+        text_outputs = self.bert(**text_input)
         text_features = text_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
         text_features = self.bert_dropout(text_features)
         
         # Add positional encoding to text features
         text_features = self.pos_encoder(text_features)
+        logger.info(f"Text features after BERT shape: {text_features.shape}")
         
         # Get visual features
         visual_features = self.feature_extractor(current_view, previous_views)  # [batch_size, hidden_size]
+        logger.info(f"Visual features initial shape: {visual_features.shape}")
         
         # Verify feature dimensions
         assert visual_features.size(-1) == self.config.model.hidden_size, \
             f"Visual features dim {visual_features.size(-1)} != hidden size {self.config.model.hidden_size}"
         
+        # Expand visual features to match sequence length
+        visual_features = visual_features.unsqueeze(1).expand(-1, seq_len, -1)  # [batch_size, seq_len, hidden_size]
+        logger.info(f"Visual features expanded shape: {visual_features.shape}")
+        
         # Combine text and visual features
         combined_features = self.combine_features(text_features, visual_features)  # [batch_size, seq_len, hidden_size]
+        logger.info(f"Combined features shape: {combined_features.shape}")
         
         # Create target mask to prevent attention to future tokens
         target_mask = self.generate_square_subsequent_mask(seq_len).to(self.device)
@@ -262,7 +249,7 @@ class AnsweringAgent(nn.Module):
         # Process through decoder
         decoder_output = self.decoder(
             tgt=combined_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
-            memory=visual_features.unsqueeze(0).repeat(seq_len, 1, 1),  # [seq_len, batch_size, hidden_size]
+            memory=visual_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
             tgt_mask=target_mask,
             memory_mask=None,
             tgt_key_padding_mask=None,
@@ -271,15 +258,10 @@ class AnsweringAgent(nn.Module):
         
         # Transpose back to [batch_size, seq_len, hidden_size]
         decoder_output = decoder_output.transpose(0, 1)
+        logger.info(f"Decoder output shape: {decoder_output.shape}")
         
         # Project to vocabulary size
         output = self.output_projection(decoder_output)  # [batch_size, seq_len, vocab_size]
-        
-        # Log shapes for debugging
-        logger.info(f"Text features shape: {text_features.shape}")
-        logger.info(f"Visual features shape: {visual_features.shape}")
-        logger.info(f"Combined features shape: {combined_features.shape}")
-        logger.info(f"Decoder output shape: {decoder_output.shape}")
         logger.info(f"Final output shape: {output.shape}")
         
         return output
@@ -293,9 +275,9 @@ class AnsweringAgent(nn.Module):
         Returns:
             torch.Tensor: Mask tensor of shape [sz, sz] with -inf for masked positions
         """
-        # Create mask of shape [sz, sz]
-        mask = torch.triu(torch.ones(sz, sz), diagonal=1)
-        mask = mask.masked_fill(mask == 1, float('-inf'))
+        logger.info(f"Generating mask for sequence length: {sz}")
+        mask = torch.triu(torch.ones(sz, sz), diagonal=1).bool()
+        mask = mask.float().masked_fill(mask, float('-inf')).masked_fill(~mask, float(0.0))
         
         logger.info(f"Generated mask shape: {mask.shape}")
         return mask
@@ -347,24 +329,21 @@ class AnsweringAgent(nn.Module):
         
         Args:
             text_features (torch.Tensor): Text features from BERT [batch_size, seq_len, hidden_size]
-            visual_features (torch.Tensor): Visual features [batch_size, hidden_size]
+            visual_features (torch.Tensor): Visual features [batch_size, seq_len, hidden_size]
             
         Returns:
             torch.Tensor: Combined features [batch_size, seq_len, hidden_size]
         """
         batch_size, seq_len, hidden_size = text_features.size()
+        logger.info(f"Combine features input shapes - text: {text_features.shape}, visual: {visual_features.shape}")
         
         # Verify dimensions
         assert hidden_size == self.config.model.hidden_size, \
             f"Text features dimension {hidden_size} != hidden size {self.config.model.hidden_size}"
         assert visual_features.size(-1) == hidden_size, \
             f"Visual features dimension {visual_features.size(-1)} != hidden size {hidden_size}"
-        
-        # Expand visual features to match sequence length
-        visual_features = visual_features.unsqueeze(1)  # [batch_size, 1, hidden_size]
-        
-        # Apply positional encoding to visual features
-        visual_features = self.pos_encoder(visual_features)  # [batch_size, 1, hidden_size]
+        assert visual_features.size(1) == seq_len, \
+            f"Visual features sequence length {visual_features.size(1)} != text sequence length {seq_len}"
         
         # Transpose inputs for attention (from [batch_size, seq_len, hidden_size] to [seq_len, batch_size, hidden_size])
         text_features = text_features.transpose(0, 1)
@@ -373,8 +352,8 @@ class AnsweringAgent(nn.Module):
         # Apply feature attention between text and visual features
         attended_features = self.feature_attention(
             query=text_features,              # [seq_len, batch_size, hidden_size]
-            key=visual_features,              # [1, batch_size, hidden_size]
-            value=visual_features             # [1, batch_size, hidden_size]
+            key=visual_features,              # [seq_len, batch_size, hidden_size]
+            value=visual_features             # [seq_len, batch_size, hidden_size]
         )
         
         # Transpose back to [batch_size, seq_len, hidden_size]
@@ -385,6 +364,7 @@ class AnsweringAgent(nn.Module):
         combined = torch.cat([text_features, attended_features], dim=-1)  # [batch_size, seq_len, hidden_size*2]
         fused_features = self.feature_fusion(combined)  # [batch_size, seq_len, hidden_size]
         
+        logger.info(f"Combined features output shape: {fused_features.shape}")
         return fused_features
 
     def _verify_device_placement(self):
