@@ -141,6 +141,28 @@ class FeatureExtractor(nn.Module):
         
         return aggregated_features
         
+    def _init_feature_layers(self):
+        """Initialize feature processing layers."""
+        # Feature flattening layers with explicit output size
+        self.flatten = nn.Sequential(
+            nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 64, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Flatten(),
+            nn.Linear(64 * 7 * 7, 384),  # Match AVDN dimension
+            nn.ReLU(),
+            nn.LayerNorm(384)  # Add normalization for stability
+        )
+        
+        # View attention for weighted aggregation
+        self.view_attention = SoftDotAttention(384)  # Match AVDN dimension
+        
+        # Initialize weights
+        self._init_weights()
+        
     def _extract_features(self, x: torch.Tensor) -> torch.Tensor:
         """Extract features from input tensor using Darknet and flatten layers.
         
@@ -173,12 +195,8 @@ class FeatureExtractor(nn.Module):
         logger.info(f"Reshaped features shape: {features.shape}")
         
         # Process through flatten layers
-        output = self.flatten(features)  # [batch_size, hidden_size]
+        output = self.flatten(features)  # [batch_size, 384]
         logger.info(f"Final output shape: {output.shape}")
-        
-        # Verify output dimensions
-        assert output.size(-1) == self.hidden_size, \
-            f"Output dimension {output.size(-1)} does not match hidden size {self.hidden_size}"
         
         return output
 
@@ -211,29 +229,6 @@ class FeatureExtractor(nn.Module):
         # Freeze Darknet weights
         for param in self.darknet.parameters():
             param.requires_grad = False
-            
-    def _init_feature_layers(self):
-        """Initialize feature processing layers."""
-        # Feature flattening layers with explicit output size
-        self.flatten = nn.Sequential(
-            nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 64, kernel_size=1, stride=1, padding=0),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Flatten(),
-            nn.Linear(64 * 7 * 7, 1024),
-            nn.ReLU(),
-            nn.Linear(1024, self.hidden_size),  # Direct mapping to hidden_size
-            nn.LayerNorm(self.hidden_size)  # Add normalization for stability
-        )
-        
-        # View attention for weighted aggregation
-        self.view_attention = SoftDotAttention(self.hidden_size)
-        
-        # Initialize weights
-        self._init_weights()
         
     def _extract_features(self, x: torch.Tensor) -> torch.Tensor:
         """Extract features from input tensor using Darknet and flatten layers."""
