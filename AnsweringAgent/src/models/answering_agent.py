@@ -207,13 +207,6 @@ class AnsweringAgent(nn.Module):
         attention_mask = text_input.get('attention_mask', None)
         token_type_ids = text_input.get('token_type_ids', None)
         
-        # Log original shapes
-        logger.info(f"Original input_ids shape: {input_ids.shape}")
-        if attention_mask is not None:
-            logger.info(f"Original attention_mask shape: {attention_mask.shape}")
-        if token_type_ids is not None:
-            logger.info(f"Original token_type_ids shape: {token_type_ids.shape}")
-        
         # Ensure tensors are 2D [batch_size, seq_len]
         if input_ids.dim() > 2:
             input_ids = input_ids.view(-1, input_ids.size(-1))
@@ -225,11 +218,12 @@ class AnsweringAgent(nn.Module):
         # Get dimensions
         batch_size = input_ids.size(0)
         seq_len = input_ids.size(1)
-        target_seq_len = 128  # Expected output sequence length
         
-        logger.info(f"Input sequence length: {seq_len}")
-        logger.info(f"Input batch size: {batch_size}")
-        logger.info(f"Input shape: {input_ids.shape}")
+        # Verify sequence length doesn't exceed model's maximum
+        assert seq_len <= self.config.model.max_seq_length, \
+            f"Input sequence length {seq_len} exceeds maximum allowed length {self.config.model.max_seq_length}"
+        
+        logger.info(f"Processing batch of size {batch_size} with sequence length {seq_len}")
         
         # Update text_input with properly shaped tensors
         text_input = {
@@ -255,11 +249,9 @@ class AnsweringAgent(nn.Module):
         
         # Add positional encoding to text features
         text_features = self.pos_encoder(text_features)
-        logger.info(f"Text features after BERT shape: {text_features.shape}")
         
         # Get visual features
         visual_features = self.feature_extractor(current_view, previous_views)  # [batch_size, hidden_size]
-        logger.info(f"Visual features initial shape: {visual_features.shape}")
         
         # Verify feature dimensions
         assert visual_features.size(-1) == self.config.model.hidden_size, \
@@ -267,15 +259,12 @@ class AnsweringAgent(nn.Module):
         
         # Expand visual features to match sequence length
         visual_features = visual_features.unsqueeze(1).expand(-1, seq_len, -1)  # [batch_size, seq_len, hidden_size]
-        logger.info(f"Visual features expanded shape: {visual_features.shape}")
         
         # Combine text and visual features
         combined_features = self.combine_features(text_features, visual_features)  # [batch_size, seq_len, hidden_size]
-        logger.info(f"Combined features shape: {combined_features.shape}")
         
         # Create target mask to prevent attention to future tokens
         target_mask = self.generate_square_subsequent_mask(seq_len).to(self.device)
-        logger.info(f"Target mask shape: {target_mask.shape}")
         
         # Process through decoder
         decoder_output = self.decoder(
@@ -289,14 +278,13 @@ class AnsweringAgent(nn.Module):
         
         # Transpose back to [batch_size, seq_len, hidden_size]
         decoder_output = decoder_output.transpose(0, 1)
-        logger.info(f"Decoder output shape: {decoder_output.shape}")
         
         # Project to vocabulary size
         full_output = self.output_projection(decoder_output)  # [batch_size, seq_len, vocab_size]
         
         # Take only the first max_answer_length tokens for the output
         output = full_output[:, :self.config.model.max_answer_length, :]
-        logger.info(f"Final output shape (truncated to answer length): {output.shape}")
+        logger.info(f"Generated output of shape {output.shape}")
         
         return output
     
@@ -309,11 +297,8 @@ class AnsweringAgent(nn.Module):
         Returns:
             torch.Tensor: Mask tensor of shape [sz, sz] with -inf for masked positions
         """
-        logger.info(f"Generating mask for sequence length: {sz}")
         mask = torch.triu(torch.ones(sz, sz), diagonal=1).bool()
         mask = mask.float().masked_fill(mask, float('-inf')).masked_fill(~mask, float(0.0))
-        
-        logger.info(f"Generated mask shape: {mask.shape}")
         return mask
     
     def generate_answer(self, 
@@ -369,7 +354,6 @@ class AnsweringAgent(nn.Module):
             torch.Tensor: Combined features [batch_size, seq_len, hidden_size]
         """
         batch_size, seq_len, hidden_size = text_features.size()
-        logger.info(f"Combine features input shapes - text: {text_features.shape}, visual: {visual_features.shape}")
         
         # Verify dimensions
         assert hidden_size == self.config.model.hidden_size, \
@@ -398,7 +382,6 @@ class AnsweringAgent(nn.Module):
         combined = torch.cat([text_features, attended_features], dim=-1)  # [batch_size, seq_len, hidden_size*2]
         fused_features = self.feature_fusion(combined)  # [batch_size, seq_len, hidden_size]
         
-        logger.info(f"Combined features output shape: {fused_features.shape}")
         return fused_features
 
     def _verify_device_placement(self):

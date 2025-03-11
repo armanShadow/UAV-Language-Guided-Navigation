@@ -74,10 +74,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             with torch.cuda.amp.autocast():
                 outputs = model(text_input, current_view, previous_views)  # [batch_size, seq_len, vocab_size]
                 
-                # Log shapes for debugging
-                logger.info(f"Original outputs shape: {outputs.shape}")
-                logger.info(f"Original labels shape: {labels.shape}")
-                
                 # Get batch and sequence dimensions
                 batch_size, seq_len, vocab_size = outputs.size()
                 
@@ -90,10 +86,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 # Reshape outputs and labels consistently
                 outputs_reshaped = outputs.contiguous().view(batch_size * seq_len, vocab_size)  # [batch_size * seq_len, vocab_size]
                 labels_reshaped = labels.contiguous().view(batch_size * seq_len)  # [batch_size * seq_len]
-                
-                # Log reshaped dimensions
-                logger.info(f"Reshaped outputs shape: {outputs_reshaped.shape}")
-                logger.info(f"Reshaped labels shape: {labels_reshaped.shape}")
                 
                 # Verify shapes match
                 assert outputs_reshaped.size(0) == labels_reshaped.size(0), \

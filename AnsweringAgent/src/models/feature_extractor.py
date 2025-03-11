@@ -87,31 +87,24 @@ class FeatureExtractor(nn.Module):
         Returns:
             torch.Tensor: Extracted features [batch_size, 384] (AVDN dimension)
         """
-        # Log input shape
-        logger.info(f"Input shape to _extract_features: {x.shape}")
         
         # Resize input to Darknet size if necessary
         if x.size(-1) != self.input_size or x.size(-2) != self.input_size:
             x = F.interpolate(x, size=(self.input_size, self.input_size), 
                             mode='bilinear', align_corners=True)
-            logger.info(f"Resized input shape: {x.shape}")
         
         # Extract features through Darknet
         features = self.darknet(x)  # [batch_size, channels, height, width]
-        logger.info(f"Darknet output shape: {features.shape}")
         
         # Verify feature dimensions
         if features.dim() == 3:
             features = features.unsqueeze(0)  # Add batch dimension if missing
-            logger.info(f"Added batch dimension, new shape: {features.shape}")
         
         # Reshape to expected dimensions
         features = features.view(features.size(0), 512, 7, 7)  # Ensure correct channel dimension
-        logger.info(f"Reshaped features shape: {features.shape}")
         
         # Process through flatten layers to get AVDN features
         output = self.flatten(features)  # [batch_size, 384]
-        logger.info(f"AVDN features shape: {output.shape}")
         
         return output
 
@@ -129,12 +122,9 @@ class FeatureExtractor(nn.Module):
         # Ensure inputs are on the correct device
         current_view = current_view.to(self.device)
         batch_size = current_view.size(0)
-        logger.info(f"Current view batch size: {batch_size}")
         
         # Extract features from current view (in AVDN dimension)
-        logger.info("Processing current view...")
         current_features = self._extract_features(current_view)  # [batch_size, 384]
-        logger.info(f"Current features shape after extraction: {current_features.shape}")
         
         if not previous_views:  # Handle empty list or None
             # Project to BERT dimension before returning
@@ -142,43 +132,29 @@ class FeatureExtractor(nn.Module):
         
         # Move previous views to device and stack
         if isinstance(previous_views, list):
-            logger.info(f"Previous views is a list of length {len(previous_views)}")
             previous_views = [view.to(self.device) for view in previous_views]
             prev_views_tensor = torch.stack(previous_views, dim=1)  # [batch_size, num_views, channels, height, width]
         else:
-            # If it's already a tensor
-            logger.info("Previous views is already a tensor")
             prev_views_tensor = previous_views.to(self.device)
             
-        # Log shapes for debugging
-        logger.info(f"Previous views tensor shape before reshape: {prev_views_tensor.shape}")
-        
         # Get the actual batch size from the previous views tensor
         actual_batch_size = prev_views_tensor.size(0)
         num_prev_views = prev_views_tensor.size(1)
-        logger.info(f"Previous views batch size: {actual_batch_size}")
         
         # Ensure current features match the batch size of previous views
         if batch_size > actual_batch_size:
-            logger.info(f"Adjusting current features batch size from {batch_size} to {actual_batch_size}")
             # Take only the first actual_batch_size samples from current_features
             current_features = current_features[:actual_batch_size]
-            logger.info(f"Adjusted current features shape: {current_features.shape}")
         elif batch_size < actual_batch_size:
-            logger.info(f"Adjusting previous views batch size from {actual_batch_size} to {batch_size}")
             # Take only the first batch_size samples from previous views
             prev_views_tensor = prev_views_tensor[:batch_size]
             actual_batch_size = batch_size
-            logger.info(f"Adjusted previous views shape: {prev_views_tensor.shape}")
         
         # Extract features from previous views (in AVDN dimension)
         prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])  # [batch_size * num_views, C, H, W]
-        logger.info(f"Previous views shape after reshape: {prev_views_reshaped.shape}")
         
         # Process each previous view
-        logger.info("Processing previous views...")
         prev_features = self._extract_features(prev_views_reshaped)  # [batch_size * num_views, 384]
-        logger.info(f"Previous features shape after extraction: {prev_features.shape}")
         
         # Verify AVDN dimension before reshape
         assert prev_features.size(-1) == 384, \
@@ -186,10 +162,8 @@ class FeatureExtractor(nn.Module):
         
         # Reshape using the actual batch size from previous views
         prev_features = prev_features.view(actual_batch_size, num_prev_views, -1)  # [batch_size, num_views, 384]
-        logger.info(f"Previous features final shape: {prev_features.shape}")
         
         # Verify dimensions match (should both be 384)
-        logger.info(f"Comparing dimensions - current: {current_features.size(-1)}, previous: {prev_features.size(-1)}")
         assert current_features.size(-1) == prev_features.size(-1), \
             f"Feature dimensions mismatch: current {current_features.size(-1)} vs previous {prev_features.size(-1)}"
         
@@ -202,25 +176,21 @@ class FeatureExtractor(nn.Module):
             current_features.unsqueeze(1),  # [actual_batch_size, 1, 384]
             prev_features  # [actual_batch_size, num_views, 384]
         ], dim=1)  # [actual_batch_size, num_views + 1, 384]
-        logger.info(f"Combined features shape: {all_features.shape}")
         
         # Apply attention mechanism (still in AVDN dimension)
         aggregated_features, _ = self.view_attention(
             current_features,  # Use current view as query [actual_batch_size, 384]
             all_features,      # Use all features as context [actual_batch_size, num_views + 1, 384]
         )
-        logger.info(f"Aggregated features shape: {aggregated_features.shape}")
         
         # Finally project to BERT dimension
         output = self.projection(aggregated_features)  # [actual_batch_size, 768]
-        logger.info(f"Final output shape: {output.shape}")
         
         # Ensure output batch size matches input batch size if needed
         if output.size(0) < batch_size:
             # Repeat the last sample to match the expected batch size
             num_repeats = batch_size - output.size(0)
             output = torch.cat([output, output[-1:].repeat(num_repeats, 1)], dim=0)
-            logger.info(f"Adjusted final output shape to match input batch size: {output.shape}")
         
         return output
 
