@@ -101,8 +101,6 @@ class MultiModalAttention(nn.Module):
 class AnsweringAgent(nn.Module):
     def __init__(self, config: Config, device: torch.device):
         super().__init__()
-        global logger
-        logger = get_logger()
 
         self.config = config
         self.device = device  # Store device but don't use for explicit .to() calls
