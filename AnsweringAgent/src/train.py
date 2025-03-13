@@ -265,25 +265,19 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         torch.cuda.manual_seed_all(config.training.seed + rank)
         
         # Initialize tokenizer with error handling
-        try:
-            logger.info(f"Process {rank}: Initializing BERT tokenizer from {config.model.bert_model_name}")
-            tokenizer = BertTokenizerFast.from_pretrained(config.model.bert_model_name)
-            logger.info(f"Process {rank}: Successfully initialized BERT tokenizer")
-        except Exception as e:
-            logger.error(f"Process {rank}: Failed to initialize BERT tokenizer: {str(e)}")
-            raise e
-        
+
+        logger.info(f"Process {rank}: Initializing BERT tokenizer from {config.model.bert_model_name}")
+        tokenizer = BertTokenizerFast.from_pretrained(config.model.bert_model_name)
+        logger.info(f"Process {rank}: Successfully initialized BERT tokenizer")
+
         # Initialize model and move to correct GPU
-        try:
-            logger.info(f"Process {rank}: Initializing AnsweringAgent model")
-            model = AnsweringAgent(config, device)
-            model = nn.SyncBatchNorm.convert_sync_batchnorm(model)  # Convert batch norm
-            model.to(device)
-            logger.info(f"Process {rank}: Successfully initialized AnsweringAgent model")
-        except Exception as e:
-            logger.error(f"Process {rank}: Failed to initialize AnsweringAgent model: {str(e)}")
-            raise e
-        
+
+        logger.info(f"Process {rank}: Initializing AnsweringAgent model")
+        model = AnsweringAgent(config, device)
+        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)  # Convert batch norm
+        model.to(device)
+        logger.info(f"Process {rank}: Successfully initialized AnsweringAgent model")
+
         # Initialize training variables
         start_epoch = 0
         best_val_loss = float('inf')
@@ -370,7 +364,6 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         dist.destroy_process_group()
     except Exception as e:
         logger.error(f"Error in main function: {e}")
-        raise e
 
 if __name__ == '__main__':
     import argparse
@@ -387,18 +380,13 @@ if __name__ == '__main__':
     if world_size < 1:
         raise RuntimeError("No CUDA GPUs available for training")
 
-
     # Set master address and port before spawning processes
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))  # Pick a random free port
 
-    try:
-        mp.spawn(
-            main,
-            args=(world_size, args.checkpoint, config),
-            nprocs=world_size,
-            join=True
-        )
-    except Exception as e:
-        print(f"Error in main process: {str(e)}")
-        raise e
+    mp.spawn(
+        main,
+        args=(world_size, args.checkpoint, config),
+        nprocs=world_size,
+        join=True
+    )
