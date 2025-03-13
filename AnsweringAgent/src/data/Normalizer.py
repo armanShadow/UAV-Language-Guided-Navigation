@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import json
 import os
-from typing import List, Tuple, Union, Dict, Any
+from typing import List, Tuple, Dict, Any
 from transformers import BertTokenizerFast
 
 
@@ -23,6 +23,7 @@ class AnsweringAgentNormalizer:
 
     def __init__(self):
         """Initialize the normalizer with BERT tokenizer."""
+        #TODO: #4 BertTokenizerFast vs BertTokenizer. is it confusing the model?
         self.tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
 
     def load_image(self, file_path: str) -> np.ndarray:

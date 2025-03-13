@@ -1,12 +1,8 @@
 import torch
 from torch.utils.data import Dataset
-from transformers import BertTokenizerFast
 import os
-import json
-import cv2
-import numpy as np
 import pandas as pd
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from data.Normalizer import AnsweringAgentNormalizer
 from config import Config
 
@@ -14,9 +10,17 @@ from config import Config
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 class AnsweringDataset(Dataset):
+    """Dataset class for the Answering Agent.
+    
+    Note on device handling:
+    - This dataset returns all tensors on CPU
+    - Device transfer is handled by the DataLoader with pin_memory=True
+    - This is optimal for multi-GPU training as it allows efficient data loading
+    """
     def __init__(self, config: Config, tokenizer):
         self.config = config
         self.csv_path = config.data.train_csv_path
+        #TODO: #3 Redundant tokenizer. No Usage. AnsweringAgentNormalizer creates a tokenizer
         self.tokenizer = tokenizer
         self.image_dir = config.data.avdn_image_dir
         self.max_previous_views = config.data.max_previous_views

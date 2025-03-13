@@ -13,7 +13,6 @@ logger = get_logger()
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super().__init__()
-        
         # Create positional encoding matrix
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
@@ -47,7 +46,6 @@ class MultiModalAttention(nn.Module):
     def __init__(self, hidden_size: int, num_heads: int = 8, dropout: float = 0.1):
         super().__init__()
         assert hidden_size % num_heads == 0, f"hidden_size {hidden_size} must be divisible by num_heads {num_heads}"
-        
         self.num_heads = num_heads
         self.hidden_size = hidden_size
         self.head_dim = hidden_size // num_heads
@@ -58,28 +56,29 @@ class MultiModalAttention(nn.Module):
         self.v_proj = nn.Linear(hidden_size, hidden_size)
         self.out_proj = nn.Linear(hidden_size, hidden_size)
         self.dropout = nn.Dropout(dropout)
-        
+
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, 
                 key_padding_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+      
         # Get sizes
         tgt_len, batch_size, embed_dim = query.size()
         src_len = key.size(0)
-        
+
         scaling = float(self.head_dim) ** -0.5
-        
+
         # Project and reshape
         q = self.q_proj(query)
         k = self.k_proj(key)
         v = self.v_proj(value)
-        
+
         # Reshape to [batch_size, num_heads, seq_len, head_dim]
         q = q.contiguous().view(tgt_len, batch_size * self.num_heads, self.head_dim).transpose(0, 1)
         k = k.contiguous().view(src_len, batch_size * self.num_heads, self.head_dim).transpose(0, 1)
         v = v.contiguous().view(src_len, batch_size * self.num_heads, self.head_dim).transpose(0, 1)
-        
+
         # Compute attention scores
         attn_weights = torch.bmm(q, k.transpose(1, 2)) * scaling
-        
+
         if key_padding_mask is not None:
             # Convert attention mask to boolean (0 -> True for padding, 1 -> False for non-padding)
             key_padding_mask = (key_padding_mask == 0)
@@ -89,40 +88,40 @@ class MultiModalAttention(nn.Module):
                 float('-inf')
             )
             attn_weights = attn_weights.view(batch_size * self.num_heads, tgt_len, src_len)
-        
+
         attn_weights = torch.softmax(attn_weights, dim=-1)
         attn_weights = self.dropout(attn_weights)
-        
+
         # Apply attention to values
         attn_output = torch.bmm(attn_weights, v)
-        
+
         # Reshape and project output
         attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, batch_size, embed_dim)
         attn_output = self.out_proj(attn_output)
-        
+
         return attn_output
 
 class AnsweringAgent(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, device: torch.device):
         super().__init__()
         self.config = config
-        self.device = torch.device(config.training.device)
-        
+        self.device = device  # Store device but don't use for explicit .to() calls
+
         # Initialize BERT and tokenizer
         self.bert = BertModel.from_pretrained(config.model.bert_model_name)
         self.tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
         self.bert_dropout = nn.Dropout(config.model.dropout)
-        
+
         # Verify hidden sizes match
         assert config.model.hidden_size == self.bert.config.hidden_size, \
             f"Config hidden size {config.model.hidden_size} != BERT hidden size {self.bert.config.hidden_size}"
-        
+
         # Initialize feature extractor
         self.feature_extractor = FeatureExtractor(config)
-        
+
         # Initialize positional encoding
         self.pos_encoder = PositionalEncoding(config.model.hidden_size)
-        
+
         # Initialize feature fusion layer
         self.feature_fusion = nn.Sequential(
             nn.Linear(config.model.hidden_size * 2, config.model.hidden_size),
@@ -130,14 +129,14 @@ class AnsweringAgent(nn.Module):
             nn.Dropout(config.model.dropout),
             nn.Linear(config.model.hidden_size, config.model.hidden_size)
         )
-        
+
         # Initialize feature attention
         self.feature_attention = MultiModalAttention(
             hidden_size=config.model.hidden_size,
             num_heads=config.model.num_attention_heads,
             dropout=config.model.dropout
         )
-        
+
         # Initialize decoder
         decoder_layer = nn.TransformerDecoderLayer(
             d_model=config.model.hidden_size,
@@ -146,20 +145,15 @@ class AnsweringAgent(nn.Module):
             dropout=config.model.dropout,
             activation='relu'
         )
+
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=config.model.num_decoder_layers)
-        
+
         # Add output projection layer
         self.output_projection = nn.Linear(config.model.hidden_size, config.model.vocab_size)
-        
+
         # Initialize weights
         self._init_weights()
-        
-        # Move model to device
-        self.to(self.device)
-        
-        # Verify all components are on correct device
-        self._verify_device_placement()
-        
+
     def _init_weights(self):
         """Initialize model weights."""
         # Initialize feature fusion layers
@@ -168,21 +162,21 @@ class AnsweringAgent(nn.Module):
                 nn.init.xavier_normal_(m.weight, gain=1.0)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
-                    
+
         # Initialize output layer
         nn.init.xavier_normal_(self.output_projection.weight, gain=1.0)
         if self.output_projection.bias is not None:
             nn.init.zeros_(self.output_projection.bias)
-            
+
         # Initialize decoder
         for p in self.decoder.parameters():
             if p.dim() > 1:
                 nn.init.xavier_normal_(p, gain=1.0)
-                
+
         # Ensure all parameters are on the correct device
         for param in self.parameters():
             param.data = param.data.to(self.device)
-        
+
     def load_checkpoint(self, checkpoint_path: str):
         """Load model weights from a checkpoint file."""
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -191,7 +185,7 @@ class AnsweringAgent(nn.Module):
         else:
             self.load_state_dict(checkpoint)
         logger.info(f"Loaded checkpoint from {checkpoint_path}")
-        
+
     def forward(self, text_input, current_view, previous_views):
         """
         Forward pass of the model.
@@ -223,23 +217,12 @@ class AnsweringAgent(nn.Module):
         assert seq_len <= self.config.model.max_seq_length, \
             f"Input sequence length {seq_len} exceeds maximum allowed length {self.config.model.max_seq_length}"
         
-        
         # Update text_input with properly shaped tensors
-        text_input = {
+        text_input = {k: v for k, v in {
             'input_ids': input_ids,
             'attention_mask': attention_mask,
             'token_type_ids': token_type_ids
-        }
-        text_input = {k: v for k, v in text_input.items() if v is not None}
-        
-        # Ensure all inputs are on the correct device
-        text_input = {k: v.to(self.device) for k, v in text_input.items()}
-        current_view = current_view.to(self.device)
-        if previous_views is not None:
-            if isinstance(previous_views, list):
-                previous_views = [v.to(self.device) for v in previous_views]
-            else:
-                previous_views = previous_views.to(self.device)
+        }.items() if v is not None}
         
         # Process text input with BERT
         text_outputs = self.bert(**text_input)
@@ -257,32 +240,31 @@ class AnsweringAgent(nn.Module):
             f"Visual features dim {visual_features.size(-1)} != hidden size {self.config.model.hidden_size}"
         
         # Expand visual features to match sequence length
+        # TODO: #9: You could use other approaches other than this. it copies the data 512 times
         visual_features = visual_features.unsqueeze(1).expand(-1, seq_len, -1)  # [batch_size, seq_len, hidden_size]
         
         # Combine text and visual features
         combined_features = self.combine_features(text_features, visual_features)  # [batch_size, seq_len, hidden_size]
         
         # Create target mask to prevent attention to future tokens
-        target_mask = self.generate_square_subsequent_mask(seq_len).to(self.device)
+        target_mask = self.generate_square_subsequent_mask(seq_len).to(combined_features.device)
         
         # Process through decoder
         decoder_output = self.decoder(
-            tgt=combined_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
-            memory=visual_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
-            tgt_mask=target_mask,
-            memory_mask=None,
-            tgt_key_padding_mask=None,
-            memory_key_padding_mask=None
+            tgt=combined_features.transpose(0, 1),
+            memory=visual_features.transpose(0, 1),
+            tgt_mask=target_mask
         )
         
         # Transpose back to [batch_size, seq_len, hidden_size]
         decoder_output = decoder_output.transpose(0, 1)
         
         # Project to vocabulary size
-        full_output = self.output_projection(decoder_output)  # [batch_size, seq_len, vocab_size]
+        output = self.output_projection(decoder_output)
         
         # Take only the first max_answer_length tokens for the output
-        output = full_output[:, :self.config.model.max_answer_length, :]
+        # TODO: #7 also you could consider other approaches other than truncation.
+        output = output[:, :self.config.model.max_answer_length, :]
         
         return output
     

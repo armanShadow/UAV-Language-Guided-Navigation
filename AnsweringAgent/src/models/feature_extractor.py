@@ -47,18 +47,14 @@ class FeatureExtractor(nn.Module):
         """
         super().__init__()
         self.config = config
-        self.device = torch.device(config.training.device)
         self.hidden_size = config.model.hidden_size
-        self.input_size = config.model.img_size  # Size from AVDN Normalizer
+        self.input_size = config.model.img_size
         
         # Initialize Darknet backbone
         self._init_darknet(config)
         
         # Initialize feature processing layers
         self._init_feature_layers()
-        
-        # Move model to device
-        self.to(self.device)
         
         # Verify output dimensions
         self._verify_output_dimensions()
@@ -119,8 +115,6 @@ class FeatureExtractor(nn.Module):
         Returns:
             torch.Tensor: Aggregated visual features [batch_size, hidden_size]
         """
-        # Ensure inputs are on the correct device
-        current_view = current_view.to(self.device)
         batch_size = current_view.size(0)
         
         # Extract features from current view (in AVDN dimension)
@@ -130,12 +124,11 @@ class FeatureExtractor(nn.Module):
             # Project to BERT dimension before returning
             return self.projection(current_features)
         
-        # Move previous views to device and stack
+        # Stack previous views if they're in a list
         if isinstance(previous_views, list):
-            previous_views = [view.to(self.device) for view in previous_views]
-            prev_views_tensor = torch.stack(previous_views, dim=1)  # [batch_size, num_views, channels, height, width]
+            prev_views_tensor = torch.stack(previous_views, dim=1)
         else:
-            prev_views_tensor = previous_views.to(self.device)
+            prev_views_tensor = previous_views
             
         # Get the actual batch size from the previous views tensor
         actual_batch_size = prev_views_tensor.size(0)
@@ -143,52 +136,39 @@ class FeatureExtractor(nn.Module):
         
         # Ensure current features match the batch size of previous views
         if batch_size > actual_batch_size:
-            # Take only the first actual_batch_size samples from current_features
             current_features = current_features[:actual_batch_size]
         elif batch_size < actual_batch_size:
-            # Take only the first batch_size samples from previous views
             prev_views_tensor = prev_views_tensor[:batch_size]
             actual_batch_size = batch_size
         
         # Extract features from previous views (in AVDN dimension)
-        prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])  # [batch_size * num_views, C, H, W]
+        prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])
+        prev_features = self._extract_features(prev_views_reshaped)
+        prev_features = prev_features.view(actual_batch_size, num_prev_views, -1)
         
-        # Process each previous view
-        prev_features = self._extract_features(prev_views_reshaped)  # [batch_size * num_views, 384]
-        
-        # Verify AVDN dimension before reshape
-        assert prev_features.size(-1) == 384, \
-            f"Previous features dimension {prev_features.size(-1)} != 384 before reshape"
-        
-        # Reshape using the actual batch size from previous views
-        prev_features = prev_features.view(actual_batch_size, num_prev_views, -1)  # [batch_size, num_views, 384]
-        
-        # Verify dimensions match (should both be 384)
+        # Verify dimensions match
         assert current_features.size(-1) == prev_features.size(-1), \
             f"Feature dimensions mismatch: current {current_features.size(-1)} vs previous {prev_features.size(-1)}"
-        
-        # Verify batch sizes match
         assert current_features.size(0) == prev_features.size(0), \
             f"Batch size mismatch: current {current_features.size(0)} vs previous {prev_features.size(0)}"
         
-        # Combine current and previous features using attention (in AVDN dimension)
+        # Combine current and previous features using attention
         all_features = torch.cat([
-            current_features.unsqueeze(1),  # [actual_batch_size, 1, 384]
-            prev_features  # [actual_batch_size, num_views, 384]
-        ], dim=1)  # [actual_batch_size, num_views + 1, 384]
+            current_features.unsqueeze(1),
+            prev_features
+        ], dim=1)
         
-        # Apply attention mechanism (still in AVDN dimension)
+        # Apply attention mechanism
         aggregated_features, _ = self.view_attention(
-            current_features,  # Use current view as query [actual_batch_size, 384]
-            all_features,      # Use all features as context [actual_batch_size, num_views + 1, 384]
+            current_features,
+            all_features
         )
         
-        # Finally project to BERT dimension
-        output = self.projection(aggregated_features)  # [actual_batch_size, 768]
+        # Project to BERT dimension
+        output = self.projection(aggregated_features)
         
         # Ensure output batch size matches input batch size if needed
         if output.size(0) < batch_size:
-            # Repeat the last sample to match the expected batch size
             num_repeats = batch_size - output.size(0)
             output = torch.cat([output, output[-1:].repeat(num_repeats, 1)], dim=0)
         
@@ -224,7 +204,7 @@ class FeatureExtractor(nn.Module):
         
     def _verify_output_dimensions(self):
         """Verify that the output dimensions match the expected hidden size."""
-        dummy_input = torch.randn(1, 3, self.input_size, self.input_size, device=self.device)
+        dummy_input = torch.randn(1, 3, self.input_size, self.input_size)
         with torch.no_grad():
             # Get AVDN features
             avdn_features = self._extract_features(dummy_input)
