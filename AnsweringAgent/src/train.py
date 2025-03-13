@@ -42,6 +42,9 @@ def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: i
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
                 num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None):
     """Train the model with mixed precision training and gradient accumulation."""
+
+    global logger
+    
     save_frequency = config.training.checkpoint_frequency
 
     # Enable automatic mixed precision training
@@ -235,6 +238,7 @@ def log_gpu_memory():
 
 def main(rank, world_size, checkpoint_path=None, config=Config()):
     try:
+        global logger
         # Set environment variables for DDP
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = '12355'
@@ -357,7 +361,6 @@ if __name__ == '__main__':
 
     config = Config()
 
-    global logger
     logger = setup_logger(config.log_dir)
 
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
