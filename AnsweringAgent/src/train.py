@@ -264,19 +264,31 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         torch.manual_seed(config.training.seed + rank)  # Different seed per process
         torch.cuda.manual_seed_all(config.training.seed + rank)
         
-        # Initialize tokenizer
-        tokenizer = BertTokenizerFast.from_pretrained(config.model.bert_model_name)
+        # Initialize tokenizer with error handling
+        try:
+            logger.info(f"Process {rank}: Initializing BERT tokenizer from {config.model.bert_model_name}")
+            tokenizer = BertTokenizerFast.from_pretrained(config.model.bert_model_name)
+            logger.info(f"Process {rank}: Successfully initialized BERT tokenizer")
+        except Exception as e:
+            logger.error(f"Process {rank}: Failed to initialize BERT tokenizer: {str(e)}")
+            raise e
         
         # Initialize model and move to correct GPU
-        model = AnsweringAgent(config, device)
-        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)  # Convert batch norm
-        model.to(device)
+        try:
+            logger.info(f"Process {rank}: Initializing AnsweringAgent model")
+            model = AnsweringAgent(config, device)
+            model = nn.SyncBatchNorm.convert_sync_batchnorm(model)  # Convert batch norm
+            model.to(device)
+            logger.info(f"Process {rank}: Successfully initialized AnsweringAgent model")
+        except Exception as e:
+            logger.error(f"Process {rank}: Failed to initialize AnsweringAgent model: {str(e)}")
+            raise e
         
-        # Resume training if checkpoint is provided
+        # Initialize training variables
         start_epoch = 0
         best_val_loss = float('inf')
         
-        # Wrap model with DDP after loading checkpoint
+        # Wrap model with DDP
         model = DDP(
             model,
             device_ids=[rank],
@@ -285,6 +297,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             broadcast_buffers=True
         )
         
+        # Resume training if checkpoint is provided
         if checkpoint_path and os.path.exists(checkpoint_path):
             logger.info(f"Process {rank}: Loading checkpoint from {checkpoint_path}")
             map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
