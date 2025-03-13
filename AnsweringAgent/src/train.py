@@ -239,6 +239,9 @@ def log_gpu_memory():
 
 def main(rank, world_size, checkpoint_path=None, config=Config()):
     try:
+        # Initialize logger for this process
+        logger = setup_logger('training', log_dir=config.log_dir)
+        
         # Set environment variables for DDP
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = '12355'
@@ -360,8 +363,7 @@ if __name__ == '__main__':
     import torch.multiprocessing as mp
 
     config = Config()
-    logger = setup_logger('training', log_dir=config.log_dir)
-
+    
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
     parser.add_argument('--port', type=str, default='12355', help='Port number for DDP communication')
@@ -383,5 +385,5 @@ if __name__ == '__main__':
             join=True
         )
     except Exception as e:
-        logger.error(f"Error in main process: {str(e)}")
+        print(f"Error in main process: {str(e)}")
         raise e
