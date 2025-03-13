@@ -224,18 +224,11 @@ class FeatureExtractor(nn.Module):
         self.darknet = Darknet(config)
         
         # Load weights
-        checkpoint = torch.load(config.data.darknet_weights_path)
-        
-        # Extract model weights from checkpoint
-        if 'model' in checkpoint:
-            new_state = checkpoint['model']
-        else:
-            new_state = checkpoint
-            
+        new_state = torch.load(config.data.darknet_weights_path)
         state = self.darknet.state_dict()
-        
-        # Update state dictionary with new weights
-        state.update(new_state)
+        model_keys = set(state.keys())
+        state_dict = {k: v for k, v in new_state['model'].items() if k in model_keys}
+        state.update(state_dict)
         self.darknet.load_state_dict(state)
         
         # Freeze Darknet weights
