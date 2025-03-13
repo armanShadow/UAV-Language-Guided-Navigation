@@ -1,53 +1,41 @@
 import logging
-import os
-from datetime import datetime
+import sys
 from pathlib import Path
 
-# Global logger instance
-_logger = None
-
-def setup_logger(log_dir):
-    """Set up logger with both file and console handlers."""
-    global _logger
+def setup_logger(name: str, log_dir: str = "logs"):
+    """Set up logger with both file and console handlers.
     
-    # If logger is already initialized, return it
-    if _logger is not None:
-        return _logger
-    
-    if log_dir is None:
-        raise ValueError("log_dir must be provided to setup_logger")
-        
-    # Create a unique log filename with timestamp
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_file = os.path.join(log_dir, f'training_{timestamp}.log')
+    Args:
+        name: Name of the logger
+        log_dir: Directory to store log files
+    """
+    # Create logs directory if it doesn't exist
+    log_dir = Path(log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
     
     # Create logger
-    logger = logging.getLogger('answering_agent')
-    logger.handlers = []  # Clear any existing handlers
-    logger.setLevel(logging.INFO)
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)  # Set base level to INFO
     
-    # Create console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    # Clear any existing handlers
+    logger.handlers = []
+    
+    # Create formatters
+    file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    
+    # File handler (INFO and above)
+    file_handler = logging.FileHandler(log_dir / f"{name}.log")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(file_formatter)
+    
+    # Console handler (ERROR and above)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.ERROR)
     console_handler.setFormatter(console_formatter)
+    
+    # Add handlers
+    logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
-    # Create file handler if log_dir is provided
-    if log_dir:
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(logging.INFO)
-        file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(file_formatter)
-        logger.addHandler(file_handler)
-    
-    # Store logger instance
-    _logger = logger
-    return _logger
-
-def get_logger():
-    """Get the global logger instance."""
-    global _logger
-    if _logger is None:
-        raise RuntimeError("Logger not initialized. Call setup_logger first.")
-    return _logger 
+    return logger 

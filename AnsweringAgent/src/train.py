@@ -357,7 +357,6 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         # Cleanup
         dist.destroy_process_group()
     except Exception as e:
-        global logger
         logger.error(f"Error in main function: {str(e.with_traceback())}")
 
 if __name__ == '__main__':
