@@ -15,6 +15,8 @@ from config import Config
 from models.answering_agent import AnsweringAgent
 from data.dataset import AnsweringDataset
 
+logger = None
+
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
     """Compute accuracy and other metrics."""
     # Reshape outputs and labels
@@ -44,7 +46,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     """Train the model with mixed precision training and gradient accumulation."""
 
     global logger
-    
+
     save_frequency = config.training.checkpoint_frequency
 
     # Enable automatic mixed precision training
@@ -239,6 +241,8 @@ def log_gpu_memory():
 def main(rank, world_size, checkpoint_path=None, config=Config()):
     try:
         global logger
+        logger = setup_logger(config.log_dir)
+
         # Set environment variables for DDP
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = '12355'
@@ -360,8 +364,6 @@ if __name__ == '__main__':
     import torch.multiprocessing as mp
 
     config = Config()
-
-    logger = setup_logger(config.log_dir)
 
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
