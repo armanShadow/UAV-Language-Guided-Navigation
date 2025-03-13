@@ -258,7 +258,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         # Set device and ensure it's the correct one
         torch.cuda.set_device(rank)
         device = torch.device(f'cuda:{rank}')
-        
+
         logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()} / {world_size}")
         
         # Set random seed for reproducibility
@@ -357,7 +357,8 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         # Cleanup
         dist.destroy_process_group()
     except Exception as e:
-        logger.error(f"Error in main function: {str(e)}, Full Traceback:\n {traceback.format_exc()}")
+        global logger
+        logger.error(f"Error in main function: {str(e.with_traceback())}")
 
 if __name__ == '__main__':
     import argparse
