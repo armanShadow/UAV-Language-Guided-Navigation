@@ -14,6 +14,7 @@ from torch.utils.data.distributed import DistributedSampler
 from config import Config
 from models.answering_agent import AnsweringAgent
 from data.dataset import AnsweringDataset
+import traceback
 
 
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
@@ -363,7 +364,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         # Cleanup
         dist.destroy_process_group()
     except Exception as e:
-        logger.error(f"Error in main function: {e}")
+        logger.error(f"Error in main function: {traceback.format_exc()}")
         raise e
 
 if __name__ == '__main__':
