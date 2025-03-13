@@ -243,7 +243,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         logger = setup_logger('training', log_dir=config.log_dir)
         
         # Set environment variables for DDP
-        os.environ['MASTER_ADDR'] = 'localhost'
+        os.environ['MASTER_ADDR'] = '127.0.0.1'
         os.environ['MASTER_PORT'] = '12355'
         
         # Initialize the process group
