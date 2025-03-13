@@ -1,4 +1,5 @@
 import os
+import traceback
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -7,15 +8,10 @@ from typing import Dict
 from transformers import BertTokenizerFast
 from utils.logger import setup_logger
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
-
 from config import Config
-config = Config()
-logger = setup_logger(config.log_dir)
-
 from models.answering_agent import AnsweringAgent
 from data.dataset import AnsweringDataset
 
@@ -239,7 +235,7 @@ def log_gpu_memory():
 
 
 
-def main(rank, world_size, checkpoint_path=None):
+def main(rank, world_size, checkpoint_path=None, config=Config(), logger=setup_logger()):
     try:
         # Set environment variables for DDP
         os.environ['MASTER_ADDR'] = 'localhost'
@@ -355,12 +351,14 @@ def main(rank, world_size, checkpoint_path=None):
         # Cleanup
         dist.destroy_process_group()
     except Exception as e:
-        logger.error(f"Error in main function: {str(e)}")
+        logger.error(f"Error in main function: {str(e)}, Full Traceback:\n {traceback.format_exc()}")
 
 if __name__ == '__main__':
     import argparse
     import torch.multiprocessing as mp
-    from datetime import datetime
+
+    config = Config()
+    logger = setup_logger(config.log_dir)
 
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
@@ -378,7 +376,7 @@ if __name__ == '__main__':
     try:
         mp.spawn(
             main,
-            args=(world_size, args.checkpoint),
+            args=(world_size, args.checkpoint, config, logger),
             nprocs=world_size,
             join=True
         )
