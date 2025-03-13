@@ -1,5 +1,5 @@
 import os
-import traceback
+import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -380,7 +380,6 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
-    parser.add_argument('--port', type=str, default='12355', help='Port number for DDP communication')
     args = parser.parse_args()
 
     # Set up distributed training
@@ -388,8 +387,10 @@ if __name__ == '__main__':
     if world_size < 1:
         raise RuntimeError("No CUDA GPUs available for training")
 
-    # Update port
-    os.environ['MASTER_PORT'] = args.port
+
+    # Set master address and port before spawning processes
+    os.environ['MASTER_ADDR'] = '127.0.0.1'
+    os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))  # Pick a random free port
 
     try:
         mp.spawn(
