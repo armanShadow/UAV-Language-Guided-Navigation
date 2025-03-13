@@ -223,35 +223,13 @@ class FeatureExtractor(nn.Module):
         """
         self.darknet = Darknet(config)
         
-        # Load weights with error handling
-        try:
-            print(f"Attempting to load weights from: {config.data.darknet_weights_path}")
-            new_state = torch.load(config.data.darknet_weights_path, map_location='cpu')
-            print("Successfully loaded weights file")
-            
-            if 'model' not in new_state:
-                print("Warning: No 'model' key found in loaded state dict")
-                print(f"Available keys: {new_state.keys()}")
-                return
-                
-            state = self.darknet.state_dict()
-            model_keys = set(state.keys())
-            state_dict = {k: v for k, v in new_state['model'].items() if k in model_keys}
-            
-            print(f"Model keys: {model_keys}")
-            print(f"Checkpoint keys: {set(new_state['model'].keys())}")
-            print(f"Matching keys: {set(state_dict.keys())}")
-            
-            state.update(state_dict)
-            self.darknet.load_state_dict(state)
-            print("Successfully loaded weights into model")
-            
-        except Exception as e:
-            print(f"Error loading weights: {str(e)}")
-            print(f"Error type: {type(e)}")
-            import traceback
-            print(f"Traceback: {traceback.format_exc()}")
-            print("Initializing model with random weights")
+        # Load weights
+        new_state = torch.load(config.data.darknet_weights_path)
+        state = self.darknet.state_dict()
+        model_keys = set(state.keys())
+        state_dict = {k: v for k, v in new_state['model'].items() if k in model_keys}
+        state.update(state_dict)
+        self.darknet.load_state_dict(state)
         
         # Freeze Darknet weights
         for param in self.darknet.parameters():
