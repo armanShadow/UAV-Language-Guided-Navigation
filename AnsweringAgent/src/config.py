@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import torch
-import subprocess
 
 
 # Update paths for Docker container structure
@@ -102,6 +101,6 @@ class Config:
 
 
     def __post_init__(self):
-        """Create necessary directories and setup full logger."""
+        """Create necessary directories."""
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)

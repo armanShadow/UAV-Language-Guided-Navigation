@@ -4,11 +4,8 @@ from transformers import BertModel, BertTokenizer
 from models.feature_extractor import FeatureExtractor
 from typing import Dict, Tuple, Optional
 import math
-from utils.logger import get_logger
 from config import Config
 
-# Get the logger instance
-logger = get_logger()
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
@@ -104,6 +101,9 @@ class MultiModalAttention(nn.Module):
 class AnsweringAgent(nn.Module):
     def __init__(self, config: Config, device: torch.device):
         super().__init__()
+        global logger
+        logger = get_logger()
+
         self.config = config
         self.device = device  # Store device but don't use for explicit .to() calls
 
@@ -184,7 +184,6 @@ class AnsweringAgent(nn.Module):
             self.load_state_dict(checkpoint['model_state_dict'])
         else:
             self.load_state_dict(checkpoint)
-        logger.info(f"Loaded checkpoint from {checkpoint_path}")
 
     def forward(self, text_input, current_view, previous_views):
         """
@@ -363,13 +362,3 @@ class AnsweringAgent(nn.Module):
         fused_features = self.feature_fusion(combined)  # [batch_size, seq_len, hidden_size]
         
         return fused_features
-
-    def _verify_device_placement(self):
-        """Verify all components are on the correct device."""
-        for name, param in self.named_parameters():
-            if param.data.device != self.device:
-                raise RuntimeError(f"Parameter {name} is not on the correct device. Expected {self.device}, found {param.data.device}")
-        for buffer in self.buffers():
-            if buffer.device != self.device:
-                raise RuntimeError(f"Buffer {buffer} is not on the correct device. Expected {self.device}, found {buffer.device}")
-        logger.info("All components are on the correct device.") 

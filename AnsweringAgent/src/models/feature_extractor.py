@@ -3,11 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from models.darknet import Darknet
 from typing import Optional
-from utils.logger import get_logger
 from config import Config
-
-# Get the logger instance
-logger = get_logger()
 
 class SoftDotAttention(nn.Module):
     '''Soft Dot Attention from AVDN codebase.'''
@@ -227,14 +223,12 @@ class FeatureExtractor(nn.Module):
         """
         self.darknet = Darknet(config)
         
-        # Load weights with proper device mapping
-        new_state = torch.load(config.data.darknet_weights_path, map_location=self.device)
+        # Load weights
+        new_state = torch.load(config.data.darknet_weights_path)
         state = self.darknet.state_dict()
         
-        # Update state dict with new weights
-        for k, v in new_state.items():
-            if k in state:
-                state[k] = v
+        # Update state dictionary with new weights
+        state.update(new_state)
         self.darknet.load_state_dict(state)
         
         # Freeze Darknet weights

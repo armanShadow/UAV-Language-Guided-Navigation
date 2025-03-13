@@ -15,7 +15,7 @@ from config import Config
 from models.answering_agent import AnsweringAgent
 from data.dataset import AnsweringDataset
 
-
+logger = None
 
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
     """Compute accuracy and other metrics."""
@@ -358,6 +358,7 @@ if __name__ == '__main__':
     import torch.multiprocessing as mp
 
     config = Config()
+    global logger
     logger = setup_logger(config.log_dir)
 
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')

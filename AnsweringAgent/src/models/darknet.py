@@ -2,9 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Dict, Any, Tuple
-from utils.logger import get_logger
 from config import Config
-logger = get_logger()
 
 def create_modules(module_defs: List[Dict[str, Any]]) -> Tuple[nn.ModuleList, List[int]]:
     """
@@ -164,16 +162,11 @@ class YOLOLayer(nn.Module):
         pred_conf = torch.sigmoid(prediction[..., 4])  # Conf
         pred_cls = torch.sigmoid(prediction[..., 5:])  # Cls pred.
         
-        # Move grid and anchors to device
-        grid_x = self.grid_x.to(x.device).repeat(batch_size, self.num_anchors, 1, 1)
-        grid_y = self.grid_y.to(x.device).repeat(batch_size, self.num_anchors, 1, 1)
-        scaled_anchors = self.scaled_anchors.to(x.device).repeat(batch_size, 1, 1, 1)
-        
         # Add offset and scale with anchors
-        pred_boxes = torch.zeros(prediction[..., :4].shape, device=x.device)
-        pred_boxes[..., 0] = x.data + grid_x
-        pred_boxes[..., 1] = y.data + grid_y
-        pred_boxes[..., 2:4] = torch.exp(w.data) * scaled_anchors
+        pred_boxes = torch.zeros_like(prediction[..., :4])
+        pred_boxes[..., 0] = x.data + self.grid_x
+        pred_boxes[..., 1] = y.data + self.grid_y
+        pred_boxes[..., 2:4] = torch.exp(w.data) * self.scaled_anchors
         
         # Reshape to [batch_size, num_anchors * grid_size * grid_size, bbox_attrs]
         return torch.cat(
@@ -194,16 +187,11 @@ class Darknet(nn.Module):
             config: Configuration object
         """
         super(Darknet, self).__init__()
-        self.device = torch.device(config.training.device)
-        logger.info(f"Initializing Darknet on device: {self.device}")
         
         self.module_defs = self._parse_model_config(config.data.darknet_config_path)
         self.module_defs[0]['height'] = config.model.img_size
         self.module_list, self.output_filters = create_modules(self.module_defs)
         self.img_size = config.model.img_size
-        
-        # Move to appropriate device
-        self.to(self.device)
         
     def _parse_model_config(self, path: str) -> List[Dict[str, Any]]:
         """
@@ -260,56 +248,4 @@ class Darknet(nn.Module):
             if module_def['type'] == 'yolo':
                 yolo_outputs.append(x)
                 
-        return yolo_outputs[-1] if yolo_outputs else layer_outputs[-1]
-        
-    def to_device(self, device: str):
-        """Move the model and all its parameters to the specified device."""
-        self.device = torch.device(device)
-        logger.debug(f"Moving Darknet to device: {self.device}")
-        
-        # Move all modules to device
-        for i, module in enumerate(self.module_list):
-            module.to(self.device)
-            logger.debug(f"Module {i} moved to device: {self.device}")
-            
-            if isinstance(module, nn.Sequential):
-                for j, layer in enumerate(module):
-                    layer.to(self.device)
-                    if isinstance(layer, nn.Conv2d):
-                        logger.debug(f"Module {i}, Layer {j} (Conv2d) weights device: {layer.weight.device}")
-                    elif isinstance(layer, nn.BatchNorm2d):
-                        logger.debug(f"Module {i}, Layer {j} (BatchNorm2d) weights device: {layer.weight.device}")
-                    elif isinstance(layer, YOLOLayer):
-                        layer.grid_x = layer.grid_x.to(self.device)
-                        layer.grid_y = layer.grid_y.to(self.device)
-                        layer.scaled_anchors = layer.scaled_anchors.to(self.device)
-                        layer.anchor_w = layer.anchor_w.to(self.device)
-                        layer.anchor_h = layer.anchor_h.to(self.device)
-                        logger.debug(f"Module {i}, Layer {j} (YOLOLayer) moved to device: {self.device}")
-                        
-        # Verify all components are on the correct device
-        self._verify_device_consistency()
-        
-    def _verify_device_consistency(self):
-        """Verify that all model components are on the correct device."""
-        for name, param in self.named_parameters():
-            if param.device != self.device:
-                logger.warning(f"Parameter {name} is on {param.device} instead of {self.device}")
-                param.data = param.data.to(self.device)
-                
-        # Verify all modules
-        for i, module in enumerate(self.module_list):
-            if isinstance(module, nn.Sequential):
-                for j, layer in enumerate(module):
-                    if isinstance(layer, (nn.Conv2d, nn.BatchNorm2d)):
-                        if layer.weight.device != self.device:
-                            logger.warning(f"Module {i}, Layer {j} weights are on {layer.weight.device} instead of {self.device}")
-                            layer.to(self.device)
-                    elif isinstance(layer, YOLOLayer):
-                        if layer.grid_x.device != self.device:
-                            logger.warning(f"Module {i}, Layer {j} (YOLOLayer) tensors are on {layer.grid_x.device} instead of {self.device}")
-                            layer.grid_x = layer.grid_x.to(self.device)
-                            layer.grid_y = layer.grid_y.to(self.device)
-                            layer.scaled_anchors = layer.scaled_anchors.to(self.device)
-                            layer.anchor_w = layer.anchor_w.to(self.device)
-                            layer.anchor_h = layer.anchor_h.to(self.device) 
+        return yolo_outputs[-1] if yolo_outputs else layer_outputs[-1] 
