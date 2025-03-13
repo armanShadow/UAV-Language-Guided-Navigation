@@ -364,6 +364,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         dist.destroy_process_group()
     except Exception as e:
         logger.error(f"Error in main function: {e}")
+        raise e
 
 if __name__ == '__main__':
     import argparse
@@ -380,13 +381,17 @@ if __name__ == '__main__':
     if world_size < 1:
         raise RuntimeError("No CUDA GPUs available for training")
 
+
     # Set master address and port before spawning processes
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))  # Pick a random free port
 
-    mp.spawn(
-        main,
-        args=(world_size, args.checkpoint, config),
-        nprocs=world_size,
-        join=True
-    )
+    try:
+        mp.spawn(
+            main,
+            args=(world_size, args.checkpoint, config),
+            nprocs=world_size,
+            join=True
+        )
+    except Exception as e:
+        print(f"Error in main process")
