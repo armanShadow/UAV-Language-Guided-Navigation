@@ -233,7 +233,7 @@ def log_gpu_memory():
 
 
 
-def main(rank, world_size, checkpoint_path=None, config=Config(), logger=setup_logger()):
+def main(rank, world_size, checkpoint_path=None, config=Config()):
     try:
         # Set environment variables for DDP
         os.environ['MASTER_ADDR'] = 'localhost'
@@ -376,7 +376,7 @@ if __name__ == '__main__':
     try:
         mp.spawn(
             main,
-            args=(world_size, args.checkpoint, config, logger),
+            args=(world_size, args.checkpoint, config),
             nprocs=world_size,
             join=True
         )
