@@ -231,7 +231,7 @@ class AnsweringAgent(nn.Module):
         combined_features = self.combine_features(text_features, visual_features)  # [batch_size, seq_len, hidden_size]
         
         # Create target mask to prevent attention to future tokens
-        target_mask = self.generate_square_subsequent_mask(seq_len)
+        target_mask = self.generate_square_subsequent_mask(seq_len, input_ids.device)
         
         # Process through decoder
         decoder_output = self.decoder(
@@ -252,16 +252,17 @@ class AnsweringAgent(nn.Module):
         
         return output
     
-    def generate_square_subsequent_mask(self, sz: int) -> torch.Tensor:
+    def generate_square_subsequent_mask(self, sz: int, device: torch.device) -> torch.Tensor:
         """Generate square mask for transformer decoder.
         
         Args:
             sz (int): Size of the square mask (sequence length)
+            device (torch.device): Device to create the mask on
             
         Returns:
             torch.Tensor: Mask tensor of shape [sz, sz] with -inf for masked positions
         """
-        mask = torch.triu(torch.ones(sz, sz), diagonal=1).bool()
+        mask = torch.triu(torch.ones(sz, sz, device=device), diagonal=1).bool()
         mask = mask.float().masked_fill(mask, float('-inf')).masked_fill(~mask, float(0.0))
         return mask
 

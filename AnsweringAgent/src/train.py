@@ -82,6 +82,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     previous_views = [view.to(device, non_blocking=True) for view in batch['previous_views_image']]
                     labels = batch['text_label'].to(device, non_blocking=True)
 
+                    # Log GPU memory after data transfer
+                    if rank == 0 and batch_idx % 100 == 0:
+                        logger.info(f'GPU Memory after data transfer (batch {batch_idx}): {log_gpu_memory()}')
+
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast():
                         outputs = model(text_input, current_view, previous_views)
