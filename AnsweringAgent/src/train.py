@@ -264,6 +264,8 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
 
         logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()} / {world_size}")
 
+        device = torch.device(f'cuda:{rank}')
+
         # Log detailed GPU information
         if rank == 0:  # Only log from the main process
             logger.info(f"Using {world_size} GPUs")
@@ -326,7 +328,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             lr=config.training.learning_rate,
             weight_decay=config.training.weight_decay
         )
-        criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id).to(device)
+        criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
         scheduler = ReduceLROnPlateau(
             optimizer,
             mode='min',
