@@ -239,7 +239,7 @@ def log_gpu_memory():
 def setup(rank, world_size):
     """Initialize process group for distributed training."""
     try:
-        os.environ['MASTER_ADDR'] = 'localhost'
+        os.environ['MASTER_ADDR'] = '127.0.0.1'
         port = random.randint(20000, 30000)
         os.environ['MASTER_PORT'] = str(port)
         
