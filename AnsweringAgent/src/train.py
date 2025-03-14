@@ -123,12 +123,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         logger.info(f'GPU Memory: {log_gpu_memory()}')
 
                 except Exception as e:
-                    logger.error(f"Error in training batch {batch_idx}: {str(e)}")
+                    logger.error(f"Error in training batch {batch_idx}: {str(e)}\nTraceback: {traceback.format_exc()}")
                     continue
 
             # Synchronize loss across processes
             if dist.is_initialized():
-                loss_tensor = torch.tensor(total_loss, device=device)
+                loss_tensor = torch.tensor(total_loss, device=rank)
                 dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
                 total_loss = loss_tensor.item() / dist.get_world_size()
 
@@ -147,10 +147,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 with torch.no_grad():
                     for batch_idx, batch in enumerate(val_loader):
                         try:
-                            text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
-                            current_view = batch['current_view_image'].to(device, non_blocking=True)
-                            previous_views = [view.to(device, non_blocking=True) for view in batch['previous_views_image']]
-                            labels = batch['text_label'].to(device, non_blocking=True)
+                            text_input = {k: v.to(rank, non_blocking=True) for k, v in batch['text_input'].items()}
+                            current_view = batch['current_view_image'].to(rank, non_blocking=True)
+                            previous_views = [view.to(rank, non_blocking=True) for view in batch['previous_views_image']]
+                            labels = batch['text_label'].to(rank, non_blocking=True)
 
                             with torch.cuda.amp.autocast():
                                 outputs = model(text_input, current_view, previous_views)
@@ -161,12 +161,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             val_loss += loss.item()
 
                         except Exception as e:
-                            logger.error(f"Error in validation batch {batch_idx}: {str(e)}")
+                            logger.error(f"Error in validation batch {batch_idx}: {str(e)}\nTraceback: {traceback.format_exc()}")
                             continue
 
                 # Synchronize validation loss across processes
                 if dist.is_initialized():
-                    val_loss_tensor = torch.tensor(val_loss, device=device)
+                    val_loss_tensor = torch.tensor(val_loss, device=rank)
                     dist.all_reduce(val_loss_tensor, op=dist.ReduceOp.SUM)
                     val_loss = val_loss_tensor.item() / dist.get_world_size()
                 val_loss /= len(val_loader)
@@ -221,7 +221,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     torch.cuda.empty_cache()
 
     except Exception as e:
-        logger.error(f"Error in training loop: {str(e)}")
+        logger.error(f"Error in training loop: {str(e)}\nTraceback: {traceback.format_exc()}")
         raise e
 
     
