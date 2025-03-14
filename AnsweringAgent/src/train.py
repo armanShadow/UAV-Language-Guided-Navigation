@@ -244,50 +244,18 @@ def log_gpu_memory():
 def setup(rank, world_size):
     print(f"[DEBUG] Process {rank}: Starting setup")
     
-    print(f"[DEBUG] Process {rank}: Setting MASTER_ADDR")
-    os.environ['MASTER_ADDR'] = '127.0.0.1'  # Using localhost instead of 127.0.0.1
-    print(f"[DEBUG] Process {rank}: MASTER_ADDR set to {os.environ['MASTER_ADDR']}")
+    # Set basic environment variables
+    os.environ['MASTER_ADDR'] = '127.0.0.1'
+    os.environ['MASTER_PORT'] = '12355'
     
-    print(f"[DEBUG] Process {rank}: Setting MASTER_PORT")
-    port = random.randint(29500, 30000)  # Use PyTorch's recommended port range
-    os.environ['MASTER_PORT'] = str(port)
-    print(f"[DEBUG] Process {rank}: MASTER_PORT set to {port}")
-    
-    print(f"[DEBUG] Process {rank}: About to initialize process group")
-    
-    # Try different initialization methods
-    init_methods = [
-        ('nccl', f'env://'),
-        ('nccl', f'tcp://127.0.0.1:{port}'),
-        ('gloo', f'env://'),
-        ('gloo', f'tcp://127.0.0.1:{port}')
-    ]
-    
-    last_exception = None
-    for backend, init_method in init_methods:
-        try:
-            print(f"[DEBUG] Process {rank}: Trying {backend} backend with {init_method}")
-            dist.init_process_group(
-                backend=backend,
-                init_method=init_method,
-                world_size=world_size,
-                rank=rank,
-                timeout=datetime.timedelta(minutes=1)  # Add 1 minute timeout
-            )
-            print(f"[DEBUG] Process {rank}: Successfully initialized with {backend} backend")
-            return  # If successful, exit the function
-        except Exception as e:
-            last_exception = e
-            print(f"[DEBUG] Process {rank}: Failed with {backend} backend: {str(e)}")
-            # Try to clean up before next attempt
-            try:
-                dist.destroy_process_group()
-            except:
-                pass
-            time.sleep(1)  # Wait a bit before next attempt
-    
-    # If we get here, all initialization attempts failed
-    raise RuntimeError(f"Process {rank}: Failed to initialize process group. Last error: {str(last_exception)}")
+    # Initialize process group with NCCL backend
+    dist.init_process_group(
+        backend='nccl',
+        init_method='env://',
+        world_size=world_size,
+        rank=rank
+    )
+    print(f"[DEBUG] Process {rank}: Setup completed")
 
 
 def main(rank, world_size, checkpoint_path=None, config=Config(), bert_model=None, tokenizer=None):
@@ -413,14 +381,17 @@ if __name__ == '__main__':
     import argparse
     import torch.multiprocessing as mp
 
+    # Enable debugging for torch.distributed
+    os.environ['NCCL_DEBUG'] = 'INFO'
+    os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'
+
     config = Config()
     print("[MAIN] Config loaded")
 
-    # Initialize BERT and tokenizer once
-    print("[MAIN] Initializing BERT model and tokenizer")
-    bert_model = BertModel.from_pretrained(config.model.bert_model_name)
+    # Initialize tokenizer for dataset processing
+    print("[MAIN] Initializing tokenizer")
     tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
-    print("[MAIN] BERT model and tokenizer initialized")
+    print("[MAIN] Tokenizer initialized")
 
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
@@ -432,14 +403,28 @@ if __name__ == '__main__':
     if world_size < 1:
         raise RuntimeError("No CUDA GPUs available for training")
 
+    # Clean up any stale file handles or shared memory
+    try:
+        dist.destroy_process_group()
+    except:
+        pass
+
     try:
         print(f"[MAIN] About to spawn processes")
         mp.spawn(
             main,
-            args=(world_size, args.checkpoint, config, bert_model, tokenizer),
+            args=(world_size, args.checkpoint, config, tokenizer),
             nprocs=world_size,
             join=True
         )
         print("[MAIN] Spawn completed")
     except Exception as e:
         print(f"[MAIN] Error in main process: {str(traceback.format_exc())}")
+        # Try to clean up on error
+        try:
+            dist.destroy_process_group()
+        except:
+            pass
+        # Make sure all processes are terminated
+        import sys
+        sys.exit(1)
