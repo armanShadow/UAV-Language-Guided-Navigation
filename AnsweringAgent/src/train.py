@@ -70,9 +70,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             total_loss = 0
             optimizer.zero_grad(set_to_none=True)
 
+            # All ranks participate in memory logging, but only rank 0 prints
+            memory_stats = log_gpu_memory()
             if rank == 0:
                 logger.info(f"Starting epoch {epoch + 1}/{num_epochs}")
-                logger.info(f'GPU Memory at epoch start: {log_gpu_memory()}')
+                logger.info(f'GPU Memory at epoch start: {memory_stats}')
 
             for batch_idx, batch in enumerate(train_loader):
                 try:
@@ -120,12 +122,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
 
-                    # Log every 100 batches on rank 0
-                    if batch_idx % 100 == 0 and rank == 0:
+                    # Log every 100 batches, but all ranks participate in memory logging
+                    if batch_idx % 100 == 0:
                         avg_loss = total_loss / (batch_idx + 1)
-                        logger.info(
-                            f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, Loss: {avg_loss:.4f}')
-                        logger.info(f'GPU Memory: {log_gpu_memory()}')
+                        memory_stats = log_gpu_memory()
+                        if rank == 0:
+                            logger.info(
+                                f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, Loss: {avg_loss:.4f}')
+                            logger.info(f'GPU Memory: {memory_stats}')
 
                 except Exception as e:
                     logger.error(f"Error in training batch {batch_idx}: {str(e)}")
@@ -219,8 +223,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     }, os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch + 1}.pt'))
                     logger.info(f'Checkpoint saved at epoch {epoch + 1}')
 
+                # All ranks participate in memory logging after validation
+                memory_stats = log_gpu_memory()
                 if rank == 0:
-                    logger.info(f'After validation GPU Memory: {log_gpu_memory()}')
+                    logger.info(f'After validation GPU Memory: {memory_stats}')
 
                 # Clear cache periodically
                 if torch.cuda.is_available():
@@ -246,7 +252,7 @@ def log_gpu_memory():
     gathered_allocated[dist.get_rank()] = memory_allocated
     gathered_reserved[dist.get_rank()] = memory_reserved
     
-    # Gather memory stats from all processes
+    # All processes must participate in all_reduce
     if dist.is_initialized():
         dist.all_reduce(gathered_allocated, op=dist.ReduceOp.MAX)
         dist.all_reduce(gathered_reserved, op=dist.ReduceOp.MAX)
