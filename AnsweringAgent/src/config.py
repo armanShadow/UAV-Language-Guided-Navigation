@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import torch
-from sympy.codegen.ast import Raise
 
 # Update paths for Docker container structure
 PROJECT_ROOT = Path("/app/UAV-Language-Guided-Navigation")
