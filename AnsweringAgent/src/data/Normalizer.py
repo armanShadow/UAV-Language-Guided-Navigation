@@ -21,10 +21,10 @@ class AnsweringAgentNormalizer:
         'lon': {'min': -180, 'max': 180}
     }
 
-    def __init__(self):
+    def __init__(self, tokenizer):
         """Initialize the normalizer with BERT tokenizer."""
         #TODO: #4 BertTokenizerFast vs BertTokenizer. is it confusing the model?
-        self.tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
+        self.tokenizer = tokenizer
 
     def load_image(self, file_path: str) -> np.ndarray:
         """Load an image from file and ensure RGB format.

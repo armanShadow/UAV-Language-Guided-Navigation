@@ -99,14 +99,13 @@ class MultiModalAttention(nn.Module):
         return attn_output
 
 class AnsweringAgent(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, bert_model: BertModel):
         super().__init__()
 
         self.config = config
 
         # Initialize BERT and tokenizer
-        self.bert = BertModel.from_pretrained(config.model.bert_model_name)
-        self.tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
+        self.bert = bert_model
         self.bert_dropout = nn.Dropout(config.model.dropout)
 
         # Verify hidden sizes match
@@ -262,11 +261,10 @@ class AnsweringAgent(nn.Module):
         Returns:
             torch.Tensor: Mask tensor of shape [sz, sz] with -inf for masked positions
         """
-        device = next(self.parameters()).device
-        mask = torch.triu(torch.ones(sz, sz, device=device), diagonal=1).bool()
+        mask = torch.triu(torch.ones(sz, sz), diagonal=1).bool()
         mask = mask.float().masked_fill(mask, float('-inf')).masked_fill(~mask, float(0.0))
         return mask
-    
+
 
     def combine_features(self, text_features, visual_features):
         """

@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from typing import Dict
-from transformers import BertTokenizerFast
+from transformers import BertTokenizerFast, BertModel, BertTokenizer
 from utils.logger import setup_logger
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.distributed as dist
@@ -290,7 +290,7 @@ def setup(rank, world_size):
     raise RuntimeError(f"Process {rank}: Failed to initialize process group. Last error: {str(last_exception)}")
 
 
-def main(rank, world_size, checkpoint_path=None, config=Config()):
+def main(rank, world_size, checkpoint_path=None, config=Config(), bert_model=None, tokenizer=None):
     print(f"[Process {rank}] Starting main function")
     try:
         print(f"[Process {rank}] Initializing logger")
@@ -306,37 +306,15 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
 
         device = torch.device(f'cuda:{rank}')
 
-        # Log detailed GPU information
-        if rank == 0:  # Only log from the main process
-            logger.info(f"Using {world_size} GPUs")
-            logger.info(f"Batch size: {config.training.batch_size}")
-            logger.info(f"Number of workers: {config.training.num_workers}")
-
-            # Log GPU information for all available GPUs
-            for gpu_id in range(world_size):
-                gpu_name = torch.cuda.get_device_name(gpu_id)
-                memory_total = torch.cuda.get_device_properties(gpu_id).total_memory / 1024 ** 2
-                memory_allocated = torch.cuda.memory_allocated(gpu_id) / 1024 ** 2
-                memory_reserved = torch.cuda.memory_reserved(gpu_id) / 1024 ** 2
-                logger.info(f"GPU {gpu_id}: {gpu_name}")
-                logger.info(f"  - Total Memory: {memory_total:.1f}MB")
-                logger.info(f"  - Allocated Memory: {memory_allocated:.1f}MB")
-                logger.info(f"  - Reserved Memory: {memory_reserved:.1f}MB")
-
-        # Set random seed for reproducibility
-        torch.manual_seed(config.training.seed + rank)  # Different seed per process
-        torch.cuda.manual_seed_all(config.training.seed + rank)
-
-        # Initialize tokenizer with error handling
-        logger.info(f"Process {rank}: Initializing BERT tokenizer from {config.model.bert_model_name}")
-        tokenizer = BertTokenizerFast.from_pretrained(config.model.bert_model_name)
-        logger.info(f"Process {rank}: Successfully initialized BERT tokenizer")
+        # Move BERT model to the correct device
+        if bert_model is not None:
+            bert_model = bert_model.to(device)
 
         # Initialize model and move to correct GPU
         logger.info(f"Process {rank}: Initializing AnsweringAgent model")
-        model = AnsweringAgent(config)
+        model = AnsweringAgent(config, bert_model=bert_model)
         model = nn.SyncBatchNorm.convert_sync_batchnorm(model)  # Convert batch norm
-        model.to(rank)
+        model.to(device)
         logger.info(f"Process {rank}: Successfully initialized AnsweringAgent model")
 
         # Initialize training variables
@@ -438,6 +416,12 @@ if __name__ == '__main__':
     config = Config()
     print("[MAIN] Config loaded")
 
+    # Initialize BERT and tokenizer once
+    print("[MAIN] Initializing BERT model and tokenizer")
+    bert_model = BertModel.from_pretrained(config.model.bert_model_name)
+    tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
+    print("[MAIN] BERT model and tokenizer initialized")
+
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
     args = parser.parse_args()
@@ -452,7 +436,7 @@ if __name__ == '__main__':
         print(f"[MAIN] About to spawn processes")
         mp.spawn(
             main,
-            args=(world_size, args.checkpoint, config),
+            args=(world_size, args.checkpoint, config, bert_model, tokenizer),
             nprocs=world_size,
             join=True
         )

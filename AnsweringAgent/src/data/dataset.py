@@ -21,12 +21,11 @@ class AnsweringDataset(Dataset):
         self.config = config
         self.csv_path = config.data.train_csv_path
         #TODO: #3 Redundant tokenizer. No Usage. AnsweringAgentNormalizer creates a tokenizer
-        self.tokenizer = tokenizer
         self.image_dir = config.data.avdn_image_dir
         self.max_previous_views = config.data.max_previous_views
         
         # Initialize normalizer
-        self.normalizer = AnsweringAgentNormalizer()
+        self.normalizer = AnsweringAgentNormalizer(tokenizer)
         
         # Load data from CSV
         self.data = pd.read_csv(self.csv_path)
