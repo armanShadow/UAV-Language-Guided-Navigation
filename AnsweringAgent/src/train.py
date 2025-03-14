@@ -239,18 +239,19 @@ def log_gpu_memory():
 def setup(rank, world_size):
     """Initialize process group for distributed training."""
     try:
-        # Set master address and port
-        os.environ['MASTER_ADDR'] = '127.0.0.1'
-        os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))
-
+        os.environ['MASTER_ADDR'] = 'localhost'
+        port = random.randint(29500, 30000)
+        os.environ['MASTER_PORT'] = str(port)
+        
         dist.init_process_group(
             backend='nccl',
+            init_method=f'env://',
             world_size=world_size,
-            rank=rank,
+            rank=rank
         )
 
     except Exception as e:
-        print(f"Error initializing process group: {str(e)}")
+        print(f"Process {rank}: Full traceback: {traceback.format_exc()}")
         raise e
 
 def main(rank, world_size, checkpoint_path=None, config=Config()):
