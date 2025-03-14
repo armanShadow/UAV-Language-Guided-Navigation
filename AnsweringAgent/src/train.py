@@ -240,7 +240,7 @@ def setup(rank, world_size):
     """Initialize process group for distributed training."""
     try:
         os.environ['MASTER_ADDR'] = 'localhost'
-        port = random.randint(29500, 30000)
+        port = random.randint(20000, 30000)
         os.environ['MASTER_PORT'] = str(port)
         
         dist.init_process_group(
