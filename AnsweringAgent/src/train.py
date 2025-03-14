@@ -361,7 +361,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         # Cleanup
         dist.destroy_process_group()
     except Exception as e:
-        logger.error(f"Error in main function: {traceback.format_exc()}")
+        logger.error(f"Error in main function: {str(e)}")
         raise e
 
 if __name__ == '__main__':
@@ -392,4 +392,4 @@ if __name__ == '__main__':
             join=True
         )
     except Exception as e:
-        print(f"Error in main process")
+        print(f"Error in main process: {str(traceback.format_exc())}")
