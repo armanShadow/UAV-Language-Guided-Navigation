@@ -15,6 +15,7 @@ from config import Config
 from models.answering_agent import AnsweringAgent
 from data.dataset import AnsweringDataset
 import traceback
+import datetime
 
 
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
@@ -235,28 +236,40 @@ def log_gpu_memory():
     return ', '.join(memory_stats)
 
 def setup(rank, world_size):
-    # Set master address and port before spawning processes
-    os.environ['MASTER_ADDR'] = '127.0.0.1'
-    os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))  # Pick a random free port
+    """Initialize process group for distributed training."""
+    try:
+        # Set master address and port
+        os.environ['MASTER_ADDR'] = '127.0.0.1'
+        os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))
 
-    # Initialize the process group
-    dist.init_process_group(
-        backend='nccl',
-        init_method='env://',
-        world_size=world_size,
-        rank=rank
-    )
+        # Initialize the process group with a timeout
+        timeout = datetime.timedelta(minutes=1)
+        dist.init_process_group(
+            backend='nccl',
+            init_method='env://',
+            world_size=world_size,
+            rank=rank,
+            timeout=timeout
+        )
+    except Exception as e:
+        print(f"Error initializing process group: {str(e)}")
+        raise e
 
 def main(rank, world_size, checkpoint_path=None, config=Config()):
     try:
+        print(f"Process {rank}: Starting initialization")
 
         # Initialize logger for this process
         logger = setup_logger('training', log_dir=config.log_dir)
+        logger.info(f"Process {rank}: Logger initialized")
 
-        # Set environment variables for DDP
-        setup(rank, world_size)
+        # Set up distributed training only if using multiple GPUs
+        if world_size > 1:
+            logger.info(f"Process {rank}: Setting up distributed training")
+            setup(rank, world_size)
+            logger.info(f"Process {rank}: Distributed training setup completed")
 
-        logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()} / {world_size}")
+        logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()}")
         
         # Log detailed GPU information
         if rank == 0:  # Only log from the main process
@@ -373,34 +386,64 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             logger=logger  # Pass logger to train_model
         )
 
-        # Cleanup
-        dist.destroy_process_group()
+        # Cleanup only if using distributed training
+        if world_size > 1 and dist.is_initialized():
+            logger.info(f"Process {rank}: Cleaning up process group")
+            dist.destroy_process_group()
+            logger.info(f"Process {rank}: Process completed successfully")
 
     except Exception as e:
-        logger.error(f"Error in main function: {str(e)}")
+        logger.error(f"Process {rank}: Error in main function: {str(e)}\nTraceback: {traceback.format_exc()}")
+        if world_size > 1 and dist.is_initialized():
+            dist.destroy_process_group()
         raise e
 
 if __name__ == '__main__':
     import argparse
     import torch.multiprocessing as mp
 
+    print("Starting main process")
     config = Config()
     
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
+    parser.add_argument('--single-gpu', action='store_true', help='Force single GPU training even if multiple GPUs are available')
     args = parser.parse_args()
 
-    # Set up distributed training
+    # Check CUDA availability
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is not available. This model requires GPU for training.")
+
+    # Get number of available GPUs
     world_size = torch.cuda.device_count()
+    print(f"Found {world_size} GPUs")
+
     if world_size < 1:
         raise RuntimeError("No CUDA GPUs available for training")
 
-    try:
-        mp.spawn(
-            main,
-            args=(world_size, args.checkpoint, config),
-            nprocs=world_size,
-            join=True
-        )
-    except Exception as e:
-        print(f"Error in main process: {str(traceback.format_exc())}")
+    # Check if we should use single GPU mode
+    if args.single_gpu or world_size == 1:
+        print("Running in single GPU mode")
+        try:
+            main(0, 1, args.checkpoint, config)  # Run directly without spawning
+        except Exception as e:
+            print(f"Error in single GPU mode: {str(traceback.format_exc())}")
+    else:
+        print(f"Running in multi-GPU mode with {world_size} GPUs")
+        try:
+            # Set start method to spawn
+            try:
+                mp.set_start_method('spawn', force=True)
+            except RuntimeError:
+                pass  # Method already set
+
+            print("Spawning processes")
+            mp.spawn(
+                main,
+                args=(world_size, args.checkpoint, config),
+                nprocs=world_size,
+                join=True
+            )
+            print("All processes completed successfully")
+        except Exception as e:
+            print(f"Error in multi-GPU mode: {str(traceback.format_exc())}")
