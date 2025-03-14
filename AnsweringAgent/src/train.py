@@ -258,7 +258,7 @@ def setup(rank, world_size):
     print(f"[DEBUG] Process {rank}: Setup completed")
 
 
-def main(rank, world_size, checkpoint_path=None, config=Config(), bert_model=None, tokenizer=None):
+def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None):
     print(f"[Process {rank}] Starting main function")
     try:
         print(f"[Process {rank}] Initializing logger")
@@ -274,15 +274,11 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), bert_model=Non
 
         device = torch.device(f'cuda:{rank}')
 
-        # Move BERT model to the correct device
-        if bert_model is not None:
-            bert_model = bert_model.to(device)
-
         # Initialize model and move to correct GPU
         logger.info(f"Process {rank}: Initializing AnsweringAgent model")
-        model = AnsweringAgent(config, bert_model=bert_model)
+        model = AnsweringAgent(config)  # Initialize model without BERT
         model = nn.SyncBatchNorm.convert_sync_batchnorm(model)  # Convert batch norm
-        model.to(device)
+        model.to(device)  # Move model to GPU
         logger.info(f"Process {rank}: Successfully initialized AnsweringAgent model")
 
         # Initialize training variables

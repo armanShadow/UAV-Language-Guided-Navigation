@@ -99,13 +99,13 @@ class MultiModalAttention(nn.Module):
         return attn_output
 
 class AnsweringAgent(nn.Module):
-    def __init__(self, config: Config, bert_model: BertModel):
+    def __init__(self, config: Config):
         super().__init__()
 
         self.config = config
 
         # Initialize BERT and tokenizer
-        self.bert = bert_model
+        self.bert = BertModel.from_pretrained(config.model.bert_model_name)
         self.bert_dropout = nn.Dropout(config.model.dropout)
 
         # Verify hidden sizes match
