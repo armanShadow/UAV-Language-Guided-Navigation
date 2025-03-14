@@ -239,27 +239,22 @@ def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))  # Pick a random free port
 
-    # initialize the process group
-    dist.init_process_group("gloo", rank=rank, world_size=world_size)
-
+    # Initialize the process group
+    dist.init_process_group(
+        backend='nccl',
+        init_method='env://',
+        world_size=world_size,
+        rank=rank
+    )
 
 def main(rank, world_size, checkpoint_path=None, config=Config()):
     try:
 
-        setup(rank, world_size)
         # Initialize logger for this process
         logger = setup_logger('training', log_dir=config.log_dir)
 
         # Set environment variables for DDP
         setup(rank, world_size)
-
-        # Initialize the process group
-        dist.init_process_group(
-            backend='nccl',
-            init_method='env://',
-            world_size=world_size,
-            rank=rank
-        )
 
         logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()} / {world_size}")
         
