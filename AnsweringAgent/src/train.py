@@ -217,7 +217,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     logger.info(f'After validation GPU Memory: {log_gpu_memory()}')
 
                 # Clear cache periodically
-                if torch.cuda.is_available() and epoch % 5 == 0:
+                if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
     except Exception as e:
