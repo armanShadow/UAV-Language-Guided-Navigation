@@ -242,15 +242,12 @@ def setup(rank, world_size):
         os.environ['MASTER_ADDR'] = '127.0.0.1'
         os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))
 
-        # Initialize the process group with a timeout
-        timeout = datetime.timedelta(minutes=1)
         dist.init_process_group(
             backend='nccl',
-            init_method='env://',
             world_size=world_size,
             rank=rank,
-            timeout=timeout
         )
+
     except Exception as e:
         print(f"Error initializing process group: {str(e)}")
         raise e
