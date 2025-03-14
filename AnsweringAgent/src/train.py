@@ -42,7 +42,7 @@ def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: i
     }
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
-                num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None, logger=None):
+                num_epochs, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None, logger=None):
     """Train the model with mixed precision training and gradient accumulation."""
 
     save_frequency = config.training.checkpoint_frequency
@@ -73,10 +73,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             for batch_idx, batch in enumerate(train_loader):
                 try:
                     # Move data to device (non-blocking for async transfer)
-                    text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
-                    current_view = batch['current_view_image'].to(device, non_blocking=True)
-                    previous_views = [view.to(device, non_blocking=True) for view in batch['previous_views_image']]
-                    labels = batch['text_label'].to(device, non_blocking=True)
+                    text_input = {k: v.to(rank, non_blocking=True) for k, v in batch['text_input'].items()}
+                    current_view = batch['current_view_image'].to(rank, non_blocking=True)
+                    previous_views = [view.to(rank, non_blocking=True) for view in batch['previous_views_image']]
+                    labels = batch['text_label'].to(rank, non_blocking=True)
 
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast():
@@ -320,7 +320,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             lr=config.training.learning_rate,
             weight_decay=config.training.weight_decay
         )
-        criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id).to(device)
+        criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
         scheduler = ReduceLROnPlateau(
             optimizer,
             mode='min',
@@ -365,7 +365,6 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             optimizer=optimizer,
             scheduler=scheduler,
             num_epochs=config.training.num_epochs,
-            device=device,
             checkpoint_dir=config.checkpoint_dir,
             config=config,
             start_epoch=start_epoch,
