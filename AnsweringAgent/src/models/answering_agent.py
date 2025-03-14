@@ -99,11 +99,10 @@ class MultiModalAttention(nn.Module):
         return attn_output
 
 class AnsweringAgent(nn.Module):
-    def __init__(self, config: Config, device: torch.device):
+    def __init__(self, config: Config):
         super().__init__()
 
         self.config = config
-        self.device = device  # Store device but don't use for explicit .to() calls
 
         # Initialize BERT and tokenizer
         self.bert = BertModel.from_pretrained(config.model.bert_model_name)
@@ -171,17 +170,6 @@ class AnsweringAgent(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_normal_(p, gain=1.0)
 
-        # Ensure all parameters are on the correct device
-        for param in self.parameters():
-            param.data = param.data.to(self.device)
-
-    def load_checkpoint(self, checkpoint_path: str):
-        """Load model weights from a checkpoint file."""
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        if 'model_state_dict' in checkpoint:
-            self.load_state_dict(checkpoint['model_state_dict'])
-        else:
-            self.load_state_dict(checkpoint)
 
     def forward(self, text_input, current_view, previous_views):
         """
@@ -244,7 +232,7 @@ class AnsweringAgent(nn.Module):
         combined_features = self.combine_features(text_features, visual_features)  # [batch_size, seq_len, hidden_size]
         
         # Create target mask to prevent attention to future tokens
-        target_mask = self.generate_square_subsequent_mask(seq_len).to(combined_features.device)
+        target_mask = self.generate_square_subsequent_mask(seq_len)
         
         # Process through decoder
         decoder_output = self.decoder(
@@ -278,46 +266,6 @@ class AnsweringAgent(nn.Module):
         mask = mask.float().masked_fill(mask, float('-inf')).masked_fill(~mask, float(0.0))
         return mask
     
-    def generate_answer(self, 
-                       text_input: Dict[str, torch.Tensor],
-                       current_view: torch.Tensor,
-                       previous_views: Optional[list] = None,
-                       max_length: int = 128,
-                       num_beams: int = 4) -> str:
-        """Generate an answer using beam search."""
-        self.eval()
-        with torch.no_grad():
-            # Move inputs to device
-            text_input = {k: v.to(self.device) for k, v in text_input.items()}
-            current_view = current_view.to(self.device)
-            if previous_views:
-                previous_views = [v.to(self.device) for v in previous_views]
-            
-            # Get initial logits
-            logits = self(text_input, current_view, previous_views)
-            
-            # Get start token ID (usually [CLS])
-            start_token_id = self.tokenizer.cls_token_id
-            
-            # Initialize sequence with start token
-            input_ids = torch.full((1, 1), start_token_id, dtype=torch.long, device=self.device)
-            
-            # Generate tokens
-            output_ids = self.tokenizer.generate(
-                input_ids=input_ids,
-                max_length=max_length,
-                num_beams=num_beams,
-                early_stopping=True,
-                pad_token_id=self.tokenizer.pad_token_id,
-                bos_token_id=self.tokenizer.bos_token_id,
-                eos_token_id=self.tokenizer.eos_token_id
-            )
-            
-            # Decode the generated sequence
-            answer = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        
-        self.train()
-        return answer
 
     def combine_features(self, text_features, visual_features):
         """

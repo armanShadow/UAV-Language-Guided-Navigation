@@ -234,17 +234,25 @@ def log_gpu_memory():
         memory_stats.append(f'GPU {i}: {memory_allocated:.1f}MB/{memory_reserved:.1f}MB')
     return ', '.join(memory_stats)
 
+def setup(rank, world_size):
+    # Set master address and port before spawning processes
+    os.environ['MASTER_ADDR'] = '127.0.0.1'
+    os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))  # Pick a random free port
+
+    # initialize the process group
+    dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
 def main(rank, world_size, checkpoint_path=None, config=Config()):
     try:
+
+        setup(rank, world_size)
         # Initialize logger for this process
         logger = setup_logger('training', log_dir=config.log_dir)
-        
+
         # Set environment variables for DDP
-        os.environ['MASTER_ADDR'] = '127.0.0.1'
-        os.environ['MASTER_PORT'] = '12355'
-        
+        setup(rank, world_size)
+
         # Initialize the process group
         dist.init_process_group(
             backend='nccl',
@@ -252,10 +260,6 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             world_size=world_size,
             rank=rank
         )
-        
-        # Set device and ensure it's the correct one
-        torch.cuda.set_device(rank)
-        device = torch.device(f'cuda:{rank}')
 
         logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()} / {world_size}")
         
@@ -287,9 +291,9 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
 
         # Initialize model and move to correct GPU
         logger.info(f"Process {rank}: Initializing AnsweringAgent model")
-        model = AnsweringAgent(config, device)
+        model = AnsweringAgent(config)
         model = nn.SyncBatchNorm.convert_sync_batchnorm(model)  # Convert batch norm
-        model.to(device)
+        model.to(rank)
         logger.info(f"Process {rank}: Successfully initialized AnsweringAgent model")
 
         # Initialize training variables
@@ -377,6 +381,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
 
         # Cleanup
         dist.destroy_process_group()
+
     except Exception as e:
         logger.error(f"Error in main function: {str(e)}")
         raise e
@@ -395,11 +400,6 @@ if __name__ == '__main__':
     world_size = torch.cuda.device_count()
     if world_size < 1:
         raise RuntimeError("No CUDA GPUs available for training")
-
-
-    # Set master address and port before spawning processes
-    os.environ['MASTER_ADDR'] = '127.0.0.1'
-    os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))  # Pick a random free port
 
     try:
         mp.spawn(
