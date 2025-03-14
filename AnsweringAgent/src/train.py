@@ -15,7 +15,6 @@ from config import Config
 from models.answering_agent import AnsweringAgent
 from data.dataset import AnsweringDataset
 import traceback
-import datetime
 
 
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
@@ -23,28 +22,29 @@ def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: i
     # Reshape outputs and labels
     outputs_reshaped = outputs.reshape(-1, outputs.size(-1))
     labels_reshaped = labels.reshape(-1)
-    
+
     # Get predictions
     _, predicted = outputs_reshaped.max(1)
     predicted = predicted.reshape(outputs.size(0), outputs.size(1))
-    
+
     # Create mask for non-padding tokens
     mask = (labels != pad_token_id)
-    
+
     # Calculate metrics
     total_tokens = mask.sum().item()
     correct_tokens = ((predicted == labels) & mask).sum().item()
     accuracy = correct_tokens / total_tokens if total_tokens > 0 else 0.0
-    
+
     return {
         'accuracy': accuracy,
         'total_tokens': total_tokens,
         'correct_tokens': correct_tokens
     }
 
-def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
-                num_epochs, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), 
-                rank=None, logger=None, device=None):
+
+def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler,
+                num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None,
+                logger=None):
     """Train the model with mixed precision training and gradient accumulation."""
 
     save_frequency = config.training.checkpoint_frequency
@@ -69,7 +69,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             optimizer.zero_grad(set_to_none=True)
 
             if rank == 0:
-                logger.info(f"Starting epoch {epoch+1}/{num_epochs}")
+                logger.info(f"Starting epoch {epoch + 1}/{num_epochs}")
                 logger.info(f'GPU Memory at epoch start: {log_gpu_memory()}')
 
             for batch_idx, batch in enumerate(train_loader):
@@ -86,7 +86,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                         # Get batch and sequence dimensions
                         batch_size, seq_len, vocab_size = outputs.size()
-                        
+
                         # Reshape outputs and labels consistently
                         outputs_reshaped = outputs.contiguous().view(batch_size * seq_len, vocab_size)
                         labels_reshaped = labels.contiguous().view(batch_size * seq_len)
@@ -121,11 +121,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Log every 100 batches on rank 0
                     if batch_idx % 100 == 0 and rank == 0:
                         avg_loss = total_loss / (batch_idx + 1)
-                        logger.info(f'Epoch: {epoch+1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, Loss: {avg_loss:.4f}')
+                        logger.info(
+                            f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, Loss: {avg_loss:.4f}')
                         logger.info(f'GPU Memory: {log_gpu_memory()}')
 
                 except Exception as e:
-                    logger.error(f"Error in training batch {batch_idx}: {str(e)}\nTraceback: {traceback.format_exc()}")
+                    logger.error(f"Error in training batch {batch_idx}: {str(e)}")
                     continue
 
             # Synchronize loss across processes
@@ -137,7 +138,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # Normalize training loss
             avg_epoch_loss = total_loss / len(train_loader)
             if rank == 0:
-                logger.info(f'Epoch {epoch+1} completed. Average loss: {avg_epoch_loss:.4f}')
+                logger.info(f'Epoch {epoch + 1} completed. Average loss: {avg_epoch_loss:.4f}')
 
             # Validation phase
             if (epoch + 1) % config.training.eval_freq == 0:
@@ -151,7 +152,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         try:
                             text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
                             current_view = batch['current_view_image'].to(device, non_blocking=True)
-                            previous_views = [view.to(device, non_blocking=True) for view in batch['previous_views_image']]
+                            previous_views = [view.to(device, non_blocking=True) for view in
+                                              batch['previous_views_image']]
                             labels = batch['text_label'].to(device, non_blocking=True)
 
                             with torch.cuda.amp.autocast():
@@ -163,7 +165,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             val_loss += loss.item()
 
                         except Exception as e:
-                            logger.error(f"Error in validation batch {batch_idx}: {str(e)}\nTraceback: {traceback.format_exc()}")
+                            logger.error(f"Error in validation batch {batch_idx}: {str(e)}")
                             continue
 
                 # Synchronize validation loss across processes
@@ -200,8 +202,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             'val_loss': val_loss,
                             'optimizer_state_dict': optimizer.state_dict(),
                             'scheduler_state_dict': scheduler.state_dict(),
-                        }, os.path.join(checkpoint_dir, f'best_model_epoch_{epoch+1}.pt'))
-                        logger.info(f'New best model saved at epoch {epoch+1} (val_loss: {val_loss:.4f})')
+                        }, os.path.join(checkpoint_dir, f'best_model_epoch_{epoch + 1}.pt'))
+                        logger.info(f'New best model saved at epoch {epoch + 1} (val_loss: {val_loss:.4f})')
 
                 # Save periodic checkpoint
                 if (epoch + 1) % save_frequency == 0 and rank == 0:
@@ -212,8 +214,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         'optimizer_state_dict': optimizer.state_dict(),
                         'scheduler_state_dict': scheduler.state_dict(),
                         'val_loss': val_loss,
-                    }, os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch+1}.pt'))
-                    logger.info(f'Checkpoint saved at epoch {epoch+1}')
+                    }, os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch + 1}.pt'))
+                    logger.info(f'Checkpoint saved at epoch {epoch + 1}')
 
                 if rank == 0:
                     logger.info(f'After validation GPU Memory: {log_gpu_memory()}')
@@ -223,77 +225,66 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     torch.cuda.empty_cache()
 
     except Exception as e:
-        logger.error(f"Error in training loop: {str(e)}\nTraceback: {traceback.format_exc()}")
+        logger.error(f"Error in training loop: {str(e)}")
         raise e
 
-    
+
 def log_gpu_memory():
     """Log GPU memory usage for all available GPUs."""
     memory_stats = []
     for i in range(torch.cuda.device_count()):
-        memory_allocated = torch.cuda.memory_allocated(i) / 1024**2
-        memory_reserved = torch.cuda.memory_reserved(i) / 1024**2
+        memory_allocated = torch.cuda.memory_allocated(i) / 1024 ** 2
+        memory_reserved = torch.cuda.memory_reserved(i) / 1024 ** 2
         memory_stats.append(f'GPU {i}: {memory_allocated:.1f}MB/{memory_reserved:.1f}MB')
     return ', '.join(memory_stats)
 
-def setup(rank, world_size):
-    """Initialize process group for distributed training."""
-    try:
-        os.environ['MASTER_ADDR'] = '127.0.0.1'
-        port = random.randint(20000, 30000)
-        os.environ['MASTER_PORT'] = str(port)
-        
-        dist.init_process_group(
-            backend='nccl',
-            init_method=f'env://',
-            world_size=world_size,
-            rank=rank
-        )
 
-    except Exception as e:
-        print(f"Process {rank}: Full traceback: {traceback.format_exc()}")
-        raise e
+def setup(rank, world_size):
+    # Set master address and port before spawning processes
+    os.environ['MASTER_ADDR'] = '127.0.0.1'
+    os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))  # Pick a random free port
+
+    # Initialize the process group
+    dist.init_process_group(
+        backend='nccl',
+        init_method='env://',
+        world_size=world_size,
+        rank=rank
+    )
+
 
 def main(rank, world_size, checkpoint_path=None, config=Config()):
     try:
-        print(f"Process {rank}: Starting initialization")
 
         # Initialize logger for this process
         logger = setup_logger('training', log_dir=config.log_dir)
-        logger.info(f"Process {rank}: Logger initialized")
 
-        device = torch.device(f'cuda:{rank}')
-        logger.info(f"Process {rank}: Using device {device}")
+        # Set environment variables for DDP
+        setup(rank, world_size)
 
-        # Set up distributed training only if using multiple GPUs
-        if world_size > 1:
-            logger.info(f"Process {rank}: Setting up distributed training")
-            setup(rank, world_size)
-            logger.info(f"Process {rank}: Distributed training setup completed")
+        logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()} / {world_size}")
 
-        logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()}")
-        
         # Log detailed GPU information
         if rank == 0:  # Only log from the main process
             logger.info(f"Using {world_size} GPUs")
             logger.info(f"Batch size: {config.training.batch_size}")
             logger.info(f"Number of workers: {config.training.num_workers}")
-            
+
             # Log GPU information for all available GPUs
             for gpu_id in range(world_size):
                 gpu_name = torch.cuda.get_device_name(gpu_id)
-                memory_total = torch.cuda.get_device_properties(gpu_id).total_memory / 1024**2
-                memory_allocated = torch.cuda.memory_allocated(gpu_id) / 1024**2
-                memory_reserved = torch.cuda.memory_reserved(gpu_id) / 1024**2
+                memory_total = torch.cuda.get_device_properties(gpu_id).total_memory / 1024 ** 2
+                memory_allocated = torch.cuda.memory_allocated(gpu_id) / 1024 ** 2
+                memory_reserved = torch.cuda.memory_reserved(gpu_id) / 1024 ** 2
                 logger.info(f"GPU {gpu_id}: {gpu_name}")
                 logger.info(f"  - Total Memory: {memory_total:.1f}MB")
                 logger.info(f"  - Allocated Memory: {memory_allocated:.1f}MB")
                 logger.info(f"  - Reserved Memory: {memory_reserved:.1f}MB")
-        
+
         # Set random seed for reproducibility
-        torch.manual_seed(config.training.seed + rank)
+        torch.manual_seed(config.training.seed + rank)  # Different seed per process
         torch.cuda.manual_seed_all(config.training.seed + rank)
-        
+
         # Initialize tokenizer with error handling
         logger.info(f"Process {rank}: Initializing BERT tokenizer from {config.model.bert_model_name}")
         tokenizer = BertTokenizerFast.from_pretrained(config.model.bert_model_name)
@@ -302,14 +293,14 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         # Initialize model and move to correct GPU
         logger.info(f"Process {rank}: Initializing AnsweringAgent model")
         model = AnsweringAgent(config)
-        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        model.to(device)
+        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)  # Convert batch norm
+        model.to(rank)
         logger.info(f"Process {rank}: Successfully initialized AnsweringAgent model")
 
         # Initialize training variables
         start_epoch = 0
         best_val_loss = float('inf')
-        
+
         # Wrap model with DDP
         model = DDP(
             model,
@@ -318,7 +309,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             find_unused_parameters=True,
             broadcast_buffers=True
         )
-        
+
         # Resume training if checkpoint is provided
         if checkpoint_path and os.path.exists(checkpoint_path):
             logger.info(f"Process {rank}: Loading checkpoint from {checkpoint_path}")
@@ -335,7 +326,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             lr=config.training.learning_rate,
             weight_decay=config.training.weight_decay
         )
-        criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
+        criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id).to(device)
         scheduler = ReduceLROnPlateau(
             optimizer,
             mode='min',
@@ -346,7 +337,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
 
         # Load dataset and ensure deterministic splitting
         dataset = AnsweringDataset(config=config, tokenizer=tokenizer)
-        generator = torch.Generator().manual_seed(config.training.seed)
+        generator = torch.Generator().manual_seed(config.training.seed)  # Ensure same split on resume
         train_size = int(config.data.train_val_split * len(dataset))
         val_size = len(dataset) - train_size
         train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size], generator=generator)
@@ -380,73 +371,44 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             optimizer=optimizer,
             scheduler=scheduler,
             num_epochs=config.training.num_epochs,
+            device=device,
             checkpoint_dir=config.checkpoint_dir,
             config=config,
             start_epoch=start_epoch,
             best_val_loss=best_val_loss,
-            rank=rank,
-            logger=logger,
-            device=device  # Pass device to train_model
+            rank=rank,  # Pass rank to train_model
+            logger=logger  # Pass logger to train_model
         )
 
-        # Cleanup only if using distributed training
-        if world_size > 1 and dist.is_initialized():
-            logger.info(f"Process {rank}: Cleaning up process group")
-            dist.destroy_process_group()
-            logger.info(f"Process {rank}: Process completed successfully")
+        # Cleanup
+        dist.destroy_process_group()
 
     except Exception as e:
-        logger.error(f"Process {rank}: Error in main function: {str(e)}\nTraceback: {traceback.format_exc()}")
-        if world_size > 1 and dist.is_initialized():
-            dist.destroy_process_group()
+        logger.error(f"Error in main function: {str(e)}")
         raise e
+
 
 if __name__ == '__main__':
     import argparse
     import torch.multiprocessing as mp
 
-    print("Starting main process")
     config = Config()
-    
+
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
-    parser.add_argument('--single-gpu', action='store_true', help='Force single GPU training even if multiple GPUs are available')
     args = parser.parse_args()
 
-    # Check CUDA availability
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA is not available. This model requires GPU for training.")
-
-    # Get number of available GPUs
+    # Set up distributed training
     world_size = torch.cuda.device_count()
-    print(f"Found {world_size} GPUs")
-
     if world_size < 1:
         raise RuntimeError("No CUDA GPUs available for training")
 
-    # Check if we should use single GPU mode
-    if args.single_gpu or world_size == 1:
-        print("Running in single GPU mode")
-        try:
-            main(0, 1, args.checkpoint, config)  # Run directly without spawning
-        except Exception as e:
-            print(f"Error in single GPU mode: {str(traceback.format_exc())}")
-    else:
-        print(f"Running in multi-GPU mode with {world_size} GPUs")
-        try:
-            # Set start method to spawn
-            try:
-                mp.set_start_method('spawn', force=True)
-            except RuntimeError:
-                pass  # Method already set
-
-            print("Spawning processes")
-            mp.spawn(
-                main,
-                args=(world_size, args.checkpoint, config),
-                nprocs=world_size,
-                join=True
-            )
-            print("All processes completed successfully")
-        except Exception as e:
-            print(f"Error in multi-GPU mode: {str(traceback.format_exc())}")
+    try:
+        mp.spawn(
+            main,
+            args=(world_size, args.checkpoint, config),
+            nprocs=world_size,
+            join=True
+        )
+    except Exception as e:
+        print(f"Error in main process: {str(traceback.format_exc())}")
