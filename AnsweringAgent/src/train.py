@@ -43,7 +43,8 @@ def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: i
     }
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
-                num_epochs, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None, logger=None):
+                num_epochs, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), 
+                rank=None, logger=None, device=None):
     """Train the model with mixed precision training and gradient accumulation."""
 
     save_frequency = config.training.checkpoint_frequency
@@ -74,10 +75,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             for batch_idx, batch in enumerate(train_loader):
                 try:
                     # Move data to device (non-blocking for async transfer)
-                    text_input = {k: v.to(rank, non_blocking=True) for k, v in batch['text_input'].items()}
-                    current_view = batch['current_view_image'].to(rank, non_blocking=True)
-                    previous_views = [view.to(rank, non_blocking=True) for view in batch['previous_views_image']]
-                    labels = batch['text_label'].to(rank, non_blocking=True)
+                    text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
+                    current_view = batch['current_view_image'].to(device, non_blocking=True)
+                    previous_views = [view.to(device, non_blocking=True) for view in batch['previous_views_image']]
+                    labels = batch['text_label'].to(device, non_blocking=True)
 
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast():
@@ -129,7 +130,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
             # Synchronize loss across processes
             if dist.is_initialized():
-                loss_tensor = torch.tensor(total_loss, device=rank)
+                loss_tensor = torch.tensor(total_loss, device=device)
                 dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
                 total_loss = loss_tensor.item() / dist.get_world_size()
 
@@ -148,10 +149,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 with torch.no_grad():
                     for batch_idx, batch in enumerate(val_loader):
                         try:
-                            text_input = {k: v.to(rank, non_blocking=True) for k, v in batch['text_input'].items()}
-                            current_view = batch['current_view_image'].to(rank, non_blocking=True)
-                            previous_views = [view.to(rank, non_blocking=True) for view in batch['previous_views_image']]
-                            labels = batch['text_label'].to(rank, non_blocking=True)
+                            text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
+                            current_view = batch['current_view_image'].to(device, non_blocking=True)
+                            previous_views = [view.to(device, non_blocking=True) for view in batch['previous_views_image']]
+                            labels = batch['text_label'].to(device, non_blocking=True)
 
                             with torch.cuda.amp.autocast():
                                 outputs = model(text_input, current_view, previous_views)
@@ -167,7 +168,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                 # Synchronize validation loss across processes
                 if dist.is_initialized():
-                    val_loss_tensor = torch.tensor(val_loss, device=rank)
+                    val_loss_tensor = torch.tensor(val_loss, device=device)
                     dist.all_reduce(val_loss_tensor, op=dist.ReduceOp.SUM)
                     val_loss = val_loss_tensor.item() / dist.get_world_size()
                 val_loss /= len(val_loader)
@@ -260,6 +261,9 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         logger = setup_logger('training', log_dir=config.log_dir)
         logger.info(f"Process {rank}: Logger initialized")
 
+        device = torch.device(f'cuda:{rank}')
+        logger.info(f"Process {rank}: Using device {device}")
+
         # Set up distributed training only if using multiple GPUs
         if world_size > 1:
             logger.info(f"Process {rank}: Setting up distributed training")
@@ -286,7 +290,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
                 logger.info(f"  - Reserved Memory: {memory_reserved:.1f}MB")
         
         # Set random seed for reproducibility
-        torch.manual_seed(config.training.seed + rank)  # Different seed per process
+        torch.manual_seed(config.training.seed + rank)
         torch.cuda.manual_seed_all(config.training.seed + rank)
         
         # Initialize tokenizer with error handling
@@ -297,8 +301,8 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         # Initialize model and move to correct GPU
         logger.info(f"Process {rank}: Initializing AnsweringAgent model")
         model = AnsweringAgent(config)
-        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)  # Convert batch norm
-        model.to(rank)
+        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        model.to(device)
         logger.info(f"Process {rank}: Successfully initialized AnsweringAgent model")
 
         # Initialize training variables
@@ -341,7 +345,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
 
         # Load dataset and ensure deterministic splitting
         dataset = AnsweringDataset(config=config, tokenizer=tokenizer)
-        generator = torch.Generator().manual_seed(config.training.seed)  # Ensure same split on resume
+        generator = torch.Generator().manual_seed(config.training.seed)
         train_size = int(config.data.train_val_split * len(dataset))
         val_size = len(dataset) - train_size
         train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size], generator=generator)
@@ -379,8 +383,9 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             config=config,
             start_epoch=start_epoch,
             best_val_loss=best_val_loss,
-            rank=rank,  # Pass rank to train_model
-            logger=logger  # Pass logger to train_model
+            rank=rank,
+            logger=logger,
+            device=device  # Pass device to train_model
         )
 
         # Cleanup only if using distributed training
