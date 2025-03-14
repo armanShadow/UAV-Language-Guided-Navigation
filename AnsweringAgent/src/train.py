@@ -240,25 +240,39 @@ def log_gpu_memory():
 
 
 def setup(rank, world_size):
-    # Set master address and port before spawning processes
+    print(f"[DEBUG] Process {rank}: Starting setup")
+    
+    print(f"[DEBUG] Process {rank}: Setting MASTER_ADDR")
     os.environ['MASTER_ADDR'] = '127.0.0.1'
-    os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))  # Pick a random free port
-
-    # Initialize the process group
+    print(f"[DEBUG] Process {rank}: MASTER_ADDR set to {os.environ['MASTER_ADDR']}")
+    
+    print(f"[DEBUG] Process {rank}: Setting MASTER_PORT")
+    port = random.randint(10000, 20000)
+    os.environ['MASTER_PORT'] = str(port)
+    print(f"[DEBUG] Process {rank}: MASTER_PORT set to {port}")
+    
+    print(f"[DEBUG] Process {rank}: About to initialize process group")
+    print(f"[DEBUG] Process {rank}: Parameters: backend=nccl, init_method=env://, world_size={world_size}, rank={rank}")
+    
     dist.init_process_group(
         backend='nccl',
         init_method='env://',
         world_size=world_size,
         rank=rank
     )
+    
+    print(f"[DEBUG] Process {rank}: Process group initialization completed")
 
 
 def main(rank, world_size, checkpoint_path=None, config=Config()):
+    print(f"[Process {rank}] Starting main function")
     try:
-
+        print(f"[Process {rank}] Initializing logger")
         # Initialize logger for this process
         logger = setup_logger('training', log_dir=config.log_dir)
+        print(f"[Process {rank}] Logger initialized")
 
+        print(f"[Process {rank}] About to call setup")
         # Set environment variables for DDP
         setup(rank, world_size)
 
@@ -391,10 +405,12 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
 
 
 if __name__ == '__main__':
+    print("[MAIN] Program starting")
     import argparse
     import torch.multiprocessing as mp
 
     config = Config()
+    print("[MAIN] Config loaded")
 
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
@@ -402,16 +418,18 @@ if __name__ == '__main__':
 
     # Set up distributed training
     world_size = torch.cuda.device_count()
+    print(f"[MAIN] Found {world_size} GPUs")
     if world_size < 1:
         raise RuntimeError("No CUDA GPUs available for training")
 
     try:
-        print(f"Starting training with {world_size} GPUs")
+        print(f"[MAIN] About to spawn processes")
         mp.spawn(
             main,
             args=(world_size, args.checkpoint, config),
             nprocs=world_size,
             join=True
         )
+        print("[MAIN] Spawn completed")
     except Exception as e:
-        print(f"Error in main process: {str(traceback.format_exc())}")
+        print(f"[MAIN] Error in main process: {str(traceback.format_exc())}")
