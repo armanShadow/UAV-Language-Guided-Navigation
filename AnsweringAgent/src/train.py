@@ -406,6 +406,7 @@ if __name__ == '__main__':
         raise RuntimeError("No CUDA GPUs available for training")
 
     try:
+        print(f"Starting training with {world_size} GPUs")
         mp.spawn(
             main,
             args=(world_size, args.checkpoint, config),
