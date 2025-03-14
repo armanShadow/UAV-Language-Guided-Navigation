@@ -377,10 +377,6 @@ if __name__ == '__main__':
     import argparse
     import torch.multiprocessing as mp
 
-    # Enable debugging for torch.distributed
-    os.environ['NCCL_DEBUG'] = 'INFO'
-    os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'
-
     config = Config()
     print("[MAIN] Config loaded")
 
