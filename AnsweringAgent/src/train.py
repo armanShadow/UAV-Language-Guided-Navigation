@@ -82,10 +82,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     previous_views = [view.to(device, non_blocking=True) for view in batch['previous_views_image']]
                     labels = batch['text_label'].to(device, non_blocking=True)
 
-                    # Log GPU memory after data transfer
-                    if rank == 0 and batch_idx % 100 == 0:
-                        logger.info(f'GPU Memory after data transfer (batch {batch_idx}): {log_gpu_memory()}')
-
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast():
                         outputs = model(text_input, current_view, previous_views)
@@ -237,11 +233,29 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
 def log_gpu_memory():
     """Log GPU memory usage for all available GPUs."""
+    current_device = torch.cuda.current_device()
+    memory_allocated = torch.cuda.memory_allocated(current_device) / 1024 ** 2
+    memory_reserved = torch.cuda.memory_reserved(current_device) / 1024 ** 2
+    
+    # Create tensors to gather memory stats from all processes
+    world_size = dist.get_world_size() if dist.is_initialized() else 1
+    gathered_allocated = torch.zeros(world_size, device=f'cuda:{current_device}')
+    gathered_reserved = torch.zeros(world_size, device=f'cuda:{current_device}')
+    
+    # Each process puts its memory stats in the corresponding index
+    gathered_allocated[dist.get_rank()] = memory_allocated
+    gathered_reserved[dist.get_rank()] = memory_reserved
+    
+    # Gather memory stats from all processes
+    if dist.is_initialized():
+        dist.all_reduce(gathered_allocated, op=dist.ReduceOp.MAX)
+        dist.all_reduce(gathered_reserved, op=dist.ReduceOp.MAX)
+    
+    # Format the memory stats string
     memory_stats = []
-    for i in range(torch.cuda.device_count()):
-        memory_allocated = torch.cuda.memory_allocated(i) / 1024 ** 2
-        memory_reserved = torch.cuda.memory_reserved(i) / 1024 ** 2
-        memory_stats.append(f'GPU {i}: {memory_allocated:.1f}MB/{memory_reserved:.1f}MB')
+    for i in range(world_size):
+        memory_stats.append(f'GPU {i}: {gathered_allocated[i]:.1f}MB/{gathered_reserved[i]:.1f}MB')
+    
     return ', '.join(memory_stats)
 
 
