@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import torch
-
+from sympy.codegen.ast import Raise
 
 # Update paths for Docker container structure
 PROJECT_ROOT = Path("/app/UAV-Language-Guided-Navigation")
@@ -58,16 +58,6 @@ class TrainingConfig:
         self.batch_size = self.base_batch_size * self.num_gpus
         self.num_workers = self.base_num_workers * self.num_gpus
 
-        print(f"Using {self.num_gpus} GPUs")
-        print(f"Batch size: {self.batch_size}")
-        print(f"Number of workers: {self.num_workers}")
-
-        # Log GPU information for all available GPUs
-        for gpu_id in range(self.num_gpus):
-            gpu_name = torch.cuda.get_device_name(gpu_id)
-            memory_total = torch.cuda.get_device_properties(gpu_id).total_memory / 1024**2
-            print(f"GPU {gpu_id}: {gpu_name} - Total Memory: {memory_total:.1f}MB")
-
 @dataclass
 class DataConfig:
     """Configuration for data loading and preprocessing."""
@@ -85,7 +75,7 @@ class DataConfig:
                 self.darknet_config_path, self.darknet_weights_path]
         for path in paths:
             if not os.path.exists(path):
-                print(f"Warning: Path does not exist: {path}")
+                raise RuntimeError(f"Error: Path does not exist: {path}")
 
 @dataclass
 class Config:

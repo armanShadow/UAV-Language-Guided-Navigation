@@ -259,6 +259,23 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
 
         logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()} / {world_size}")
         
+        # Log detailed GPU information
+        if rank == 0:  # Only log from the main process
+            logger.info(f"Using {world_size} GPUs")
+            logger.info(f"Batch size: {config.training.batch_size}")
+            logger.info(f"Number of workers: {config.training.num_workers}")
+            
+            # Log GPU information for all available GPUs
+            for gpu_id in range(world_size):
+                gpu_name = torch.cuda.get_device_name(gpu_id)
+                memory_total = torch.cuda.get_device_properties(gpu_id).total_memory / 1024**2
+                memory_allocated = torch.cuda.memory_allocated(gpu_id) / 1024**2
+                memory_reserved = torch.cuda.memory_reserved(gpu_id) / 1024**2
+                logger.info(f"GPU {gpu_id}: {gpu_name}")
+                logger.info(f"  - Total Memory: {memory_total:.1f}MB")
+                logger.info(f"  - Allocated Memory: {memory_allocated:.1f}MB")
+                logger.info(f"  - Reserved Memory: {memory_reserved:.1f}MB")
+        
         # Set random seed for reproducibility
         torch.manual_seed(config.training.seed + rank)  # Different seed per process
         torch.cuda.manual_seed_all(config.training.seed + rank)
