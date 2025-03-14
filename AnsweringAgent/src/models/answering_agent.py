@@ -262,7 +262,8 @@ class AnsweringAgent(nn.Module):
         Returns:
             torch.Tensor: Mask tensor of shape [sz, sz] with -inf for masked positions
         """
-        mask = torch.triu(torch.ones(sz, sz), diagonal=1).bool()
+        device = next(self.parameters()).device
+        mask = torch.triu(torch.ones(sz, sz, device=device), diagonal=1).bool()
         mask = mask.float().masked_fill(mask, float('-inf')).masked_fill(~mask, float(0.0))
         return mask
     
