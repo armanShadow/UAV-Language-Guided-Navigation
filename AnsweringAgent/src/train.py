@@ -42,10 +42,8 @@ def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: i
     }
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
-                num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None):
+                num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None, logger=None):
     """Train the model with mixed precision training and gradient accumulation."""
-
-    global logger
 
     save_frequency = config.training.checkpoint_frequency
 
@@ -266,13 +264,11 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
         torch.cuda.manual_seed_all(config.training.seed + rank)
         
         # Initialize tokenizer with error handling
-
         logger.info(f"Process {rank}: Initializing BERT tokenizer from {config.model.bert_model_name}")
         tokenizer = BertTokenizerFast.from_pretrained(config.model.bert_model_name)
         logger.info(f"Process {rank}: Successfully initialized BERT tokenizer")
 
         # Initialize model and move to correct GPU
-
         logger.info(f"Process {rank}: Initializing AnsweringAgent model")
         model = AnsweringAgent(config, device)
         model = nn.SyncBatchNorm.convert_sync_batchnorm(model)  # Convert batch norm
@@ -358,7 +354,8 @@ def main(rank, world_size, checkpoint_path=None, config=Config()):
             config=config,
             start_epoch=start_epoch,
             best_val_loss=best_val_loss,
-            rank=rank  # Pass rank to train_model
+            rank=rank,  # Pass rank to train_model
+            logger=logger  # Pass logger to train_model
         )
 
         # Cleanup
