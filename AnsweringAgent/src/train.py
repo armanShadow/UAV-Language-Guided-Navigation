@@ -245,7 +245,7 @@ def setup(rank, world_size):
     print(f"[DEBUG] Process {rank}: Starting setup")
     
     print(f"[DEBUG] Process {rank}: Setting MASTER_ADDR")
-    os.environ['MASTER_ADDR'] = 'localhost'  # Using localhost instead of 127.0.0.1
+    os.environ['MASTER_ADDR'] = '127.0.0.1'  # Using localhost instead of 127.0.0.1
     print(f"[DEBUG] Process {rank}: MASTER_ADDR set to {os.environ['MASTER_ADDR']}")
     
     print(f"[DEBUG] Process {rank}: Setting MASTER_PORT")
@@ -258,9 +258,9 @@ def setup(rank, world_size):
     # Try different initialization methods
     init_methods = [
         ('nccl', f'env://'),
-        ('nccl', f'tcp://localhost:{port}'),
+        ('nccl', f'tcp://127.0.0.1:{port}'),
         ('gloo', f'env://'),
-        ('gloo', f'tcp://localhost:{port}')
+        ('gloo', f'tcp://127.0.0.1:{port}')
     ]
     
     last_exception = None
