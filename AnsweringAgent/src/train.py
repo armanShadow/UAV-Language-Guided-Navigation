@@ -294,9 +294,11 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
         # Set environment variables for DDP
         setup(rank, world_size)
 
-        logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()} / {world_size}")
-
+        # Explicitly set the CUDA device for this process
+        torch.cuda.set_device(rank)
         device = torch.device(f'cuda:{rank}')
+        
+        logger.info(f"Process {rank}: Running on GPU {torch.cuda.current_device()} / {world_size}")
 
         # Initialize model and move to correct GPU
         logger.info(f"Process {rank}: Initializing AnsweringAgent model")
