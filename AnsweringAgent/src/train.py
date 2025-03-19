@@ -73,9 +73,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
             # Log epoch start
             if rank == 0:
+                print(f"DEBUG: About to log memory for epoch {epoch + 1}")
                 logger.info(f"Starting epoch {epoch + 1}/{num_epochs}")
                 memory_stats = log_gpu_memory()
+                print(f"DEBUG: Got memory stats: {memory_stats}")
                 logger.info(f'GPU Memory: {memory_stats}')
+                print(f"DEBUG: Logged memory stats")
 
             for batch_idx, batch in enumerate(train_loader):
                 try:
@@ -233,30 +236,39 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
 def log_gpu_memory():
     """Log GPU memory usage for all available GPUs."""
-    current_device = torch.cuda.current_device()
-    memory_allocated = torch.cuda.memory_allocated(current_device) / 1024 ** 2
-    memory_reserved = torch.cuda.memory_reserved(current_device) / 1024 ** 2
-    
-    # Create tensors to gather memory stats from all processes
-    world_size = dist.get_world_size() if dist.is_initialized() else 1
-    gathered_allocated = torch.zeros(world_size, device=f'cuda:{current_device}')
-    gathered_reserved = torch.zeros(world_size, device=f'cuda:{current_device}')
-    
-    # Each process puts its memory stats in the corresponding index
-    gathered_allocated[dist.get_rank()] = memory_allocated
-    gathered_reserved[dist.get_rank()] = memory_reserved
-    
-    # All processes must participate in all_reduce
-    if dist.is_initialized():
-        dist.all_reduce(gathered_allocated, op=dist.ReduceOp.MAX)
-        dist.all_reduce(gathered_reserved, op=dist.ReduceOp.MAX)
-    
-    # Format the memory stats string
-    memory_stats = []
-    for i in range(world_size):
-        memory_stats.append(f'GPU {i}: {gathered_allocated[i]:.1f}MB/{gathered_reserved[i]:.1f}MB')
-    
-    return ', '.join(memory_stats)
+    try:
+        print("DEBUG: log_gpu_memory function called")
+        current_device = torch.cuda.current_device()
+        memory_allocated = torch.cuda.memory_allocated(current_device) / 1024 ** 2
+        memory_reserved = torch.cuda.memory_reserved(current_device) / 1024 ** 2
+        
+        # Create tensors to gather memory stats from all processes
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+        gathered_allocated = torch.zeros(world_size, device=f'cuda:{current_device}')
+        gathered_reserved = torch.zeros(world_size, device=f'cuda:{current_device}')
+        
+        # Each process puts its memory stats in the corresponding index
+        gathered_allocated[dist.get_rank()] = memory_allocated
+        gathered_reserved[dist.get_rank()] = memory_reserved
+        
+        # All processes must participate in all_reduce
+        if dist.is_initialized():
+            dist.all_reduce(gathered_allocated, op=dist.ReduceOp.MAX)
+            dist.all_reduce(gathered_reserved, op=dist.ReduceOp.MAX)
+        
+        # Format the memory stats string
+        memory_stats = []
+        for i in range(world_size):
+            memory_stats.append(f'GPU {i}: {gathered_allocated[i]:.1f}MB/{gathered_reserved[i]:.1f}MB')
+        
+        result = ', '.join(memory_stats)
+        print(f"DEBUG: Memory stats: {result}")
+        return result
+    except Exception as e:
+        print(f"ERROR in log_gpu_memory: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        return "Memory logging failed"
 
 
 def setup(rank, world_size):
