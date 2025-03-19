@@ -356,9 +356,13 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
         train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
         val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank)
 
+    
+        
+        logger.info(f"Process {rank}: Using per-GPU batch size of {config.training.batch_size} (global batch size: {config.training.batch_size * world_size})")
+
         train_loader = DataLoader(
             train_dataset,
-            batch_size=config.training.batch_size,
+            batch_size=config.training.batch_size,  # Use adjusted batch size
             sampler=train_sampler,
             num_workers=config.training.num_workers,
             pin_memory=True
@@ -366,7 +370,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
 
         val_loader = DataLoader(
             val_dataset,
-            batch_size=config.training.batch_size,
+            batch_size=config.training.batch_size,  # Use adjusted batch size
             sampler=val_sampler,
             num_workers=config.training.num_workers,
             pin_memory=True

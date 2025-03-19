@@ -25,7 +25,7 @@ class ModelConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for training settings."""
-    base_batch_size: int = 2  # Base batch size per GPU
+    batch_size: int = 4  # Base batch size per GPU
     num_epochs: int = 200000
     learning_rate: float = 1e-5
     weight_decay: float = 0.01
@@ -33,7 +33,7 @@ class TrainingConfig:
     warmup_steps: int = 1000
     log_freq: int = 2
     eval_freq: int = 5000
-    base_num_workers: int = 4  # Base workers per GPU
+    num_workers: int = 4  # Base workers per GPU
     pin_memory: bool = True
     mixed_precision: bool = True
     device: str = 'cuda'
@@ -52,10 +52,6 @@ class TrainingConfig:
 
         self.num_gpus = torch.cuda.device_count()
         self.device = 'cuda'
-
-        # Scale batch size and workers based on the number of GPUs
-        self.batch_size = self.base_batch_size * self.num_gpus
-        self.num_workers = self.base_num_workers * self.num_gpus
 
 @dataclass
 class DataConfig:
