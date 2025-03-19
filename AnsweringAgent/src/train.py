@@ -71,14 +71,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             total_loss = 0
             optimizer.zero_grad(set_to_none=True)
 
-            # Log epoch start
+            # All ranks must participate in memory logging
+            memory_stats = log_gpu_memory()
+            # Only rank 0 logs the results
             if rank == 0:
-                print(f"DEBUG: About to log memory for epoch {epoch + 1}")
                 logger.info(f"Starting epoch {epoch + 1}/{num_epochs}")
-                memory_stats = log_gpu_memory()
-                print(f"DEBUG: Got memory stats: {memory_stats}")
                 logger.info(f'GPU Memory: {memory_stats}')
-                print(f"DEBUG: Logged memory stats")
 
             for batch_idx, batch in enumerate(train_loader):
                 try:
