@@ -55,7 +55,7 @@ class AnsweringDataset(Dataset):
         processed_data = self.normalizer.process_data(
             data,
             self.image_dir,
-            max_sequence_length=self.max_seq_length,
+            max_seq_length=self.max_seq_length,
         )
         
         # The image is already a tensor from the normalizer, just ensure it's float
