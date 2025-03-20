@@ -100,13 +100,13 @@ class FeatureExtractor(nn.Module):
         
         return output
 
-    def forward(self, current_view: torch.Tensor, previous_views: Optional[list] = None) -> torch.Tensor:
+    def forward(self, current_view: torch.Tensor, previous_views: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Forward pass with weighted aggregation of current and previous views.
         
         Args:
             current_view: Current view tensor [batch_size, channels, height, width]
-            previous_views: List of previous view tensors, each [batch_size, channels, height, width]
+            previous_views: Previous views tensor [batch_size, num_views, channels, height, width]
             
         Returns:
             torch.Tensor: Aggregated visual features [batch_size, hidden_size]
@@ -116,33 +116,23 @@ class FeatureExtractor(nn.Module):
         # Extract features from current view (in AVDN dimension)
         current_features = self._extract_features(current_view)  # [batch_size, 384]
         
-        if previous_views is None:  # Handle empty list or None
-            # Project to BERT dimension before returning
-            return self.projection(current_features)
         
-        # Handle the previous views tensor format
-        if isinstance(previous_views, torch.Tensor):
-            # If we have shape [batch_size, num_prev_views, C, H, W]
-            prev_views_tensor = previous_views
-        else:  # If it's a list
-            prev_views_tensor = torch.stack(previous_views, dim=1)
-            
-        # Get the actual batch size from the previous views tensor
-        actual_batch_size = prev_views_tensor.size(0)
-        num_prev_views = prev_views_tensor.size(1)
+        # Get the dimensions from the previous views tensor
+        actual_batch_size = previous_views.size(0)
+        num_prev_views = previous_views.size(1)
         
         # Ensure current features match the batch size of previous views
         if batch_size > actual_batch_size:
             current_features = current_features[:actual_batch_size]
         elif batch_size < actual_batch_size:
-            prev_views_tensor = prev_views_tensor[:batch_size]
+            previous_views = previous_views[:batch_size]
             actual_batch_size = batch_size
         
         # Extract features from previous views (in AVDN dimension)
         # Reshape to [batch_size * num_prev_views, C, H, W]
-        prev_views_reshaped = prev_views_tensor.reshape(-1, prev_views_tensor.size(-3), 
-                                                       prev_views_tensor.size(-2), 
-                                                       prev_views_tensor.size(-1))
+        prev_views_reshaped = previous_views.reshape(-1, previous_views.size(2), 
+                                                   previous_views.size(3), 
+                                                   previous_views.size(4))
         prev_features = self._extract_features(prev_views_reshaped)
         prev_features = prev_features.view(actual_batch_size, num_prev_views, -1)
         

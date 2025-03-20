@@ -54,6 +54,7 @@ class TrainingConfig:
 @dataclass
 class DataConfig:
     """Configuration for data loading and preprocessing."""
+    train_data_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/processed_dataset.pkl")
     train_csv_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/train_data.csv")
     avdn_image_dir: str = str(DATASET_ROOT / "AVDN/train_images")
     darknet_config_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/yolo_v3.cfg")

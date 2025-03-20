@@ -17,6 +17,7 @@ from data.dataset import AnsweringDataset
 import traceback
 import datetime
 import time
+import pickle
 
 
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
@@ -50,7 +51,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     """Train the model with mixed precision training and gradient accumulation."""
 
     save_frequency = config.training.checkpoint_frequency
-    log_frequency = max(1, len(train_loader) // 3)  # Log approximately 3 times per epoch
+    # Log less frequently to reduce overhead - adjust based on dataset size
+    log_frequency = max(10, len(train_loader) // 3)  # Log approximately 10 times per epoch
 
     # Enable automatic mixed precision training
     scaler = torch.cuda.amp.GradScaler()
@@ -71,6 +73,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             total_loss = 0
             optimizer.zero_grad(set_to_none=True)
 
+            # Track start time for per-epoch metrics
+            epoch_start_time = time.time()
 
             # Only rank 0 logs the results
             if rank == 0:
@@ -81,7 +85,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Move data to device (non-blocking for async transfer)
                     text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
                     current_view = batch['current_view_image'].to(device, non_blocking=True)
-                    previous_views = [view.to(device, non_blocking=True) for view in batch['previous_views_image']]
+                    previous_views = batch['previous_views_image'].to(device, non_blocking=True)
                     labels = batch['text_label'].to(device, non_blocking=True)
 
                     # Forward pass with mixed precision
@@ -127,9 +131,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Log at specified frequency
                     if batch_idx % log_frequency == 0 and rank == 0:
                         avg_loss = total_loss / (batch_idx + 1)
-                        # All ranks must participate in memory logging
+                        # Calculate throughput
+                        elapsed = time.time() - epoch_start_time
+                        samples_processed = (batch_idx + 1) * train_loader.batch_size * dist.get_world_size()
+                        throughput = samples_processed / elapsed
+                        
                         logger.info(f'GPU Memory: {memory_stats}')
-                        logger.info(f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, Loss: {avg_loss:.4f}')
+                        logger.info(f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, '
+                                    f'Loss: {avg_loss:.4f}, Throughput: {throughput:.2f} samples/sec')
 
                 except Exception as e:
                     logger.error(f"Error in training batch {batch_idx}: {str(e)}")
@@ -144,10 +153,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
             # Normalize training loss
             avg_epoch_loss = total_loss / len(train_loader)
+            epoch_time = time.time() - epoch_start_time
+            
             if rank == 0:
-                logger.info(f'Epoch {epoch + 1} completed. Average loss: {avg_epoch_loss:.4f}')
+                logger.info(f'Epoch {epoch + 1} completed in {epoch_time:.2f}s. Average loss: {avg_epoch_loss:.4f}')
 
-            # Validation phase
+            # Validation phase - only run periodically to save time
             if (epoch + 1) % config.training.eval_freq == 0:
                 model.eval()
                 val_loss = 0
@@ -159,8 +170,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         try:
                             text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
                             current_view = batch['current_view_image'].to(device, non_blocking=True)
-                            previous_views = [view.to(device, non_blocking=True) for view in
-                                              batch['previous_views_image']]
+                            previous_views = batch['previous_views_image'].to(device, non_blocking=True)
                             labels = batch['text_label'].to(device, non_blocking=True)
 
                             with torch.cuda.amp.autocast():
@@ -327,6 +337,19 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
         if rank == 0:
             logger.info(f"Training on {world_size} GPUs")
             
+            # Preprocess dataset on rank 0 only - use more efficient preprocess_all_data
+            logger.info("Starting dataset preprocessing on rank 0...")
+            start_time = time.time()
+            AnsweringDataset.preprocess_and_save(config, tokenizer, logger)
+            preprocess_time = time.time() - start_time
+            logger.info(f"Dataset preprocessing complete. Took {preprocess_time:.2f} seconds.")
+        
+        # Wait for rank 0 to finish preprocessing
+        dist.barrier()
+        
+        if rank == 0:
+            logger.info("All ranks synced after preprocessing. Starting model initialization...")
+            
         # Initialize model and move to correct GPU
         model = AnsweringAgent(config)
         model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
@@ -372,8 +395,9 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
             verbose=config.training.scheduler_verbose
         )
 
-        # Load dataset and ensure deterministic splitting
-        dataset = AnsweringDataset(config=config, tokenizer=tokenizer)
+        # Load dataset
+        dataset = AnsweringDataset(config=config)
+        
         generator = torch.Generator().manual_seed(config.training.seed)
         train_size = int(config.data.train_val_split * len(dataset))
         val_size = len(dataset) - train_size
