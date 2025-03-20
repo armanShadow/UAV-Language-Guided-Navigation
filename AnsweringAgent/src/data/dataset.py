@@ -90,7 +90,7 @@ class AnsweringDataset(Dataset):
             current_view = current_view.permute(2, 0, 1)  # Convert to (C, H, W)
             
             # Process previous views if available
-            if 'previous_views_image' in processed_data and processed_data['previous_views_image']:
+            if 'previous_views_image' in processed_data:
                 # Get only up to max_previous_views
                 views_to_process = processed_data['previous_views_image'][:self.max_previous_views]
                 
