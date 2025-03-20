@@ -18,6 +18,8 @@ import traceback
 import datetime
 import time
 import pickle
+import gc
+import signal
 
 
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
@@ -415,7 +417,8 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
             batch_size=config.training.batch_size,
             sampler=train_sampler,
             num_workers=config.training.num_workers,
-            pin_memory=True
+            pin_memory=True,
+            worker_init_fn=worker_init_fn
         )
 
         val_loader = DataLoader(
@@ -423,7 +426,8 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
             batch_size=config.training.batch_size,
             sampler=val_sampler,
             num_workers=config.training.num_workers,
-            pin_memory=True
+            pin_memory=True,
+            worker_init_fn=worker_init_fn
         )
 
         # Training
@@ -445,7 +449,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
         )
 
         # Cleanup
-        dist.destroy_process_group()
+        cleanup()
 
     except Exception as e:
         logger.error(f"Error in main function: {str(e)}")
@@ -453,10 +457,49 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
         raise e
 
 
+# Worker initialization function for DataLoader
+def worker_init_fn(worker_id):
+    """
+    Initialize each worker process properly to avoid semaphore leaks.
+    """
+    # Set a different seed for each worker to ensure different random samples
+    worker_seed = torch.initial_seed() % 2**32
+    random.seed(worker_seed)
+    
+    # Clean up any previous resources and reset signal handlers
+    # This helps to avoid semaphore leaks
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    
+    # Force garbage collection at start
+    gc.collect()
+
+
+# Function to properly clean up multiprocessing resources
+def cleanup():
+    """Force cleanup of multiprocessing resources"""
+    if dist.is_initialized():
+        dist.destroy_process_group()
+    
+    # Force garbage collection
+    gc.collect()
+    
+    # Try to clean up any stray semaphores
+    if torch.multiprocessing.get_start_method() == 'fork':
+        try:
+            torch.multiprocessing.resource_tracker.getfd()
+        except:
+            pass
+
+
 if __name__ == '__main__':
     import argparse
     import torch.multiprocessing as mp
 
+    # Set appropriate multiprocessing start method to avoid semaphore leaks
+    if torch.cuda.is_available():
+        # Spawn is recommended for CUDA operations to avoid sharing CUDA context
+        mp.set_start_method('spawn', force=True)
+    
     config = Config()
 
     # Initialize tokenizer for dataset processing
@@ -473,7 +516,7 @@ if __name__ == '__main__':
 
     # Clean up any stale file handles or shared memory
     try:
-        dist.destroy_process_group()
+        cleanup()
     except:
         pass
 
@@ -484,13 +527,13 @@ if __name__ == '__main__':
             nprocs=world_size,
             join=True
         )
+    except KeyboardInterrupt:
+        print("Training interrupted by user")
     except Exception as e:
         print(f"Error in main process: {str(traceback.format_exc())}")
-        # Try to clean up on error
+    finally:
+        # Make sure all cleanup is performed
         try:
-            dist.destroy_process_group()
+            cleanup()
         except:
             pass
-        # Make sure all processes are terminated
-        import sys
-        sys.exit(1)

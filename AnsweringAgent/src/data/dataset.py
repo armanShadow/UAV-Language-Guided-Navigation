@@ -35,6 +35,9 @@ class AnsweringDataset(Dataset):
         if logger:
             logger.info("Starting dataset preprocessing (this will run only once)...")
         
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(config.data.train_data_path), exist_ok=True)
+        
         # Check if preprocessed data already exists
         processed_data_path = config.data.train_data_path
         
@@ -64,7 +67,6 @@ class AnsweringDataset(Dataset):
         with open(processed_data_path, 'wb') as f:
             logger.info(f"Saving preprocessed data to {processed_data_path}")
             pickle.dump(processed_items, f)
-            logger.info(f"Preprocessed data saved to {processed_data_path}")
         
         if logger:
             logger.info(f"Preprocessing complete. {len(processed_items)} items saved to {processed_data_path}")
@@ -119,15 +121,27 @@ class AnsweringDataset(Dataset):
         
         # Process previous views
         previous_views = []
-        for img in processed_data['previous_views_image']:
-            # Images are already in (C,H,W) format from normalize_pixel_values
-            previous_views.append(img.float())
-           
+        if 'previous_views_image' in processed_data and len(processed_data['previous_views_image']) > 0:
+            for img in processed_data['previous_views_image']:
+                # Images are already in (C,H,W) format from normalize_pixel_values
+                previous_views.append(img.float())
+        
+        # Handle case where previous_views is empty
+        if len(previous_views) == 0:
+            # Create default tensors with shape (3, 224, 224)
+            default_views = torch.zeros((self.max_previous_views, 3, 224, 224), dtype=torch.float32)
+            return {
+                'text_input': processed_data['text_input'],
+                'text_label': processed_data['text_label']['input_ids'],
+                'current_view_image': current_view,
+                'previous_views_image': default_views
+            }
+            
         # Pad or truncate to max_previous_views
         if len(previous_views) > self.max_previous_views:
             previous_views = previous_views[:self.max_previous_views]
         elif len(previous_views) < self.max_previous_views:
-            # Pad with zero tensors
+            # Create padding tensors with the same shape as the first tensor
             padding = [torch.zeros_like(previous_views[0]) 
                       for _ in range(self.max_previous_views - len(previous_views))]
             previous_views.extend(padding)
