@@ -27,8 +27,6 @@ class AnsweringAgentNormalizer:
         self.tokenizer = tokenizer
         # Add image cache to avoid repeated disk reads
         self.image_cache = {}
-        # Add transformation cache to avoid repeated calculations for same coordinates
-        self.transform_cache = {}
         # Maximum cache size (adjust based on available memory)
         self.max_cache_size = 100
 
@@ -67,8 +65,8 @@ class AnsweringAgentNormalizer:
         # Apply normalization
         image = (image - self.RGB_MEAN) / self.RGB_STD
         
-        # Transpose back to (H, W, C)
-        return image.transpose(1, 2, 0)
+        
+        return image
 
     def normalize_text(self, data: Dict[str, Any], max_length: int = 512) -> Dict[str, torch.Tensor]:
         """Normalize text using BERT tokenizer and return tokenized output.
@@ -204,24 +202,6 @@ class AnsweringAgentNormalizer:
                 - Transformed image
                 - View area corners in image coordinates
         """
-        # Create a cache key based on view coordinates and image shape
-        # Convert lists to tuples for hashing
-        cache_key = (
-            tuple(tuple(corner) for corner in view_area), 
-            tuple(gps_botm_left), 
-            tuple(gps_top_right),
-            lat_ratio, 
-            lng_ratio,
-            image.shape[0], 
-            image.shape[1],
-            output_size[0],
-            output_size[1]
-        )
-        
-        # Check if result is in cache
-        if cache_key in self.transform_cache:
-            return self.transform_cache[cache_key]
-        
         # Convert GPS coordinates to image coordinates for all corners (vectorized)
         img_coord_corners = np.array([
             self.gps_to_img_coords(corner, gps_botm_left, gps_top_right, lat_ratio, lng_ratio)
@@ -234,10 +214,10 @@ class AnsweringAgentNormalizer:
                            [width - 1, height - 1], [0, height - 1]], 
                           dtype=np.float32)
         
-        # Optimize getPerspectiveTransform by using pre-computed destination points
+        # Get perspective transform matrix
         M = cv2.getPerspectiveTransform(img_coord_corners, dst_pts)
         
-        # Use BORDER_REPLICATE to handle out-of-bounds better and avoid artifacts
+        # Apply perspective transform
         transformed_image = cv2.warpPerspective(
             image, M, (width, height), 
             flags=cv2.INTER_LINEAR,
@@ -247,14 +227,6 @@ class AnsweringAgentNormalizer:
         # Normalize image
         transformed_image = self.normalize_pixel_values(transformed_image)
         
-        # Store result in cache
-        if len(self.transform_cache) >= self.max_cache_size:
-            # Clear 20% of the cache when it reaches max size
-            keys_to_remove = list(self.transform_cache.keys())[:int(self.max_cache_size * 0.2)]
-            for key in keys_to_remove:
-                del self.transform_cache[key]
-                
-        self.transform_cache[cache_key] = (transformed_image, img_coord_corners)
         return transformed_image, img_coord_corners
 
     def process_data(self, data: Dict[str, Any], image_dir: str, output_size: Tuple[int, int] = (224, 224), max_seq_length: int = 512) -> Dict[str, Any]:
@@ -284,11 +256,11 @@ class AnsweringAgentNormalizer:
         
         # Cache and reuse loaded images
         map_name = str(data['map_name']) + '.tif'
-        image_path = os.path.join(image_dir, map_name)
         
         if map_name not in self.image_cache:
             # Load image only if not in cache
-            img = cv2.imread(image_path, 1)
+            image_path = os.path.join(image_dir, map_name)
+            img = self.load_image(image_path)
             if len(self.image_cache) >= self.max_cache_size:
                 # Clear oldest image if cache is full
                 oldest_key = next(iter(self.image_cache))
@@ -335,10 +307,10 @@ class AnsweringAgentNormalizer:
         
         return processed_data
 
-    # Add a method to preprocess all data at once
     def preprocess_all_data(self, data_df, image_dir, output_size=(224, 224), max_seq_length=512):
         """
         Preprocess all data in the dataframe at once to avoid repeated processing during training.
+        Uses the existing process_data function for each item, which already handles image caching.
         
         Args:
             data_df: Pandas DataFrame containing the dataset
@@ -354,69 +326,26 @@ class AnsweringAgentNormalizer:
         
         # Track progress
         total_items = len(data_df)
-        processed_count = 0
         
-        # Group by map_name to efficiently process images
-        map_groups = data_df.groupby('map_name')
-        
-        for map_name, group in map_groups:
-            # Load the map image once for all entries with this map
-            map_path = os.path.join(image_dir, f"{map_name}.tif")
-            map_img = cv2.imread(map_path, 1)
-            
-            if map_img is None:
-                print(f"Warning: Could not load map image {map_path}")
-                continue
-                
-            print(f"Processing map {map_name} with {len(group)} entries")
-            
-            # Process all entries for this map
-            for idx in group.index:
-                data = data_df.loc[idx]
-                processed_data = {}
-                
-                # Process text data
-                tokenized_input_text, tokenized_label = self.normalize_text(data, max_length=max_seq_length)
-                processed_data['text_input'] = tokenized_input_text
-                processed_data['text_label'] = tokenized_label
-                
-                # Parse GPS coordinates
-                gps_botm_left = np.array(json.loads(data['gps_botm_left']))
-                gps_top_right = np.array(json.loads(data['gps_top_right']))
-                lat_ratio = float(data['lat_ratio'])
-                lng_ratio = float(data['lng_ratio'])
-                
-                # Process current view
-                if 'current_view_coord' in data:
-                    current_view_coord = np.array(json.loads(data['current_view_coord']))
-                    transformed_image, img_coord_corners = self.normalize_view_area(
-                        current_view_coord.tolist(), gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
-                        map_img, output_size
-                    )
-                    processed_data['current_view_image'] = torch.from_numpy(transformed_image).float()
-                    processed_data['current_view_coord_pixel'] = torch.from_numpy(img_coord_corners)
-                
-                # Process previous views
-                if 'previous_views_coord' in data:
-                    previous_views_coord = [np.array(view_coords) for view_coords in json.loads(data['previous_views_coord'])]
-                    processed_data['previous_views_image'] = []
-                    processed_data['previous_views_coord_pixel'] = []
-                    
-                    for view_coords in previous_views_coord:
-                        transformed_image, img_coord_corners = self.normalize_view_area(
-                            view_coords.tolist(), gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
-                            map_img, output_size
-                        )
-                        processed_data['previous_views_image'].append(torch.from_numpy(transformed_image).float())
-                        processed_data['previous_views_coord_pixel'].append(torch.from_numpy(img_coord_corners))
-                
+        # Simply iterate through all rows
+        for idx, data in data_df.iterrows():
+            try:
+                # Process this item using the existing process_data function
+                processed_data = self.process_data(
+                    data, 
+                    image_dir,
+                    output_size=output_size,
+                    max_seq_length=max_seq_length
+                )
                 # Store the processed data with original dataframe index
                 processed_dataset[idx] = processed_data
                 
-                # Update progress
-                processed_count += 1
-                if processed_count % 100 == 0:
-                    print(f"Progress: {processed_count}/{total_items} items processed ({processed_count/total_items*100:.1f}%)")
+                # Log progress
+                if len(processed_dataset) % 100 == 0:
+                    print(f"Progress: {len(processed_dataset)}/{total_items} items processed ({len(processed_dataset)/total_items*100:.1f}%)")
+                    
+            except Exception as e:
+                print(f"Error processing item {idx}: {str(e)}")
         
         print(f"Pre-processing complete. {len(processed_dataset)} items processed.")
         return processed_dataset
