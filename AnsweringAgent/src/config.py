@@ -17,7 +17,6 @@ class ModelConfig:
     num_decoder_layers: int = 6
     num_attention_heads: int = 8
     feedforward_dim: int = 3072  # 4 * hidden_size
-    max_seq_length: int = 512
     max_answer_length: int = 128
     vocab_size: int = 30522  # BERT vocabulary size for bert-base-uncased
     img_size: int = 224  # Image size for Darknet/YOLO model
@@ -37,7 +36,6 @@ class TrainingConfig:
     pin_memory: bool = True
     mixed_precision: bool = True
     device: str = 'cuda'
-    primary_gpu: int = 0
     seed: int = 42
     checkpoint_frequency: int = 1000
     scheduler_factor: float = 0.5
@@ -62,7 +60,7 @@ class DataConfig:
     darknet_weights_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/best.pt")
     max_previous_views: int = 4
     train_val_split: float = 0.95
-    max_length: int = 512
+    max_seq_length: int = 512
 
     def __post_init__(self):
         """Verify paths exist."""

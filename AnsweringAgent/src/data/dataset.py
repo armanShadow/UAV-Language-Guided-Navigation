@@ -23,6 +23,7 @@ class AnsweringDataset(Dataset):
         #TODO: #3 Redundant tokenizer. No Usage. AnsweringAgentNormalizer creates a tokenizer
         self.image_dir = config.data.avdn_image_dir
         self.max_previous_views = config.data.max_previous_views
+        self.max_seq_length = config.data.max_seq_length
         
         # Initialize normalizer
         self.normalizer = AnsweringAgentNormalizer(tokenizer)
@@ -53,7 +54,8 @@ class AnsweringDataset(Dataset):
         # Process the data using normalizer
         processed_data = self.normalizer.process_data(
             data,
-            self.image_dir
+            self.image_dir,
+            max_sequence_length=self.max_seq_length,
         )
         
         # The image is already a tensor from the normalizer, just ensure it's float
@@ -77,7 +79,7 @@ class AnsweringDataset(Dataset):
                           for _ in range(self.max_previous_views - len(previous_views))]
                 previous_views.extend(padding)
             
-            previous_views = torch.stack(previous_views)
+            previous_views = torch.stack(previous_views, dim=1)
         else:
             # Create a tensor of zero tensors with shape (max_previous_views, C, H, W)
             previous_views = torch.zeros((self.max_previous_views, 3, 224, 224), dtype=torch.float32)

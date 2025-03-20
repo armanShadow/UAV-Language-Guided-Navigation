@@ -217,7 +217,7 @@ class AnsweringAgentNormalizer:
 
         return transformed_image, img_coord_corners
 
-    def process_data(self, data: Dict[str, Any], image_dir: str, output_size: Tuple[int, int] = (224, 224)) -> Dict[str, Any]:
+    def process_data(self, data: Dict[str, Any], image_dir: str, output_size: Tuple[int, int] = (224, 224), max_seq_length: int = 512) -> Dict[str, Any]:
         """Process image, GPS coordinates, and normalize view areas using AVDN transformations.
         
         Args:
@@ -231,7 +231,7 @@ class AnsweringAgentNormalizer:
         processed_data = data.copy()
         
         # Process text data
-        tokenized_input_text, tokenized_label = self.normalize_text(data)
+        tokenized_input_text, tokenized_label = self.normalize_text(data, max_length=max_seq_length)
         processed_data['text_input'] = tokenized_input_text
         processed_data['text_label'] = tokenized_label
         

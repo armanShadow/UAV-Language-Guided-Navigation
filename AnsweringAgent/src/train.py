@@ -71,12 +71,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             total_loss = 0
             optimizer.zero_grad(set_to_none=True)
 
-            # All ranks must participate in memory logging
-            memory_stats = log_gpu_memory()
+
             # Only rank 0 logs the results
             if rank == 0:
                 logger.info(f"Starting epoch {epoch + 1}/{num_epochs}")
-                logger.info(f'GPU Memory: {memory_stats}')
 
             for batch_idx, batch in enumerate(train_loader):
                 try:
@@ -127,6 +125,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Log at specified frequency
                     if batch_idx % log_frequency == 0 and rank == 0:
                         avg_loss = total_loss / (batch_idx + 1)
+                        # All ranks must participate in memory logging
+                        memory_stats = log_gpu_memory()
+                        logger.info(f'GPU Memory: {memory_stats}')
                         logger.info(f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, Loss: {avg_loss:.4f}')
 
                 except Exception as e:
