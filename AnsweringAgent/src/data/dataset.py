@@ -62,7 +62,9 @@ class AnsweringDataset(Dataset):
         
         # Save the processed data to disk
         with open(processed_data_path, 'wb') as f:
+            logger.info(f"Saving preprocessed data to {processed_data_path}")
             pickle.dump(processed_items, f)
+            logger.info(f"Preprocessed data saved to {processed_data_path}")
         
         if logger:
             logger.info(f"Preprocessing complete. {len(processed_items)} items saved to {processed_data_path}")
