@@ -55,59 +55,79 @@ class AnsweringDataset(Dataset):
                 - previous_views_image: Previous views image tensor (if available)
                 - text_label: Tokenized answer label
         """
-        # Get the data
-        data = self.data.iloc[idx]
-        
-        # Process the data using normalizer with max sequence length limit
-        processed_data = self.normalizer.process_data(
-            data,
-            self.image_dir,
-            max_length=self.max_seq_length
-        )
-        
-        # The image is already a tensor from the normalizer, convert with memory optimization
-        current_view = processed_data['current_view_image'].to(torch.float32)
-        current_view = current_view.permute(2, 0, 1)  # Convert to (C, H, W)
-        
-        # Process previous views if available
-        if 'previous_views_image' in processed_data and processed_data['previous_views_image']:
-            # Get only up to max_previous_views
-            views_to_process = processed_data['previous_views_image'][:self.max_previous_views]
+        # Print every 50th item for debugging
+        debug_print = (idx % 50 == 0)
+        if debug_print:
+            print(f"Loading item {idx}/{len(self.data)}")
             
-            # Calculate padding needed
-            pad_length = max(0, self.max_previous_views - len(views_to_process))
+        try:
+            # Get the data
+            data = self.data.iloc[idx]
             
-            # Process available views
-            previous_views = []
-            for img in views_to_process:
-                prev_view = img.to(torch.float32)  # More memory efficient than .float()
-                prev_view = prev_view.permute(2, 0, 1)  # Convert to (C, H, W)
-                previous_views.append(prev_view)
-            
-            # If we need padding
-            if pad_length > 0:
-                # Use a single zeros tensor and repeat it in the stack operation
-                # More memory efficient than creating multiple zero tensors
-                zero_tensor = torch.zeros((3, self.img_size, self.img_size), dtype=torch.float32)
-                padding = [zero_tensor] * pad_length
-                previous_views.extend(padding)
-            
-            previous_views = torch.stack(previous_views)
-        else:
-            # Create a tensor of zeros with shape (max_previous_views, C, H, W)
-            # More efficient than creating multiple zero tensors
-            previous_views = torch.zeros(
-                (self.max_previous_views, 3, self.img_size, self.img_size), 
-                dtype=torch.float32
+            if debug_print:
+                print(f"Item {idx}: Processing data with normalizer")
+                
+            # Process the data using normalizer with max sequence length limit
+            processed_data = self.normalizer.process_data(
+                data,
+                self.image_dir,
+                max_length=self.max_seq_length
             )
-        
-        # Extract only input_ids from text_label to save memory
-        text_label = processed_data['text_label']['input_ids']
-        
-        # Return tensors in CPU, DataLoader will handle device transfer
-        return {
-            'text_input': processed_data['text_input'],
-            'text_label': text_label,
-            'current_view_image': current_view,
-            'previous_views_image': previous_views
-        } 
+            
+            if debug_print:
+                print(f"Item {idx}: Processing images")
+                
+            # The image is already a tensor from the normalizer, convert with memory optimization
+            current_view = processed_data['current_view_image'].to(torch.float32)
+            current_view = current_view.permute(2, 0, 1)  # Convert to (C, H, W)
+            
+            # Process previous views if available
+            if 'previous_views_image' in processed_data and processed_data['previous_views_image']:
+                # Get only up to max_previous_views
+                views_to_process = processed_data['previous_views_image'][:self.max_previous_views]
+                
+                # Calculate padding needed
+                pad_length = max(0, self.max_previous_views - len(views_to_process))
+                
+                # Process available views
+                previous_views = []
+                for img in views_to_process:
+                    prev_view = img.to(torch.float32)  # More memory efficient than .float()
+                    prev_view = prev_view.permute(2, 0, 1)  # Convert to (C, H, W)
+                    previous_views.append(prev_view)
+                
+                # If we need padding
+                if pad_length > 0:
+                    # Use a single zeros tensor and repeat it in the stack operation
+                    # More memory efficient than creating multiple zero tensors
+                    zero_tensor = torch.zeros((3, self.img_size, self.img_size), dtype=torch.float32)
+                    padding = [zero_tensor] * pad_length
+                    previous_views.extend(padding)
+                
+                previous_views = torch.stack(previous_views)
+            else:
+                # Create a tensor of zeros with shape (max_previous_views, C, H, W)
+                # More efficient than creating multiple zero tensors
+                previous_views = torch.zeros(
+                    (self.max_previous_views, 3, self.img_size, self.img_size), 
+                    dtype=torch.float32
+                )
+            
+            # Extract only input_ids from text_label to save memory
+            text_label = processed_data['text_label']['input_ids']
+            
+            if debug_print:
+                print(f"Item {idx}: Successfully prepared data")
+                
+            # Return tensors in CPU, DataLoader will handle device transfer
+            return {
+                'text_input': processed_data['text_input'],
+                'text_label': text_label,
+                'current_view_image': current_view,
+                'previous_views_image': previous_views
+            }
+        except Exception as e:
+            print(f"ERROR loading item {idx}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise e 

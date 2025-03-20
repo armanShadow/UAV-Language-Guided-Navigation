@@ -141,9 +141,16 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # Always log epoch start
             if rank == 0:
                 logger.info(f"Starting epoch {epoch + 1}/{num_epochs}")
+                logger.info(f"Creating data loader iterator...")
+            
+            # This is most likely where it's hanging - creating the iterator
+            train_iter = iter(train_loader)
+            
+            if rank == 0:
+                logger.info(f"Data loader iterator created successfully. Starting batch processing...")
 
             # Accumulate gradients locally before synchronizing
-            for batch_idx, batch in enumerate(train_loader):
+            for batch_idx, batch in enumerate(train_iter):
                 try:
                     # Move data to device (non-blocking for async transfer)
                     text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
@@ -446,13 +453,22 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
         # Consider reducing workers if memory is an issue
         num_workers = config.training.num_workers
         
+        # For debugging hangs, try with zero workers
+        debug_mode = True
+        if debug_mode and rank == 0:
+            logger.info("DEBUG MODE: Using 0 workers for DataLoader to troubleshoot hanging")
+            num_workers = 0
+            persistent_workers = False
+        else:
+            persistent_workers = (num_workers > 0)
+        
         train_loader = DataLoader(
             train_dataset,
             batch_size=config.training.batch_size,
             sampler=train_sampler,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            persistent_workers=True if num_workers > 0 else False  # Keep workers alive between batches
+            persistent_workers=persistent_workers  # Keep workers alive between batches
         )
 
         val_loader = DataLoader(
@@ -461,7 +477,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
             sampler=val_sampler,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            persistent_workers=True if num_workers > 0 else False
+            persistent_workers=persistent_workers
         )
 
         # Training
