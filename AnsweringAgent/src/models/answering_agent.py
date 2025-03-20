@@ -198,8 +198,8 @@ class AnsweringAgent(nn.Module):
         seq_len = input_ids.size(1)
         
         # Verify sequence length doesn't exceed model's maximum
-        assert seq_len <= self.config.model.max_seq_length, \
-            f"Input sequence length {seq_len} exceeds maximum allowed length {self.config.model.max_seq_length}"
+        assert seq_len <= self.config.data.max_seq_length, \
+            f"Input sequence length {seq_len} exceeds maximum allowed length {self.config.data.max_seq_length}"
         
         # Update text_input with properly shaped tensors
         text_input = {k: v for k, v in {
