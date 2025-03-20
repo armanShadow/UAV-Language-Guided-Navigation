@@ -116,15 +116,16 @@ class FeatureExtractor(nn.Module):
         # Extract features from current view (in AVDN dimension)
         current_features = self._extract_features(current_view)  # [batch_size, 384]
         
-        if not previous_views:  # Handle empty list or None
+        if previous_views is None:  # Handle empty list or None
             # Project to BERT dimension before returning
             return self.projection(current_features)
         
-        # Stack previous views if they're in a list
-        if isinstance(previous_views, list):
-            prev_views_tensor = torch.stack(previous_views, dim=1)
-        else:
+        # Handle the previous views tensor format
+        if isinstance(previous_views, torch.Tensor):
+            # If we have shape [batch_size, num_prev_views, C, H, W]
             prev_views_tensor = previous_views
+        else:  # If it's a list
+            prev_views_tensor = torch.stack(previous_views, dim=1)
             
         # Get the actual batch size from the previous views tensor
         actual_batch_size = prev_views_tensor.size(0)
@@ -138,7 +139,10 @@ class FeatureExtractor(nn.Module):
             actual_batch_size = batch_size
         
         # Extract features from previous views (in AVDN dimension)
-        prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])
+        # Reshape to [batch_size * num_prev_views, C, H, W]
+        prev_views_reshaped = prev_views_tensor.reshape(-1, prev_views_tensor.size(-3), 
+                                                       prev_views_tensor.size(-2), 
+                                                       prev_views_tensor.size(-1))
         prev_features = self._extract_features(prev_views_reshaped)
         prev_features = prev_features.view(actual_batch_size, num_prev_views, -1)
         

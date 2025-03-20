@@ -79,7 +79,8 @@ class AnsweringDataset(Dataset):
                           for _ in range(self.max_previous_views - len(previous_views))]
                 previous_views.extend(padding)
             
-            previous_views = torch.stack(previous_views, dim=1)
+            # Stack correctly along a new dimension - will be [batch, num_views, C, H, W]
+            previous_views = torch.stack(previous_views, dim=0)
         else:
             # Create a tensor of zero tensors with shape (max_previous_views, C, H, W)
             previous_views = torch.zeros((self.max_previous_views, 3, 224, 224), dtype=torch.float32)
