@@ -76,6 +76,14 @@ class AnsweringDataset(Dataset):
             
             if debug_print:
                 print(f"Item {idx}: Processing images")
+                if 'current_view_image' in processed_data:
+                    print(f"  - Current view shape: {processed_data['current_view_image'].shape}")
+                else:
+                    print(f"  - WARNING: No current view image found!")
+                if 'previous_views_image' in processed_data:
+                    print(f"  - Found {len(processed_data['previous_views_image'])} previous views")
+                else:
+                    print(f"  - No previous views found")
                 
             # The image is already a tensor from the normalizer, convert with memory optimization
             current_view = processed_data['current_view_image'].to(torch.float32)
