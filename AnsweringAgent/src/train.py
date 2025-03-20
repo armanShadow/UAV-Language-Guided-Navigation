@@ -92,6 +92,29 @@ def log_gpu_memory(should_gather=True, should_log=False, logger=None):
     return mem_info
 
 
+def optimize_memory():
+    """
+    Optimize GPU memory by clearing cache and garbage collecting.
+    """
+    # Clear PyTorch's CUDA cache
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    
+    # Run Python's garbage collector
+    import gc
+    gc.collect()
+
+
+def reduce_tensor(tensor, world_size):
+    """
+    Reduce tensor across all processes in distributed training
+    """
+    rt = tensor.clone()
+    dist.all_reduce(rt, op=dist.ReduceOp.SUM)
+    rt /= world_size
+    return rt
+
+
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler,
                 num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None,
                 logger=None):
@@ -99,7 +122,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
     save_frequency = config.training.checkpoint_frequency
     log_frequency = max(1, len(train_loader) // 3)  # Log approximately 3 times per epoch
-  
+    memory_log_freq = 5  # Only log memory every 5 epochs to reduce synchronization
+    empty_cache_freq = config.training.empty_cache_freq  # Empty cache frequency
 
     # Enable automatic mixed precision training
     scaler = torch.cuda.amp.GradScaler(enabled=config.training.enable_amp)
@@ -120,9 +144,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     if rank == 0:
         logger.info(f"Initial GPU Memory: {log_gpu_memory(should_gather=False)}")
         
-    # Clear cache before starting training (this is strategic and helpful)
-    if config.training.optimize_memory_usage:
+    # Configure PyTorch memory allocator for better fragmentation handling
+    if hasattr(torch.cuda, 'memory_stats'):
+        # Only available in newer PyTorch versions
         torch.cuda.empty_cache()
+        if 'PYTORCH_CUDA_ALLOC_CONF' not in os.environ:
+            # Set allocation strategy to reduce fragmentation
+            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
 
     try:
         for epoch in range(start_epoch, num_epochs):
@@ -130,13 +158,20 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             train_loader.sampler.set_epoch(epoch)
             val_loader.sampler.set_epoch(epoch)
 
-            # Clear memory at the start of each epoch (strategic point)
+            # Clear memory at the start of each epoch
             if config.training.optimize_memory_usage:
                 torch.cuda.empty_cache()
 
             model.train()
             total_loss = 0
             optimizer.zero_grad(set_to_none=True)  # More memory efficient than zero_grad()
+
+            # Log memory only on specified epochs (to reduce synchronization)
+            if epoch % memory_log_freq == 0:
+                # All ranks participate in memory logging, but only on specified epochs
+                memory_stats = log_gpu_memory(should_gather=True)
+                if rank == 0:
+                    logger.info(f'Epoch {epoch + 1} GPU Memory: {memory_stats}')
             
             # Always log epoch start
             if rank == 0:
@@ -149,8 +184,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
                     current_view = batch['current_view_image'].to(device, non_blocking=True)
                     
-                    # previous_views is already properly sized by the dataset, just move to device
-                    previous_views = batch['previous_views_image'].to(device, non_blocking=True)
+                    # Limit number of previous views to save memory
+                    if len(batch['previous_views_image']) > config.training.max_previous_views:
+                        previous_views = [view.to(device, non_blocking=True) 
+                                        for view in batch['previous_views_image'][-config.training.max_previous_views:]]
+                    else:
+                        previous_views = [view.to(device, non_blocking=True) 
+                                        for view in batch['previous_views_image']]
                                         
                     labels = batch['text_label'].to(device, non_blocking=True)
 
@@ -195,6 +235,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     # Clean up input tensors
                     del text_input, current_view, previous_views, labels
+                    
+                    # Periodically clear cache to reduce fragmentation
+                    if batch_idx % empty_cache_freq == 0 and config.training.optimize_memory_usage:
+                        torch.cuda.empty_cache()
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
                     del loss
@@ -202,15 +246,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Log at specified frequency - no memory logging here to reduce synchronization
                     if batch_idx % log_frequency == 0 and rank == 0:
                         avg_loss = total_loss / (batch_idx + 1)
-                        memory_stats = log_gpu_memory(should_gather=True)
-                        logger.info(f'Epoch {epoch + 1} GPU Memory: {memory_stats}')
                         logger.info(f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, Loss: {avg_loss:.4f}')
 
                 except RuntimeError as e:
                     # Specialized handling for OOM errors
                     if "CUDA out of memory" in str(e):
                         logger.error(f"CUDA OOM in batch {batch_idx}. Attempting to recover...")
-                        # Try to free memory - this is a good place to clear cache
+                        # Try to free memory
                         torch.cuda.empty_cache()
                         # Wait a bit
                         time.sleep(2)
@@ -237,7 +279,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             if rank == 0:
                 logger.info(f'Epoch {epoch + 1} completed. Average loss: {avg_epoch_loss:.4f}')
 
-            # Clear memory before validation (strategic point)
+            # Clear memory before validation
             if config.training.optimize_memory_usage:
                 torch.cuda.empty_cache()
 
@@ -254,8 +296,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
                             current_view = batch['current_view_image'].to(device, non_blocking=True)
                             
-                            # previous_views is already properly sized by the dataset, just move to device
-                            previous_views = batch['previous_views_image'].to(device, non_blocking=True)
+                            # Limit previous views for validation too
+                            if len(batch['previous_views_image']) > config.training.max_previous_views:
+                                previous_views = [view.to(device, non_blocking=True) 
+                                                for view in batch['previous_views_image'][-config.training.max_previous_views:]]
+                            else:
+                                previous_views = [view.to(device, non_blocking=True) 
+                                                for view in batch['previous_views_image']]
                                                 
                             labels = batch['text_label'].to(device, non_blocking=True)
 
@@ -269,6 +316,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             
                             # Clean up tensors
                             del text_input, current_view, previous_views, labels, outputs, outputs_reshaped, labels_reshaped, loss
+                            
+                            # Periodically clear cache during validation too
+                            if batch_idx % empty_cache_freq == 0 and config.training.optimize_memory_usage:
+                                torch.cuda.empty_cache()
 
                         except Exception as e:
                             logger.error(f"Error in validation batch {batch_idx}: {str(e)}")
@@ -323,8 +374,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     }, os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch + 1}.pt'))
                     logger.info(f'Checkpoint saved at epoch {epoch + 1}')
 
-                # Clear cache after validation (strategic point)
-                if config.training.optimize_memory_usage:
+                # Clear cache after validation
+                if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
     except Exception as e:
@@ -361,8 +412,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
             
             # Set PyTorch memory allocator for fragmentation handling
             if 'PYTORCH_CUDA_ALLOC_CONF' not in os.environ:
-                # Set allocation strategy to reduce fragmentation
-                os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+                os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
         
         if rank == 0:
             logger.info(f"Training on {world_size} GPUs")
