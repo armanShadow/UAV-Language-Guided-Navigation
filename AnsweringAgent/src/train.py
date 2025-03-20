@@ -122,12 +122,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
                 
-                    # Only log memory stats occasionally to avoid potential blocking
-                    if batch_idx % log_frequency == 0:
-                        try:
-                            memory_stats = log_gpu_memory()
-                        except Exception as e:
-                            memory_stats = f"Memory logging failed: {str(e)}"
+                    memory_stats = log_gpu_memory()
 
                     # Log at specified frequency
                     if batch_idx % log_frequency == 0 and rank == 0:
@@ -241,13 +236,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
 def log_gpu_memory():
     """Log GPU memory usage for all available GPUs with consolidated statistics."""
-
-    # Ensure we're not printing debug messages from every rank
-    if dist.is_initialized() and dist.get_rank() > 0:
-        # Only rank 0 should print debug messages
-        pass
-    else:
-        print("DEBUG: log_gpu_memory function called")
         
     if not torch.cuda.is_available():
         return "No CUDA devices available"
