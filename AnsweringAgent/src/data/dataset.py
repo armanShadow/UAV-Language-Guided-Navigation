@@ -23,7 +23,6 @@ class AnsweringDataset(Dataset):
         self.image_dir = config.data.avdn_image_dir
         self.max_previous_views = config.data.max_previous_views
         self.max_seq_length = config.data.max_seq_length
-        self.use_preprocessing = use_preprocessing
         
         # Initialize normalizer
         self.normalizer = AnsweringAgentNormalizer(tokenizer)
