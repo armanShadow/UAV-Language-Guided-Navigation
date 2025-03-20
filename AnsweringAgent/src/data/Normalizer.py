@@ -25,6 +25,12 @@ class AnsweringAgentNormalizer:
         """Initialize the normalizer with BERT tokenizer."""
         #TODO: #4 BertTokenizerFast vs BertTokenizer. is it confusing the model?
         self.tokenizer = tokenizer
+        # Add image cache to avoid repeated disk reads
+        self.image_cache = {}
+        # Add transformation cache to avoid repeated calculations for same coordinates
+        self.transform_cache = {}
+        # Maximum cache size (adjust based on available memory)
+        self.max_cache_size = 100
 
     def load_image(self, file_path: str) -> np.ndarray:
         """Load an image from file and ensure RGB format.
@@ -198,7 +204,25 @@ class AnsweringAgentNormalizer:
                 - Transformed image
                 - View area corners in image coordinates
         """
-        # Convert GPS coordinates to image coordinates for all corners
+        # Create a cache key based on view coordinates and image shape
+        # Convert lists to tuples for hashing
+        cache_key = (
+            tuple(tuple(corner) for corner in view_area), 
+            tuple(gps_botm_left), 
+            tuple(gps_top_right),
+            lat_ratio, 
+            lng_ratio,
+            image.shape[0], 
+            image.shape[1],
+            output_size[0],
+            output_size[1]
+        )
+        
+        # Check if result is in cache
+        if cache_key in self.transform_cache:
+            return self.transform_cache[cache_key]
+        
+        # Convert GPS coordinates to image coordinates for all corners (vectorized)
         img_coord_corners = np.array([
             self.gps_to_img_coords(corner, gps_botm_left, gps_top_right, lat_ratio, lng_ratio)
             for corner in view_area
@@ -209,12 +233,28 @@ class AnsweringAgentNormalizer:
         dst_pts = np.array([[0, 0], [width - 1, 0], 
                            [width - 1, height - 1], [0, height - 1]], 
                           dtype=np.float32)
+        
+        # Optimize getPerspectiveTransform by using pre-computed destination points
         M = cv2.getPerspectiveTransform(img_coord_corners, dst_pts)
-        transformed_image = cv2.warpPerspective(image, M, (width, height))
+        
+        # Use BORDER_REPLICATE to handle out-of-bounds better and avoid artifacts
+        transformed_image = cv2.warpPerspective(
+            image, M, (width, height), 
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE
+        )
         
         # Normalize image
         transformed_image = self.normalize_pixel_values(transformed_image)
-
+        
+        # Store result in cache
+        if len(self.transform_cache) >= self.max_cache_size:
+            # Clear 20% of the cache when it reaches max size
+            keys_to_remove = list(self.transform_cache.keys())[:int(self.max_cache_size * 0.2)]
+            for key in keys_to_remove:
+                del self.transform_cache[key]
+                
+        self.transform_cache[cache_key] = (transformed_image, img_coord_corners)
         return transformed_image, img_coord_corners
 
     def process_data(self, data: Dict[str, Any], image_dir: str, output_size: Tuple[int, int] = (224, 224), max_seq_length: int = 512) -> Dict[str, Any]:
@@ -242,6 +282,21 @@ class AnsweringAgentNormalizer:
         lat_ratio = float(data['lat_ratio'])
         lng_ratio = float(data['lng_ratio'])
         
+        # Cache and reuse loaded images
+        map_name = str(data['map_name']) + '.tif'
+        image_path = os.path.join(image_dir, map_name)
+        
+        if map_name not in self.image_cache:
+            # Load image only if not in cache
+            img = cv2.imread(image_path, 1)
+            if len(self.image_cache) >= self.max_cache_size:
+                # Clear oldest image if cache is full
+                oldest_key = next(iter(self.image_cache))
+                del self.image_cache[oldest_key]
+            self.image_cache[map_name] = img
+        else:
+            img = self.image_cache[map_name]
+        
         # Process current view coordinates
         if 'current_view_coord' in data:
             # Convert string coordinates to numpy array
@@ -250,11 +305,10 @@ class AnsweringAgentNormalizer:
                 current_view_coord, gps_botm_left, gps_top_right, lat_ratio, lng_ratio
             )
             
-            # Transform current view to standard size
+            # Transform current view to standard size using cached image
             transformed_image, img_coord_corners = self.normalize_view_area(
                 current_view_coord.tolist(), gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
-                cv2.imread(os.path.join(image_dir, str(data['map_name']) + '.tif'), 1),
-                output_size
+                img, output_size
             )
             processed_data['current_view_image'] = torch.from_numpy(transformed_image)
             processed_data['current_view_coord_pixel'] = torch.from_numpy(img_coord_corners)
@@ -274,8 +328,7 @@ class AnsweringAgentNormalizer:
             for view_coords in previous_views_coord:
                 transformed_image, img_coord_corners = self.normalize_view_area(
                     view_coords.tolist(), gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
-                    cv2.imread(os.path.join(image_dir, str(data['map_name']) + '.tif'), 1),
-                    output_size
+                    img, output_size
                 )
                 processed_data['previous_views_image'].append(torch.from_numpy(transformed_image))
                 processed_data['previous_views_coord_pixel'].append(torch.from_numpy(img_coord_corners))
