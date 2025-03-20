@@ -319,45 +319,85 @@ def log_gpu_memory():
         return f"Error logging GPU memory: {str(e)}"
 
 
-def setup(rank, world_size):
-    """Set up the distributed training environment."""
-    try:
-        # Set basic environment variables
-        os.environ['MASTER_ADDR'] = '127.0.0.1'
-        os.environ['MASTER_PORT'] = '12355'
-        
-        # Initialize process group with NCCL backend
+def setup_distributed():
+    """Set up the distributed environment using environment variables set by torchrun."""
+    # Get distributed training environment variables from torchrun
+    if "LOCAL_RANK" not in os.environ:
+        # Not running with torchrun, assume single-GPU
+        return False, 0, 1
+    
+    local_rank = int(os.environ["LOCAL_RANK"])
+    rank = int(os.environ.get("RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    
+    # Set the device
+    torch.cuda.set_device(local_rank)
+    
+    # Initialize the process group
+    init_method = os.environ.get("MASTER_ADDR", "env://")
+    
+    # Only initialize process group if not already initialized
+    if not dist.is_initialized():
         dist.init_process_group(
-            backend='nccl',
-            init_method='env://',
+            backend="nccl",
+            init_method=init_method,
             world_size=world_size,
             rank=rank,
-            timeout=datetime.timedelta(minutes=30)  # Increased timeout for large models
+            timeout=datetime.timedelta(minutes=30)
         )
-    except Exception as e:
-        print(f"Fatal error during DDP setup: {str(e)}")
-        raise e
+    
+    return True, rank, world_size
 
 
-def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None):
-    """Main training function executed by each process."""
+def cleanup():
+    """Force cleanup of multiprocessing resources"""
+    if dist.is_initialized():
+        dist.destroy_process_group()
+    
+    # Force garbage collection
+    gc.collect()
+    
+    # Clean up CUDA resources
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def main():
+    """Main training function that works with torchrun."""
     global TRAINING_FAILED
     
-    # Initialize logger for this process
-    logger = setup_logger('training', log_dir=config.log_dir)
-
+    parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
+    parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
+    args = parser.parse_args()
+    
+    # Initialize distributed environment using torchrun environment variables
+    is_distributed, rank, world_size = setup_distributed()
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
+    
+    # Set up signal handlers for proper cleanup
+    def signal_handler(sig, frame):
+        print(f"Process {rank} received signal {sig}, cleaning up and exiting...")
+        cleanup()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Load configuration
+    config = Config()
+    
+    # Initialize logger (only rank 0 should log to console)
+    logger = setup_logger('training', log_dir=config.log_dir, rank=rank)
+    
+    # Initialize tokenizer
+    tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
+    
     try:
-        # Set environment variables for DDP
-        setup(rank, world_size)
-
-        # Explicitly set the CUDA device for this process
-        torch.cuda.set_device(rank)
-        device = torch.device(f'cuda:{rank}')
-        
         if rank == 0:
             logger.info(f"Training on {world_size} GPUs")
             
-            # Preprocess dataset on rank 0 only - use more efficient preprocess_all_data
+            # Preprocess dataset on rank 0 only
             logger.info("Starting dataset preprocessing on rank 0...")
             start_time = time.time()
             AnsweringDataset.preprocess_and_save(config, tokenizer, logger)
@@ -365,7 +405,8 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
             logger.info(f"Dataset preprocessing complete. Took {preprocess_time:.2f} seconds.")
         
         # Wait for rank 0 to finish preprocessing
-        dist.barrier()
+        if is_distributed:
+            dist.barrier()
         
         if rank == 0:
             logger.info("All ranks synced after preprocessing. Starting model initialization...")
@@ -379,21 +420,22 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
         start_epoch = 0
         best_val_loss = float('inf')
 
-        # Wrap model with DDP
-        model = DDP(
-            model,
-            device_ids=[rank],
-            output_device=rank,
-            find_unused_parameters=True,
-            broadcast_buffers=True
-        )
+        # Wrap model with DDP if using distributed training
+        if is_distributed:
+            model = DDP(
+                model,
+                device_ids=[local_rank],
+                output_device=local_rank,
+                find_unused_parameters=True,
+                broadcast_buffers=True
+            )
 
         # Resume training if checkpoint is provided
-        if checkpoint_path and os.path.exists(checkpoint_path):
+        if args.checkpoint and os.path.exists(args.checkpoint):
             if rank == 0:
-                logger.info(f"Loading checkpoint from {checkpoint_path}")
-            map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
-            checkpoint = torch.load(checkpoint_path, map_location=map_location)
+                logger.info(f"Loading checkpoint from {args.checkpoint}")
+            map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
+            checkpoint = torch.load(args.checkpoint, map_location=map_location)
             model.module.load_state_dict(checkpoint['model_state_dict'])
             start_epoch = checkpoint['epoch']
             best_val_loss = checkpoint.get('val_loss', float('inf'))
@@ -412,7 +454,7 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
             mode='min',
             factor=config.training.scheduler_factor,
             patience=config.training.scheduler_patience,
-            verbose=config.training.scheduler_verbose
+            verbose=config.training.scheduler_verbose if rank == 0 else False
         )
 
         # Load dataset
@@ -422,38 +464,39 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
             logger.error(f"Critical error loading dataset: {str(e)}")
             logger.error(traceback.format_exc())
             TRAINING_FAILED = True
-            # Kill all processes
-            kill_processes()
-            sys.exit(1)
+            raise e
         
         generator = torch.Generator().manual_seed(config.training.seed)
         train_size = int(config.data.train_val_split * len(dataset))
         val_size = len(dataset) - train_size
         train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size], generator=generator)
 
-        # Use DistributedSampler for DDP
-        train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
-        val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank)
+        # Use DistributedSampler for distributed training
+        train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if is_distributed else None
+        val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank) if is_distributed else None
         
         if rank == 0:
-            logger.info(f"Per-GPU batch size: {config.training.batch_size} (global batch size: {config.training.batch_size * world_size})")
+            logger.info(f"Per-GPU batch size: {config.training.batch_size}" + 
+                      (f" (global batch size: {config.training.batch_size * world_size})" if is_distributed else ""))
 
         train_loader = DataLoader(
             train_dataset,
             batch_size=config.training.batch_size,
             sampler=train_sampler,
+            shuffle=(train_sampler is None),  # Only shuffle if not using sampler
             num_workers=config.training.num_workers,
-            pin_memory=True,
-            worker_init_fn=worker_init_fn
+            pin_memory=config.training.pin_memory,
+            persistent_workers=True
         )
 
         val_loader = DataLoader(
             val_dataset,
             batch_size=config.training.batch_size,
             sampler=val_sampler,
+            shuffle=False,
             num_workers=config.training.num_workers,
-            pin_memory=True,
-            worker_init_fn=worker_init_fn
+            pin_memory=config.training.pin_memory,
+            persistent_workers=True
         )
 
         # Training
@@ -474,116 +517,28 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
             logger=logger
         )
 
-        # Check if training failed
-        if TRAINING_FAILED:
-            logger.error("Training was marked as failed. Exiting.")
-            emergency_cleanup()
-            kill_processes()
-            sys.exit(1)
-            
         # Normal cleanup
         cleanup()
+        
+        if rank == 0:
+            logger.info("Training completed successfully.")
 
     except Exception as e:
         TRAINING_FAILED = True
-        logger.error(f"Fatal error in main function: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise e
-
-
-# Worker initialization function for DataLoader
-def worker_init_fn(worker_id):
-    """Initialize each worker process properly to avoid semaphore leaks."""
-    # Set a different seed for each worker to ensure different random samples
-    worker_seed = torch.initial_seed() % 2**32
-    random.seed(worker_seed)
-    
-    # Clean up any previous resources and reset signal handlers
-    # This helps to avoid semaphore leaks
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
-    
-    # Force garbage collection at start
-    gc.collect()
-
-
-# Function to properly clean up multiprocessing resources
-def cleanup():
-    """Force cleanup of multiprocessing resources"""
-    if dist.is_initialized():
-        dist.destroy_process_group()
-    
-    # Force garbage collection
-    gc.collect()
-    
-    # Clean up CUDA resources
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    
-    # Try to clean up any stray semaphores
-    if torch.multiprocessing.get_start_method() == 'fork':
-        try:
-            torch.multiprocessing.resource_tracker.getfd()
-        except:
-            pass
+        if logger:
+            logger.error(f"Fatal error in main function: {str(e)}")
+            logger.error(traceback.format_exc())
+        else:
+            print(f"Fatal error: {str(e)}")
+            print(traceback.format_exc())
+        
+        # Clean up resources
+        cleanup()
+        
+        # Exit with error code
+        sys.exit(1)
 
 
 if __name__ == '__main__':
     import argparse
-    import torch.multiprocessing as mp
-
-    # Set appropriate multiprocessing start method to avoid semaphore leaks
-    if torch.cuda.is_available():
-        # Spawn is recommended for CUDA operations to avoid sharing CUDA context
-        mp.set_start_method('spawn', force=True)
-    
-    config = Config()
-
-    # Initialize tokenizer for dataset processing
-    tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
-
-    parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
-    parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
-    args = parser.parse_args()
-
-    # Set up distributed training
-    world_size = torch.cuda.device_count()
-    if world_size < 1:
-        raise RuntimeError("No CUDA GPUs available for training")
-
-    # Clean up any stale file handles or shared memory
-    try:
-        cleanup()
-    except:
-        pass
-
-    try:
-        mp.spawn(
-            main,
-            args=(world_size, args.checkpoint, config, tokenizer),
-            nprocs=world_size,
-            join=True
-        )
-    except KeyboardInterrupt:
-        print("Training interrupted by user")
-        # Force all processes to exit
-        os.kill(os.getpid(), signal.SIGTERM)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Critical error in main process: {str(traceback.format_exc())}")
-        # Force all processes to exit
-        os.kill(os.getpid(), signal.SIGTERM)
-        sys.exit(1)
-    finally:
-        # Make sure all cleanup is performed
-        try:
-            cleanup()
-        except:
-            pass
-        
-        # Check if training failed
-        if TRAINING_FAILED:
-            print("Training failed. Exiting with error code.")
-            sys.exit(1)
-        else:
-            print("Training completed successfully.")
-            sys.exit(0)
+    main()

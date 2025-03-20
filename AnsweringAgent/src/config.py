@@ -24,7 +24,7 @@ class ModelConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for training settings."""
-    batch_size: int = 4  # Base batch size per GPU
+    batch_size: int = 32  # Base batch size per GPU
     num_epochs: int = 200000
     learning_rate: float = 1e-5
     weight_decay: float = 0.01
@@ -32,7 +32,7 @@ class TrainingConfig:
     warmup_steps: int = 1000
     log_freq: int = 2
     eval_freq: int = 5000
-    num_workers: int = 4  # Base workers per GPU
+    num_workers: int = 6  # Base workers per GPU
     pin_memory: bool = True
     mixed_precision: bool = True
     device: str = 'cuda'
