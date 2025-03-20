@@ -143,45 +143,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 logger.info(f"Starting epoch {epoch + 1}/{num_epochs}")
                 logger.info(f"Creating data loader iterator...")
             
-            # Create iterator with timeout handling
+            # This is most likely where it's hanging - creating the iterator
             train_iter = iter(train_loader)
             
             if rank == 0:
                 logger.info(f"Data loader iterator created successfully. Starting batch processing...")
 
             # Accumulate gradients locally before synchronizing
-            batch_idx = 0
-            while batch_idx < len(train_loader):
+            for batch_idx, batch in enumerate(train_iter):
                 try:
-                    # Set a timeout for fetching batch to prevent hanging
-                    start_time = time.time()
-                    timeout = 60  # 60 seconds timeout per batch
-                    
-                    # Try to get next batch with timeout
-                    while True:
-                        if time.time() - start_time > timeout:
-                            if rank == 0:
-                                logger.warning(f"Timeout fetching batch {batch_idx}, skipping to next batch")
-                            break
-                            
-                        try:
-                            batch = next(train_iter)
-                            break  # Successfully got batch
-                        except StopIteration:
-                            # End of epoch
-                            if rank == 0:
-                                logger.info(f"Reached end of data loader at batch {batch_idx}")
-                            break
-                        except Exception as e:
-                            if rank == 0:
-                                logger.error(f"Error fetching batch: {str(e)}")
-                            time.sleep(0.1)  # Short sleep before retry
-                    
-                    # Check if we timed out or reached end of iterator
-                    if time.time() - start_time > timeout:
-                        batch_idx += 1
-                        continue
-                    
                     # Move data to device (non-blocking for async transfer)
                     text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
                     current_view = batch['current_view_image'].to(device, non_blocking=True)
@@ -242,9 +212,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         memory_stats = log_gpu_memory(should_gather=True)
                         logger.info(f'Epoch {epoch + 1} GPU Memory: {memory_stats}')
                         logger.info(f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, Loss: {avg_loss:.4f}')
-                    
-                    # Move to next batch
-                    batch_idx += 1
 
                 except RuntimeError as e:
                     # Specialized handling for OOM errors
@@ -289,41 +256,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     logger.info("Starting validation...")
 
                 with torch.no_grad():
-                    # Use same approach as training loop for validation with timeout handling
-                    val_iter = iter(val_loader)
-                    batch_idx = 0
-                    
-                    while batch_idx < len(val_loader):
+                    for batch_idx, batch in enumerate(val_loader):
                         try:
-                            # Set a timeout for fetching batch
-                            start_time = time.time()
-                            timeout = 30  # 30 seconds timeout per validation batch
-                            
-                            # Try to get next batch with timeout
-                            while True:
-                                if time.time() - start_time > timeout:
-                                    if rank == 0:
-                                        logger.warning(f"Timeout fetching validation batch {batch_idx}, skipping")
-                                    break
-                                    
-                                try:
-                                    batch = next(val_iter)
-                                    break  # Successfully got batch
-                                except StopIteration:
-                                    # End of validation data
-                                    if rank == 0:
-                                        logger.info(f"Reached end of validation data at batch {batch_idx}")
-                                    break
-                                except Exception as e:
-                                    if rank == 0:
-                                        logger.error(f"Error fetching validation batch: {str(e)}")
-                                    time.sleep(0.1)  # Short sleep before retry
-                            
-                            # Check if we timed out or reached end of iterator
-                            if time.time() - start_time > timeout:
-                                batch_idx += 1
-                                continue
-                            
                             text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
                             current_view = batch['current_view_image'].to(device, non_blocking=True)
                             
@@ -342,13 +276,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             
                             # Clean up tensors
                             del text_input, current_view, previous_views, labels, outputs, outputs_reshaped, labels_reshaped, loss
-                            
-                            # Move to next batch
-                            batch_idx += 1
 
                         except Exception as e:
                             logger.error(f"Error in validation batch {batch_idx}: {str(e)}")
-                            batch_idx += 1
                             continue
 
                 # Synchronize validation loss across processes
