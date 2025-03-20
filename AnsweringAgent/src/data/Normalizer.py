@@ -335,6 +335,92 @@ class AnsweringAgentNormalizer:
         
         return processed_data
 
+    # Add a method to preprocess all data at once
+    def preprocess_all_data(self, data_df, image_dir, output_size=(224, 224), max_seq_length=512):
+        """
+        Preprocess all data in the dataframe at once to avoid repeated processing during training.
+        
+        Args:
+            data_df: Pandas DataFrame containing the dataset
+            image_dir: Directory containing satellite images
+            output_size: Size of the output image (width, height)
+            max_seq_length: Maximum sequence length for text
+            
+        Returns:
+            Dict: Dictionary where keys are indices and values are processed data items
+        """
+        print(f"Pre-processing {len(data_df)} items...")
+        processed_dataset = {}
+        
+        # Track progress
+        total_items = len(data_df)
+        processed_count = 0
+        
+        # Group by map_name to efficiently process images
+        map_groups = data_df.groupby('map_name')
+        
+        for map_name, group in map_groups:
+            # Load the map image once for all entries with this map
+            map_path = os.path.join(image_dir, f"{map_name}.tif")
+            map_img = cv2.imread(map_path, 1)
+            
+            if map_img is None:
+                print(f"Warning: Could not load map image {map_path}")
+                continue
+                
+            print(f"Processing map {map_name} with {len(group)} entries")
+            
+            # Process all entries for this map
+            for idx in group.index:
+                data = data_df.loc[idx]
+                processed_data = {}
+                
+                # Process text data
+                tokenized_input_text, tokenized_label = self.normalize_text(data, max_length=max_seq_length)
+                processed_data['text_input'] = tokenized_input_text
+                processed_data['text_label'] = tokenized_label
+                
+                # Parse GPS coordinates
+                gps_botm_left = np.array(json.loads(data['gps_botm_left']))
+                gps_top_right = np.array(json.loads(data['gps_top_right']))
+                lat_ratio = float(data['lat_ratio'])
+                lng_ratio = float(data['lng_ratio'])
+                
+                # Process current view
+                if 'current_view_coord' in data:
+                    current_view_coord = np.array(json.loads(data['current_view_coord']))
+                    transformed_image, img_coord_corners = self.normalize_view_area(
+                        current_view_coord.tolist(), gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
+                        map_img, output_size
+                    )
+                    processed_data['current_view_image'] = torch.from_numpy(transformed_image).float()
+                    processed_data['current_view_coord_pixel'] = torch.from_numpy(img_coord_corners)
+                
+                # Process previous views
+                if 'previous_views_coord' in data:
+                    previous_views_coord = [np.array(view_coords) for view_coords in json.loads(data['previous_views_coord'])]
+                    processed_data['previous_views_image'] = []
+                    processed_data['previous_views_coord_pixel'] = []
+                    
+                    for view_coords in previous_views_coord:
+                        transformed_image, img_coord_corners = self.normalize_view_area(
+                            view_coords.tolist(), gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
+                            map_img, output_size
+                        )
+                        processed_data['previous_views_image'].append(torch.from_numpy(transformed_image).float())
+                        processed_data['previous_views_coord_pixel'].append(torch.from_numpy(img_coord_corners))
+                
+                # Store the processed data with original dataframe index
+                processed_dataset[idx] = processed_data
+                
+                # Update progress
+                processed_count += 1
+                if processed_count % 100 == 0:
+                    print(f"Progress: {processed_count}/{total_items} items processed ({processed_count/total_items*100:.1f}%)")
+        
+        print(f"Pre-processing complete. {len(processed_dataset)} items processed.")
+        return processed_dataset
+
 
 # Example usage
 if __name__ == '__main__':
