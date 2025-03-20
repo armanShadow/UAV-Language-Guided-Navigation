@@ -20,6 +20,7 @@ import gc
 import signal
 import sys
 import datetime
+import logging
 
 # Global flag to track if training should continue
 TRAINING_FAILED = False
@@ -387,8 +388,14 @@ def main():
     # Load configuration
     config = Config()
     
-    # Initialize logger (only rank 0 should log to console)
-    logger = setup_logger('training', log_dir=config.log_dir, rank=rank)
+    # Initialize logger - only rank 0 should log to console
+    logger = setup_logger('training', log_dir=config.log_dir)
+    
+    # Silence non-rank-0 processes by setting logger level
+    if rank != 0:
+        for handler in logger.handlers:
+            if isinstance(handler, logging.StreamHandler):
+                handler.setLevel(logging.ERROR)  # Only show errors on non-rank-0
     
     # Initialize tokenizer
     tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
