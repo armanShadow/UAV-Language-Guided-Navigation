@@ -107,9 +107,6 @@ class AnsweringAgent(nn.Module):
         # Initialize BERT and tokenizer
         self.bert = BertModel.from_pretrained(config.model.bert_model_name)
         
-        # Enable gradient checkpointing to save memory (trades computation for memory)
-        self.bert.gradient_checkpointing_enable()
-        
         self.bert_dropout = nn.Dropout(config.model.dropout)
 
         # Verify hidden sizes match

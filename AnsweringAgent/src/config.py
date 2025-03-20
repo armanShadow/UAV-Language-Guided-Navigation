@@ -46,7 +46,7 @@ class TrainingConfig:
     gradient_accumulation_steps: int = 1
     
     # Memory optimization settings
-    use_gradient_checkpointing: bool = True  # Trade compute for memory
+    use_gradient_checkpointing: bool = False  # Don't trade compute for memory
     max_previous_views: int = 4  # Maximum number of previous views to process
     optimize_memory_usage: bool = True  # Enable memory optimizations
     enable_amp: bool = True  # Automatic mixed precision
