@@ -15,12 +15,14 @@ from config import Config
 from models.answering_agent import AnsweringAgent
 from data.dataset import AnsweringDataset
 import traceback
-import datetime
 import time
-import pickle
 import gc
 import signal
+import sys
+import datetime
 
+# Global flag to track if training should continue
+TRAINING_FAILED = False
 
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
     """Compute accuracy and other metrics."""
@@ -51,6 +53,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None,
                 logger=None):
     """Train the model with mixed precision training and gradient accumulation."""
+    global TRAINING_FAILED
 
     save_frequency = config.training.checkpoint_frequency
     # Log less frequently to reduce overhead - adjust based on dataset size
@@ -143,9 +146,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     f'Loss: {avg_loss:.4f}, Throughput: {throughput:.2f} samples/sec')
 
                 except Exception as e:
-                    logger.error(f"Error in training batch {batch_idx}: {str(e)}")
+                    TRAINING_FAILED = True
+                    logger.error(f"Critical error in training batch {batch_idx}: {str(e)}")
                     logger.error(traceback.format_exc())
-                    continue
+                    raise e
 
             # Synchronize loss across processes
             if dist.is_initialized():
@@ -184,8 +188,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             val_loss += loss.item()
 
                         except Exception as e:
-                            logger.error(f"Error in validation batch {batch_idx}: {str(e)}")
-                            continue
+                            TRAINING_FAILED = True
+                            logger.error(f"Critical error in validation batch {batch_idx}: {str(e)}")
+                            logger.error(traceback.format_exc())
+                            raise e
 
                 # Synchronize validation loss across processes
                 if dist.is_initialized():
@@ -241,90 +247,102 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     torch.cuda.empty_cache()
 
     except Exception as e:
-        logger.error(f"Error in training loop: {str(e)}")
+        TRAINING_FAILED = True
+        logger.error(f"Fatal error in training loop: {str(e)}")
         logger.error(traceback.format_exc())
         raise e
 
 
 def log_gpu_memory():
     """Log GPU memory usage for all available GPUs with consolidated statistics."""
-        
     if not torch.cuda.is_available():
         return "No CUDA devices available"
         
-    current_device = torch.cuda.current_device()
-    memory_allocated = torch.cuda.memory_allocated(current_device) / 1024 ** 2
-    memory_reserved = torch.cuda.memory_reserved(current_device) / 1024 ** 2
-    
-    # Create tensors to gather memory stats from all processes
-    world_size = dist.get_world_size() if dist.is_initialized() else 1
-    rank = dist.get_rank() if dist.is_initialized() else 0
-    
-    # If we're not in distributed mode, just return the current device stats
-    if not dist.is_initialized():
-        return f"GPU {current_device}: {memory_allocated:.1f}MB/{memory_reserved:.1f}MB"
-    
-    # For distributed mode, gather stats from all processes
-    gathered_allocated = torch.zeros(world_size, device=f'cuda:{current_device}')
-    gathered_reserved = torch.zeros(world_size, device=f'cuda:{current_device}')
-    
-    # Prepare tensors for total and mean statistics
-    total_allocated = torch.tensor([memory_allocated], device=f'cuda:{current_device}')
-    total_reserved = torch.tensor([memory_reserved], device=f'cuda:{current_device}')
-    
-    # Each process puts its memory stats in the corresponding index
-    gathered_allocated[rank] = memory_allocated
-    gathered_reserved[rank] = memory_reserved
-    
-    # Use all_gather instead of all_reduce to avoid potential deadlocks
-    # This is safer as each process only needs to provide its own data
-    all_allocated = [torch.zeros(1, device=f'cuda:{current_device}') for _ in range(world_size)]
-    all_reserved = [torch.zeros(1, device=f'cuda:{current_device}') for _ in range(world_size)]
-    
-    # Put local data in a tensor
-    local_allocated = torch.tensor([memory_allocated], device=f'cuda:{current_device}')
-    local_reserved = torch.tensor([memory_reserved], device=f'cuda:{current_device}')
-    
-    dist.all_gather(all_allocated, local_allocated)
-    dist.all_gather(all_reserved, local_reserved)
-   
-    # Format the memory stats string
-    memory_stats = []
-    total_allocated_sum = 0
-    total_reserved_sum = 0
-    
-    for i in range(world_size):
-        gpu_allocated = all_allocated[i].item()
-        gpu_reserved = all_reserved[i].item()
-        memory_stats.append(f'GPU {i}: {gpu_allocated:.1f}MB/{gpu_reserved:.1f}MB')
-        total_allocated_sum += gpu_allocated
-        total_reserved_sum += gpu_reserved
-    
-    # Add total and mean statistics
-    memory_stats.append(f'Total: {total_allocated_sum:.1f}MB allocated, {total_reserved_sum:.1f}MB reserved')
-    memory_stats.append(f'Mean: {(total_allocated_sum/world_size):.1f}MB allocated, {(total_reserved_sum/world_size):.1f}MB reserved')
-    
-    result = ', '.join(memory_stats)
-    
-    return result
-
+    try:
+        current_device = torch.cuda.current_device()
+        memory_allocated = torch.cuda.memory_allocated(current_device) / 1024 ** 2
+        memory_reserved = torch.cuda.memory_reserved(current_device) / 1024 ** 2
+        
+        # Create tensors to gather memory stats from all processes
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        
+        # If we're not in distributed mode, just return the current device stats
+        if not dist.is_initialized():
+            return f"GPU {current_device}: {memory_allocated:.1f}MB/{memory_reserved:.1f}MB"
+        
+        # For distributed mode, gather stats from all processes
+        gathered_allocated = torch.zeros(world_size, device=f'cuda:{current_device}')
+        gathered_reserved = torch.zeros(world_size, device=f'cuda:{current_device}')
+        
+        # Prepare tensors for total and mean statistics
+        total_allocated = torch.tensor([memory_allocated], device=f'cuda:{current_device}')
+        total_reserved = torch.tensor([memory_reserved], device=f'cuda:{current_device}')
+        
+        # Each process puts its memory stats in the corresponding index
+        gathered_allocated[rank] = memory_allocated
+        gathered_reserved[rank] = memory_reserved
+        
+        # Use all_gather instead of all_reduce to avoid potential deadlocks
+        # This is safer as each process only needs to provide its own data
+        all_allocated = [torch.zeros(1, device=f'cuda:{current_device}') for _ in range(world_size)]
+        all_reserved = [torch.zeros(1, device=f'cuda:{current_device}') for _ in range(world_size)]
+        
+        # Put local data in a tensor
+        local_allocated = torch.tensor([memory_allocated], device=f'cuda:{current_device}')
+        local_reserved = torch.tensor([memory_reserved], device=f'cuda:{current_device}')
+        
+        dist.all_gather(all_allocated, local_allocated)
+        dist.all_gather(all_reserved, local_reserved)
+       
+        # Format the memory stats string
+        memory_stats = []
+        total_allocated_sum = 0
+        total_reserved_sum = 0
+        
+        for i in range(world_size):
+            gpu_allocated = all_allocated[i].item()
+            gpu_reserved = all_reserved[i].item()
+            memory_stats.append(f'GPU {i}: {gpu_allocated:.1f}MB/{gpu_reserved:.1f}MB')
+            total_allocated_sum += gpu_allocated
+            total_reserved_sum += gpu_reserved
+        
+        # Add total and mean statistics
+        memory_stats.append(f'Total: {total_allocated_sum:.1f}MB allocated, {total_reserved_sum:.1f}MB reserved')
+        memory_stats.append(f'Mean: {(total_allocated_sum/world_size):.1f}MB allocated, {(total_reserved_sum/world_size):.1f}MB reserved')
+        
+        result = ', '.join(memory_stats)
+        
+        return result
+    except Exception as e:
+        # Do not fail training due to memory logging error
+        return f"Error logging GPU memory: {str(e)}"
 
 
 def setup(rank, world_size):
-    # Set basic environment variables
-    os.environ['MASTER_ADDR'] = '127.0.0.1'
-    os.environ['MASTER_PORT'] = '12355'
-    
-    # Initialize process group with NCCL backend
-    dist.init_process_group(
-        backend='nccl',
-        init_method='env://',
-        world_size=world_size,
-        rank=rank
-    )
+    """Set up the distributed training environment."""
+    try:
+        # Set basic environment variables
+        os.environ['MASTER_ADDR'] = '127.0.0.1'
+        os.environ['MASTER_PORT'] = '12355'
+        
+        # Initialize process group with NCCL backend
+        dist.init_process_group(
+            backend='nccl',
+            init_method='env://',
+            world_size=world_size,
+            rank=rank,
+            timeout=datetime.timedelta(minutes=30)  # Increased timeout for large models
+        )
+    except Exception as e:
+        print(f"Fatal error during DDP setup: {str(e)}")
+        raise e
 
 
 def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None):
+    """Main training function executed by each process."""
+    global TRAINING_FAILED
+    
     # Initialize logger for this process
     logger = setup_logger('training', log_dir=config.log_dir)
 
@@ -398,7 +416,15 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
         )
 
         # Load dataset
-        dataset = AnsweringDataset(config=config)
+        try:
+            dataset = AnsweringDataset(config=config)
+        except Exception as e:
+            logger.error(f"Critical error loading dataset: {str(e)}")
+            logger.error(traceback.format_exc())
+            TRAINING_FAILED = True
+            # Kill all processes
+            kill_processes()
+            sys.exit(1)
         
         generator = torch.Generator().manual_seed(config.training.seed)
         train_size = int(config.data.train_val_split * len(dataset))
@@ -448,20 +474,26 @@ def main(rank, world_size, checkpoint_path=None, config=Config(), tokenizer=None
             logger=logger
         )
 
-        # Cleanup
+        # Check if training failed
+        if TRAINING_FAILED:
+            logger.error("Training was marked as failed. Exiting.")
+            emergency_cleanup()
+            kill_processes()
+            sys.exit(1)
+            
+        # Normal cleanup
         cleanup()
 
     except Exception as e:
-        logger.error(f"Error in main function: {str(e)}")
+        TRAINING_FAILED = True
+        logger.error(f"Fatal error in main function: {str(e)}")
         logger.error(traceback.format_exc())
         raise e
 
 
 # Worker initialization function for DataLoader
 def worker_init_fn(worker_id):
-    """
-    Initialize each worker process properly to avoid semaphore leaks.
-    """
+    """Initialize each worker process properly to avoid semaphore leaks."""
     # Set a different seed for each worker to ensure different random samples
     worker_seed = torch.initial_seed() % 2**32
     random.seed(worker_seed)
@@ -482,6 +514,10 @@ def cleanup():
     
     # Force garbage collection
     gc.collect()
+    
+    # Clean up CUDA resources
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     
     # Try to clean up any stray semaphores
     if torch.multiprocessing.get_start_method() == 'fork':
@@ -529,11 +565,25 @@ if __name__ == '__main__':
         )
     except KeyboardInterrupt:
         print("Training interrupted by user")
+        # Force all processes to exit
+        os.kill(os.getpid(), signal.SIGTERM)
+        sys.exit(1)
     except Exception as e:
-        print(f"Error in main process: {str(traceback.format_exc())}")
+        print(f"Critical error in main process: {str(traceback.format_exc())}")
+        # Force all processes to exit
+        os.kill(os.getpid(), signal.SIGTERM)
+        sys.exit(1)
     finally:
         # Make sure all cleanup is performed
         try:
             cleanup()
         except:
             pass
+        
+        # Check if training failed
+        if TRAINING_FAILED:
+            print("Training failed. Exiting with error code.")
+            sys.exit(1)
+        else:
+            print("Training completed successfully.")
+            sys.exit(0)
