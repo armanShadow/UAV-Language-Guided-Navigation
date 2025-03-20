@@ -106,10 +106,6 @@ class AnsweringAgent(nn.Module):
 
         # Initialize BERT and tokenizer
         self.bert = BertModel.from_pretrained(config.model.bert_model_name)
-        
-        # Enable gradient checkpointing to save memory (trades computation for memory)
-        self.bert.gradient_checkpointing_enable()
-        
         self.bert_dropout = nn.Dropout(config.model.dropout)
 
         # Verify hidden sizes match
@@ -147,7 +143,7 @@ class AnsweringAgent(nn.Module):
         )
 
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=config.model.num_decoder_layers)
-        
+
         # Add output projection layer
         self.output_projection = nn.Linear(config.model.hidden_size, config.model.vocab_size)
 
@@ -212,11 +208,10 @@ class AnsweringAgent(nn.Module):
             'token_type_ids': token_type_ids
         }.items() if v is not None}
         
-        # Process text input with BERT (use chunking to reduce memory usage)
-        with torch.cuda.amp.autocast(enabled=True):  # Use mixed precision for BERT
-            text_outputs = self.bert(**text_input)
-            text_features = text_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
-            text_features = self.bert_dropout(text_features)
+        # Process text input with BERT
+        text_outputs = self.bert(**text_input)
+        text_features = text_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
+        text_features = self.bert_dropout(text_features)
         
         # Add positional encoding to text features
         text_features = self.pos_encoder(text_features)
@@ -228,37 +223,32 @@ class AnsweringAgent(nn.Module):
         assert visual_features.size(-1) == self.config.model.hidden_size, \
             f"Visual features dim {visual_features.size(-1)} != hidden size {self.config.model.hidden_size}"
         
-        # Memory-efficient approach - instead of expanding visual features to full sequence length,
-        # we'll create a view in combined_features that avoids the large memory allocation
-        combined_features = self.combine_features(text_features, visual_features.unsqueeze(1))
+        # Expand visual features to match sequence length
+        # TODO: #9: You could use other approaches other than this. it copies the data 512 times
+        visual_features = visual_features.unsqueeze(1).expand(-1, seq_len, -1)  # [batch_size, seq_len, hidden_size]
+        
+        # Combine text and visual features
+        combined_features = self.combine_features(text_features, visual_features)  # [batch_size, seq_len, hidden_size]
         
         # Create target mask to prevent attention to future tokens
         target_mask = self.generate_square_subsequent_mask(seq_len, input_ids.device)
         
-        # Process through decoder - use half precision to save memory
-        with torch.cuda.amp.autocast(enabled=True):
-            # Transpose to sequence-first for transformer
-            combined_features_t = combined_features.transpose(0, 1)
-            visual_features_t = visual_features.unsqueeze(0).repeat(seq_len, 1, 1)  # More memory efficient repeat
-            
-            decoder_output = self.decoder(
-                tgt=combined_features_t,
-                memory=visual_features_t,
-                tgt_mask=target_mask
-            )
-            
-            # Transpose back to [batch_size, seq_len, hidden_size]
-            decoder_output = decoder_output.transpose(0, 1)
-            
-            # Project to vocabulary size
-            output = self.output_projection(decoder_output)
+        # Process through decoder
+        decoder_output = self.decoder(
+            tgt=combined_features.transpose(0, 1),
+            memory=visual_features.transpose(0, 1),
+            tgt_mask=target_mask
+        )
+        
+        # Transpose back to [batch_size, seq_len, hidden_size]
+        decoder_output = decoder_output.transpose(0, 1)
+        
+        # Project to vocabulary size
+        output = self.output_projection(decoder_output)
         
         # Take only the first max_answer_length tokens for the output
+        # TODO: #7 also you could consider other approaches other than truncation.
         output = output[:, :self.config.model.max_answer_length, :]
-        
-        # Free up memory
-        del text_features, visual_features, combined_features, decoder_output
-        torch.cuda.empty_cache()
         
         return output
     
@@ -283,23 +273,16 @@ class AnsweringAgent(nn.Module):
         
         Args:
             text_features (torch.Tensor): Text features from BERT [batch_size, seq_len, hidden_size]
-            visual_features (torch.Tensor): Visual features [batch_size, 1, hidden_size] or expanded
+            visual_features (torch.Tensor): Visual features [batch_size, seq_len, hidden_size]
             
         Returns:
             torch.Tensor: Combined features [batch_size, seq_len, hidden_size]
         """
         batch_size, seq_len, hidden_size = text_features.size()
         
-        # If visual_features is just [batch_size, hidden_size], expand it to match seq_len dimension
-        if visual_features.dim() == 2:
-            # Use repeat instead of expand for better memory efficiency
-            visual_features = visual_features.unsqueeze(1)
-            
-        # Handle case where visual_features is [batch_size, 1, hidden_size]
-        if visual_features.size(1) == 1 and seq_len > 1:
-            visual_features = visual_features.repeat(1, seq_len, 1)
-            
-        # Verify dimensions match
+        # Verify dimensions
+        assert hidden_size == self.config.model.hidden_size, \
+            f"Text features dimension {hidden_size} != hidden size {self.config.model.hidden_size}"
         assert visual_features.size(-1) == hidden_size, \
             f"Visual features dimension {visual_features.size(-1)} != hidden size {hidden_size}"
         assert visual_features.size(1) == seq_len, \
@@ -321,7 +304,7 @@ class AnsweringAgent(nn.Module):
         text_features = text_features.transpose(0, 1)
         
         # Concatenate and fuse text and attended visual features
-        combined = torch.cat([text_features, attended_features], dim=-1)
+        combined = torch.cat([text_features, attended_features], dim=-1)  # [batch_size, seq_len, hidden_size*2]
         fused_features = self.feature_fusion(combined)  # [batch_size, seq_len, hidden_size]
         
         return fused_features

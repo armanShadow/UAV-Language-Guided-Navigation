@@ -2,10 +2,9 @@ import torch
 from torch.utils.data import Dataset
 import os
 import pandas as pd
-from typing import Dict, Any, List, Union
+from typing import Dict, Any
 from data.Normalizer import AnsweringAgentNormalizer
 from config import Config
-import numpy as np
 
 # Set tokenizer parallelism environment variable
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -21,9 +20,8 @@ class AnsweringDataset(Dataset):
     def __init__(self, config: Config, tokenizer):
         self.config = config
         self.csv_path = config.data.train_csv_path
+        #TODO: #3 Redundant tokenizer. No Usage. AnsweringAgentNormalizer creates a tokenizer
         self.image_dir = config.data.avdn_image_dir
-        
-        # Use configuration for max previous views (default or from memory optimization)
         self.max_previous_views = config.data.max_previous_views
         
         # Initialize normalizer
@@ -31,12 +29,6 @@ class AnsweringDataset(Dataset):
         
         # Load data from CSV
         self.data = pd.read_csv(self.csv_path)
-        
-        # Set image size from config 
-        self.img_size = config.model.img_size
-        
-        # Get max sequence length for memory efficiency
-        self.max_seq_length = config.data.max_seq_length
     
     def __len__(self) -> int:
         return len(self.data)
@@ -58,56 +50,42 @@ class AnsweringDataset(Dataset):
         # Get the data
         data = self.data.iloc[idx]
         
-        # Process the data using normalizer with max sequence length limit
+        # Process the data using normalizer
         processed_data = self.normalizer.process_data(
             data,
-            self.image_dir,
-            max_length=self.max_seq_length
+            self.image_dir
         )
         
-        # The image is already a tensor from the normalizer, convert with memory optimization
-        current_view = processed_data['current_view_image'].to(torch.float32)
+        # The image is already a tensor from the normalizer, just ensure it's float
+        current_view = processed_data['current_view_image'].float()
         current_view = current_view.permute(2, 0, 1)  # Convert to (C, H, W)
         
         # Process previous views if available
-        if 'previous_views_image' in processed_data and processed_data['previous_views_image']:
-            # Get only up to max_previous_views
-            views_to_process = processed_data['previous_views_image'][:self.max_previous_views]
-            
-            # Calculate padding needed
-            pad_length = max(0, self.max_previous_views - len(views_to_process))
-            
-            # Process available views
+        if 'previous_views_image' in processed_data:
             previous_views = []
-            for img in views_to_process:
-                prev_view = img.to(torch.float32)  # More memory efficient than .float()
+            for img in processed_data['previous_views_image']:
+                prev_view = img.float()
                 prev_view = prev_view.permute(2, 0, 1)  # Convert to (C, H, W)
                 previous_views.append(prev_view)
             
-            # If we need padding
-            if pad_length > 0:
-                # Use a single zeros tensor and repeat it in the stack operation
-                # More memory efficient than creating multiple zero tensors
-                zero_tensor = torch.zeros((3, self.img_size, self.img_size), dtype=torch.float32)
-                padding = [zero_tensor] * pad_length
+            # Pad or truncate to max_previous_views
+            if len(previous_views) > self.max_previous_views:
+                previous_views = previous_views[:self.max_previous_views]
+            elif len(previous_views) < self.max_previous_views:
+                # Pad with zero tensors
+                padding = [torch.zeros((3, 224, 224), dtype=torch.float32) 
+                          for _ in range(self.max_previous_views - len(previous_views))]
                 previous_views.extend(padding)
             
             previous_views = torch.stack(previous_views)
         else:
-            # Create a tensor of zeros with shape (max_previous_views, C, H, W)
-            # More efficient than creating multiple zero tensors
-            previous_views = torch.zeros(
-                (self.max_previous_views, 3, self.img_size, self.img_size), 
-                dtype=torch.float32
-            )
-        
-        # Extract only input_ids from text_label to save memory
-        text_label = processed_data['text_label']['input_ids']
+            # Create a tensor of zero tensors with shape (max_previous_views, C, H, W)
+            previous_views = torch.zeros((self.max_previous_views, 3, 224, 224), dtype=torch.float32)
         
         # Return tensors in CPU, DataLoader will handle device transfer
         return {
             'text_input': processed_data['text_input'],
-            'text_label': text_label,
+            'text_label': processed_data['text_label']['input_ids'],
             'current_view_image': current_view,
             'previous_views_image': previous_views
         } 

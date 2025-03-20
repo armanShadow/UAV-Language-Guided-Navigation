@@ -44,13 +44,6 @@ class TrainingConfig:
     scheduler_patience: int = 5
     scheduler_verbose: bool = True
     gradient_accumulation_steps: int = 1
-    
-    # Memory optimization settings
-    use_gradient_checkpointing: bool = True  # Trade compute for memory
-    max_previous_views: int = 4  # Maximum number of previous views to process
-    optimize_memory_usage: bool = True  # Enable memory optimizations
-    enable_amp: bool = True  # Automatic mixed precision
-    empty_cache_freq: int = 10  # Empty CUDA cache every N batches
 
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""
@@ -68,8 +61,8 @@ class DataConfig:
     darknet_config_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/yolo_v3.cfg")
     darknet_weights_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/best.pt")
     max_previous_views: int = 4
-    max_seq_length: int = 512
     train_val_split: float = 0.95
+    max_length: int = 512
 
     def __post_init__(self):
         """Verify paths exist."""
@@ -88,6 +81,9 @@ class Config:
     model: ModelConfig = ModelConfig()
     training: TrainingConfig = TrainingConfig()
     data: DataConfig = DataConfig()
+
+
+
 
     def __post_init__(self):
         """Create necessary directories."""

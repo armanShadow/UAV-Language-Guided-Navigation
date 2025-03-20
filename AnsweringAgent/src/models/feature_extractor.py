@@ -113,107 +113,62 @@ class FeatureExtractor(nn.Module):
         """
         batch_size = current_view.size(0)
         
-        # Use mixed precision for feature extraction to save memory
-        with torch.cuda.amp.autocast(enabled=True):
-            # Extract features from current view (in AVDN dimension)
-            current_features = self._extract_features(current_view)  # [batch_size, 384]
+        # Extract features from current view (in AVDN dimension)
+        current_features = self._extract_features(current_view)  # [batch_size, 384]
+        
+        if not previous_views:  # Handle empty list or None
+            # Project to BERT dimension before returning
+            return self.projection(current_features)
+        
+        # Stack previous views if they're in a list
+        if isinstance(previous_views, list):
+            prev_views_tensor = torch.stack(previous_views, dim=1)
+        else:
+            prev_views_tensor = previous_views
             
-            if not previous_views or len(previous_views) == 0:  # Handle empty list or None
-                # Project to BERT dimension before returning
-                return self.projection(current_features)
-            
-            # Process previous views in chunks to save memory
-            max_chunk_size = 4  # Process at most 4 views at once
-            
-            if isinstance(previous_views, list):
-                num_prev_views = len(previous_views)
-                
-                # Handle the case where there are too many previous views
-                if num_prev_views > max_chunk_size:
-                    # Just use the most recent ones
-                    previous_views = previous_views[-max_chunk_size:]
-                    num_prev_views = len(previous_views)
-                
-                # Concatenate in chunks to save memory
-                prev_features_list = []
-                for i in range(0, num_prev_views, max_chunk_size):
-                    chunk = previous_views[i:i+max_chunk_size]
-                    # Stack the chunk into a single tensor
-                    chunk_tensor = torch.stack(chunk, dim=1)
-                    # Process this chunk
-                    chunk_features = self._process_prev_views_chunk(chunk_tensor, current_features)
-                    prev_features_list.append(chunk_features)
-                
-                # Combine chunks if needed
-                if len(prev_features_list) > 1:
-                    prev_features = torch.cat(prev_features_list, dim=1)
-                else:
-                    prev_features = prev_features_list[0]
-            else:
-                # If previous_views is already a tensor [batch_size, num_views, C, H, W]
-                # Process directly
-                prev_features = self._process_prev_views_chunk(previous_views, current_features)
-            
-            # Combine current and previous features using attention
-            all_features = torch.cat([
-                current_features.unsqueeze(1),
-                prev_features
-            ], dim=1)
-            
-            # Apply attention mechanism
-            aggregated_features, _ = self.view_attention(
-                current_features,
-                all_features
-            )
-            
-            # Project to BERT dimension
-            output = self.projection(aggregated_features)
-            
-            # Ensure output batch size matches input batch size if needed
-            if output.size(0) < batch_size:
-                num_repeats = batch_size - output.size(0)
-                output = torch.cat([output, output[-1:].repeat(num_repeats, 1)], dim=0)
+        # Get the actual batch size from the previous views tensor
+        actual_batch_size = prev_views_tensor.size(0)
+        num_prev_views = prev_views_tensor.size(1)
+        
+        # Ensure current features match the batch size of previous views
+        if batch_size > actual_batch_size:
+            current_features = current_features[:actual_batch_size]
+        elif batch_size < actual_batch_size:
+            prev_views_tensor = prev_views_tensor[:batch_size]
+            actual_batch_size = batch_size
+        
+        # Extract features from previous views (in AVDN dimension)
+        prev_views_reshaped = prev_views_tensor.view(-1, *prev_views_tensor.shape[2:])
+        prev_features = self._extract_features(prev_views_reshaped)
+        prev_features = prev_features.view(actual_batch_size, num_prev_views, -1)
+        
+        # Verify dimensions match
+        assert current_features.size(-1) == prev_features.size(-1), \
+            f"Feature dimensions mismatch: current {current_features.size(-1)} vs previous {prev_features.size(-1)}"
+        assert current_features.size(0) == prev_features.size(0), \
+            f"Batch size mismatch: current {current_features.size(0)} vs previous {prev_features.size(0)}"
+        
+        # Combine current and previous features using attention
+        all_features = torch.cat([
+            current_features.unsqueeze(1),
+            prev_features
+        ], dim=1)
+        
+        # Apply attention mechanism
+        aggregated_features, _ = self.view_attention(
+            current_features,
+            all_features
+        )
+        
+        # Project to BERT dimension
+        output = self.projection(aggregated_features)
+        
+        # Ensure output batch size matches input batch size if needed
+        if output.size(0) < batch_size:
+            num_repeats = batch_size - output.size(0)
+            output = torch.cat([output, output[-1:].repeat(num_repeats, 1)], dim=0)
         
         return output
-        
-    def _process_prev_views_chunk(self, chunk_tensor, current_features):
-        """
-        Process a chunk of previous views to extract features.
-        
-        Args:
-            chunk_tensor: Tensor of previous views [batch_size, chunk_size, C, H, W]
-            current_features: Features from current view for size reference
-            
-        Returns:
-            torch.Tensor: Features from previous views [batch_size, chunk_size, feature_dim]
-        """
-        actual_batch_size = chunk_tensor.size(0)
-        num_views_in_chunk = chunk_tensor.size(1)
-        
-        # Reshape to [batch_size*chunk_size, C, H, W]
-        chunk_reshaped = chunk_tensor.view(-1, *chunk_tensor.shape[2:])
-        
-        # Extract features (using mixed precision)
-        with torch.cuda.amp.autocast(enabled=True):
-            chunk_features = self._extract_features(chunk_reshaped)
-        
-        # Reshape back to [batch_size, chunk_size, feature_dim]
-        chunk_features = chunk_features.view(actual_batch_size, num_views_in_chunk, -1)
-        
-        # Ensure dimensions match
-        if actual_batch_size != current_features.size(0):
-            if actual_batch_size > current_features.size(0):
-                chunk_features = chunk_features[:current_features.size(0)]
-            else:
-                # This case should be rare, but handle it just in case
-                padding = current_features.size(0) - actual_batch_size
-                padding_shape = (padding, num_views_in_chunk, chunk_features.size(-1))
-                chunk_features = torch.cat([
-                    chunk_features, 
-                    chunk_features[-1:].expand(*padding_shape)
-                ], dim=0)
-        
-        return chunk_features
 
     def _init_feature_layers(self):
         """Initialize feature processing layers."""
