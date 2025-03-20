@@ -59,8 +59,6 @@ class AnsweringDataset(Dataset):
                 - text_label: Tokenized answer label
         """
         # Get pre-processed data directly
-        print(f"Getting pre-processed data for index {idx}")
-        print("Total pre-processed data length:", len(self.processed_data))
         processed_data = self.processed_data[idx]
         current_view = processed_data['current_view_image']
         
