@@ -15,6 +15,11 @@ def setup_logger(name: str, log_dir: str = "logs"):
     
     # Create logger
     logger = logging.getLogger(name)
+    
+    # If logger already has handlers, assume it's already configured
+    if logger.handlers:
+        return logger
+        
     logger.setLevel(logging.INFO)  # Set base level to INFO
     
     # Clear any existing handlers
@@ -29,7 +34,7 @@ def setup_logger(name: str, log_dir: str = "logs"):
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(file_formatter)
     
-    # Console handler (ERROR and above)
+    # Console handler (INFO and above)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(console_formatter)
@@ -37,5 +42,8 @@ def setup_logger(name: str, log_dir: str = "logs"):
     # Add handlers
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
+    
+    # Prevent propagation to root logger
+    logger.propagate = False
     
     return logger 

@@ -105,6 +105,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
     # Enable cuDNN benchmarking for faster convolutions
     torch.backends.cudnn.benchmark = True
+    
+    # Reserve less memory on startup to avoid OOM
+    if hasattr(torch.cuda, 'set_per_process_memory_fraction'):
+        torch.cuda.set_per_process_memory_fraction(0.8)  # Use only 80% of GPU memory
+    
+    # Optimize memory allocation
+    if hasattr(torch.cuda, 'empty_cache'):
+        torch.cuda.empty_cache()
 
     # Keep track of the last best model's epoch
     last_best_epoch = None
@@ -189,7 +197,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         
                         logger.info(f'GPU Memory: {memory_stats}')
                         logger.info(f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, '
-                                    f'Loss: {avg_loss:.4f}, Throughput: {throughput:.2f} samples/sec')
+                                   f'Loss: {avg_loss:.4f}, Throughput: {throughput:.2f} samples/sec')
+
+                    # Free up memory
+                    if batch_idx % 10 == 0:
+                        del text_input, current_view, previous_views, outputs, outputs_reshaped, labels_reshaped
 
                 except Exception as e:
                     TRAINING_FAILED = True
@@ -438,8 +450,9 @@ def main():
     # Parse arguments first
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
-    parser.add_argument('--debug', action='store_true', help='Enable debug mode with enhanced error reporting', default=True)
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode with enhanced error reporting')
     parser.add_argument('--single-gpu', action='store_true', help='Force running on a single GPU even with torchrun')
+    parser.add_argument('--reduce-memory', action='store_true', help='Enable aggressive memory optimization')
     args = parser.parse_args()
     
     # Check CUDA availability first
@@ -481,6 +494,19 @@ def main():
             device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     
     print(f"Process {rank} using device: {device}, Local rank: {local_rank}, World size: {world_size}, Distributed: {is_distributed}")
+    
+    # Apply memory optimizations if requested
+    if args.reduce_memory:
+        if torch.cuda.is_available():
+            # Set memory fraction
+            if hasattr(torch.cuda, 'set_per_process_memory_fraction'):
+                torch.cuda.set_per_process_memory_fraction(0.7)  # More conservative
+            
+            # Empty cache
+            torch.cuda.empty_cache()
+            
+            # Set max split size to reduce memory fragmentation
+            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
     
     # Enable detailed debug and error reporting only on main process
     try:
