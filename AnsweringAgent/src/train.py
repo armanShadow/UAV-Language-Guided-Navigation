@@ -21,9 +21,54 @@ import signal
 import sys
 import datetime
 import logging
+import faulthandler
+import tempfile
+
+# Enable Python fault handler for segfaults
+faulthandler.enable()
+
+# Enable detailed distributed debug info
+os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+
+# Create a temporary file for error logging
+temp_error_file = tempfile.NamedTemporaryFile(prefix="torch_elastic_error_", suffix=".log", delete=False)
+os.environ["TORCHELASTIC_ERROR_FILE"] = temp_error_file.name
+print(f"Torch elastic error file: {temp_error_file.name}")
 
 # Global flag to track if training should continue
 TRAINING_FAILED = False
+
+def set_debug_mode():
+    """Enable various debugging and error reporting options"""
+    # Enable Python's detailed traceback
+    sys.tracebacklimit = 100
+    
+    # Set NCCL debug logging
+    os.environ["NCCL_DEBUG"] = "INFO"
+    
+    # Make CUDA errors synchronous for easier debugging
+    torch.cuda.set_device(0)  # Need to select a device first
+    device = torch.device("cuda:0")
+    torch.cuda._debug_mode()
+    
+    # Enable tensor core debug mode
+    torch.backends.cuda.matmul.allow_tf32 = False
+    
+    # Print all system information
+    print(f"Python version: {sys.version}")
+    print(f"PyTorch version: {torch.__version__}")
+    if torch.cuda.is_available():
+        print(f"CUDA available: {torch.cuda.is_available()}")
+        print(f"CUDA version: {torch.version.cuda}")
+        print(f"CUDNN version: {torch.backends.cudnn.version()}")
+        print(f"Number of devices: {torch.cuda.device_count()}")
+        for i in range(torch.cuda.device_count()):
+            print(f"Device {i}: {torch.cuda.get_device_name(i)}")
+    
+    # Check for other important variables
+    print(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
+    print(f"Environment variables: PATH, LD_LIBRARY_PATH, PYTHONPATH set: "
+          f"{all(var in os.environ for var in ['PATH', 'LD_LIBRARY_PATH', 'PYTHONPATH'])}")
 
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
     """Compute accuracy and other metrics."""
@@ -367,14 +412,19 @@ def main():
     """Main training function that works with torchrun."""
     global TRAINING_FAILED
     
+    # Enable detailed debug and error reporting 
+    if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+        set_debug_mode()
+    
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode with enhanced error reporting', default=True)
     args = parser.parse_args()
     
     # Initialize distributed environment using torchrun environment variables
     is_distributed, rank, world_size = setup_distributed()
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f'cuda:{local_rank}')
     
     # Set up signal handlers for proper cleanup
     def signal_handler(sig, frame):
@@ -397,10 +447,15 @@ def main():
             if isinstance(handler, logging.StreamHandler):
                 handler.setLevel(logging.ERROR)  # Only show errors on non-rank-0
     
-    # Initialize tokenizer
-    tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
-    
+    if rank == 0:
+        logger.info(f"Starting training with debugging enabled. Error file: {temp_error_file.name}")
+        logger.info(f"Process information: Rank {rank}, Local Rank {local_rank}, World Size {world_size}")
+        logger.info(f"Device: {device}")
+
     try:
+        # Initialize tokenizer
+        tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
+        
         if rank == 0:
             logger.info(f"Training on {world_size} GPUs")
             
@@ -533,8 +588,20 @@ def main():
     except Exception as e:
         TRAINING_FAILED = True
         if logger:
-            logger.error(f"Fatal error in main function: {str(e)}")
-            logger.error(traceback.format_exc())
+            # Log all details of the exception
+            error_msg = f"Fatal error in main function: {str(e)}"
+            tb_str = traceback.format_exc()
+            logger.error(error_msg)
+            logger.error(tb_str)
+            
+            # Also print to stderr for torchrun to capture
+            print(error_msg, file=sys.stderr)
+            print(tb_str, file=sys.stderr)
+            
+            # Write to the elastic error file directly as well
+            with open(temp_error_file.name, 'a') as f:
+                f.write(f"RANK {rank}: {error_msg}\n")
+                f.write(tb_str)
         else:
             print(f"Fatal error: {str(e)}")
             print(traceback.format_exc())
