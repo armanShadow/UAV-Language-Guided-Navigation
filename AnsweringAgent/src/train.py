@@ -506,7 +506,7 @@ def main():
             torch.cuda.empty_cache()
             
             # Set max split size to reduce memory fragmentation
-            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
     
     # Enable detailed debug and error reporting only on main process
     try:
