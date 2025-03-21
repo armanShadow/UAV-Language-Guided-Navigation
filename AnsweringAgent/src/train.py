@@ -46,11 +46,6 @@ def set_debug_mode():
     # Set NCCL debug logging
     os.environ["NCCL_DEBUG"] = "INFO"
     
-    # Make CUDA errors synchronous for easier debugging
-    torch.cuda.set_device(0)  # Need to select a device first
-    device = torch.device("cuda:0")
-    torch.cuda._debug_mode()
-    
     # Enable tensor core debug mode
     torch.backends.cuda.matmul.allow_tf32 = False
     
@@ -97,7 +92,7 @@ def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: i
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler,
                 num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None,
-                logger=None):
+                logger=None, is_distributed=False):
     """Train the model with mixed precision training and gradient accumulation."""
     global TRAINING_FAILED
 
@@ -116,9 +111,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
     try:
         for epoch in range(start_epoch, num_epochs):
-            # Set epoch for samplers
-            train_loader.sampler.set_epoch(epoch)
-            val_loader.sampler.set_epoch(epoch)
+            # Set epoch for samplers if distributed
+            if is_distributed:
+                train_loader.sampler.set_epoch(epoch)
+                val_loader.sampler.set_epoch(epoch)
 
             model.train()
             total_loss = 0
@@ -159,8 +155,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     # Update weights if we've accumulated enough gradients
                     if (batch_idx + 1) % config.training.gradient_accumulation_steps == 0:
-                        # Synchronize gradients across processes
-                        if dist.is_initialized():
+                        # Synchronize gradients across processes in distributed mode
+                        if is_distributed and dist.is_initialized():
                             for param in model.parameters():
                                 if param.grad is not None:
                                     dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
@@ -184,7 +180,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         avg_loss = total_loss / (batch_idx + 1)
                         # Calculate throughput
                         elapsed = time.time() - epoch_start_time
-                        samples_processed = (batch_idx + 1) * train_loader.batch_size * dist.get_world_size()
+                        batch_size = train_loader.batch_size
+                        if is_distributed and dist.is_initialized():
+                            samples_processed = (batch_idx + 1) * batch_size * dist.get_world_size()
+                        else:
+                            samples_processed = (batch_idx + 1) * batch_size
                         throughput = samples_processed / elapsed
                         
                         logger.info(f'GPU Memory: {memory_stats}')
@@ -197,8 +197,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     logger.error(traceback.format_exc())
                     raise e
 
-            # Synchronize loss across processes
-            if dist.is_initialized():
+            # Synchronize loss across processes in distributed mode
+            if is_distributed and dist.is_initialized():
                 loss_tensor = torch.tensor(total_loss, device=device)
                 dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
                 total_loss = loss_tensor.item() / dist.get_world_size()
@@ -239,8 +239,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             logger.error(traceback.format_exc())
                             raise e
 
-                # Synchronize validation loss across processes
-                if dist.is_initialized():
+                # Synchronize validation loss across processes in distributed mode
+                if is_distributed and dist.is_initialized():
                     val_loss_tensor = torch.tensor(val_loss, device=device)
                     dist.all_reduce(val_loss_tensor, op=dist.ReduceOp.SUM)
                     val_loss = val_loss_tensor.item() / dist.get_world_size()
@@ -391,18 +391,29 @@ def setup_distributed():
     # Set the device
     torch.cuda.set_device(local_rank)
     
-    # Initialize the process group
-    init_method = os.environ.get("MASTER_ADDR", "env://")
+    # Ensure proper initialization of master address and port
+    if "MASTER_ADDR" not in os.environ:
+        os.environ["MASTER_ADDR"] = "127.0.0.1"
+    if "MASTER_PORT" not in os.environ:
+        os.environ["MASTER_PORT"] = "29500"
     
-    # Only initialize process group if not already initialized
+    print(f"MASTER_ADDR: {os.environ['MASTER_ADDR']}, MASTER_PORT: {os.environ['MASTER_PORT']}")
+    
+    # Initialize the process group - Always use env:// for torchrun
     if not dist.is_initialized():
-        dist.init_process_group(
-            backend="nccl",
-            init_method=init_method,
-            world_size=world_size,
-            rank=rank,
-            timeout=datetime.timedelta(minutes=30)
-        )
+        try:
+            dist.init_process_group(
+                backend="nccl",
+                init_method="env://",
+                world_size=world_size,
+                rank=rank,
+                timeout=datetime.timedelta(minutes=30)
+            )
+            print(f"Successfully initialized process group for rank {rank}")
+        except Exception as e:
+            print(f"Error initializing process group: {e}")
+            traceback.print_exc()
+            raise
     
     return True, rank, world_size
 
@@ -424,31 +435,59 @@ def main():
     """Main training function that works with torchrun."""
     global TRAINING_FAILED
     
-    # Check CUDA availability first
-    if not torch.cuda.is_available():
-        print("CUDA is not available! Make sure you have working GPUs.")
-        print(f"Available devices: {torch.cuda.device_count()}")
-        sys.exit(1)
-    
-    # Enable detailed debug and error reporting 
-    try:
-        if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-            set_debug_mode()
-    except Exception as e:
-        print(f"Error in debug mode setup: {e}")
-        # Continue execution even if debug setup fails
-        
+    # Parse arguments first
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
     parser.add_argument('--debug', action='store_true', help='Enable debug mode with enhanced error reporting', default=True)
+    parser.add_argument('--single-gpu', action='store_true', help='Force running on a single GPU even with torchrun')
     args = parser.parse_args()
     
-    # Initialize distributed environment using torchrun environment variables
-    is_distributed, rank, world_size = setup_distributed()
-    local_rank = int(os.environ.get("LOCAL_RANK", 0)) % torch.cuda.device_count()  # Ensure it's within range
-    device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
+    # Check CUDA availability first
+    if not torch.cuda.is_available():
+        print("CUDA is not available! Training will run on CPU only.")
+        num_gpus = 0
+    else:
+        num_gpus = torch.cuda.device_count()
+        print(f"Found {num_gpus} GPU(s)")
     
-    print(f"Process {rank} using device: {device}, Local rank: {local_rank}, World size: {world_size}")
+    if args.single_gpu or num_gpus <= 1:
+        # Single GPU or CPU mode
+        print("Running in single device mode")
+        is_distributed = False
+        rank = 0
+        world_size = 1
+        local_rank = 0
+        
+        if num_gpus > 0:
+            device = torch.device('cuda:0')
+            torch.cuda.set_device(0)
+        else:
+            device = torch.device('cpu')
+    else:
+        # Multi-GPU mode with torchrun
+        try:
+            # Initialize distributed environment using torchrun environment variables
+            is_distributed, rank, world_size = setup_distributed()
+            local_rank = int(os.environ.get("LOCAL_RANK", 0)) % max(1, torch.cuda.device_count())
+            device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
+        except Exception as e:
+            print(f"Error setting up distributed environment: {e}")
+            traceback.print_exc()
+            print("Falling back to single GPU mode")
+            is_distributed = False
+            rank = 0
+            world_size = 1
+            local_rank = 0
+            device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    
+    print(f"Process {rank} using device: {device}, Local rank: {local_rank}, World size: {world_size}, Distributed: {is_distributed}")
+    
+    # Enable detailed debug and error reporting only on main process
+    try:
+        if rank == 0:
+            set_debug_mode()
+    except Exception as e:
+        print(f"Error in debug mode setup: {e}")
     
     # Set up signal handlers for proper cleanup
     def signal_handler(sig, frame):
@@ -481,7 +520,7 @@ def main():
         tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
         
         if rank == 0:
-            logger.info(f"Training on {world_size} GPUs")
+            logger.info(f"Training on {max(1, num_gpus)} GPUs, distributed mode: {is_distributed}")
             
             # Preprocess dataset on rank 0 only
             logger.info("Starting dataset preprocessing on rank 0...")
@@ -495,11 +534,12 @@ def main():
             dist.barrier()
         
         if rank == 0:
-            logger.info("All ranks synced after preprocessing. Starting model initialization...")
+            logger.info("Starting model initialization...")
             
         # Initialize model and move to correct GPU
         model = AnsweringAgent(config)
-        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        if is_distributed:
+            model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model.to(device)
 
         # Initialize training variables
@@ -520,9 +560,14 @@ def main():
         if args.checkpoint and os.path.exists(args.checkpoint):
             if rank == 0:
                 logger.info(f"Loading checkpoint from {args.checkpoint}")
-            map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
+            map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank} if torch.cuda.is_available() else 'cpu'
             checkpoint = torch.load(args.checkpoint, map_location=map_location)
-            model.module.load_state_dict(checkpoint['model_state_dict'])
+            
+            if hasattr(model, 'module'):
+                model.module.load_state_dict(checkpoint['model_state_dict'])
+            else:
+                model.load_state_dict(checkpoint['model_state_dict'])
+                
             start_epoch = checkpoint['epoch']
             best_val_loss = checkpoint.get('val_loss', float('inf'))
             if rank == 0:
@@ -558,21 +603,29 @@ def main():
         train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size], generator=generator)
 
         # Use DistributedSampler for distributed training
-        train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if is_distributed else None
-        val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank) if is_distributed else None
+        if is_distributed:
+            train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
+            val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank)
+            shuffle = False
+        else:
+            train_sampler = None
+            val_sampler = None
+            shuffle = True
         
         if rank == 0:
-            logger.info(f"Per-GPU batch size: {config.training.batch_size}" + 
-                      (f" (global batch size: {config.training.batch_size * world_size})" if is_distributed else ""))
+            batch_str = f"Per-GPU batch size: {config.training.batch_size}"
+            if is_distributed:
+                batch_str += f" (global batch size: {config.training.batch_size * world_size})"
+            logger.info(batch_str)
 
         train_loader = DataLoader(
             train_dataset,
             batch_size=config.training.batch_size,
             sampler=train_sampler,
-            shuffle=(train_sampler is None),  # Only shuffle if not using sampler
+            shuffle=shuffle,  # Only shuffle if not using sampler
             num_workers=config.training.num_workers,
             pin_memory=config.training.pin_memory,
-            persistent_workers=True
+            persistent_workers=(config.training.num_workers > 0)
         )
 
         val_loader = DataLoader(
@@ -582,7 +635,7 @@ def main():
             shuffle=False,
             num_workers=config.training.num_workers,
             pin_memory=config.training.pin_memory,
-            persistent_workers=True
+            persistent_workers=(config.training.num_workers > 0)
         )
 
         # Training
@@ -600,7 +653,8 @@ def main():
             start_epoch=start_epoch,
             best_val_loss=best_val_loss,
             rank=rank,
-            logger=logger
+            logger=logger,
+            is_distributed=is_distributed
         )
 
         # Normal cleanup
