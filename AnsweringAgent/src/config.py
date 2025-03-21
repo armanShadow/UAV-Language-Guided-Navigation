@@ -32,7 +32,7 @@ class TrainingConfig:
     warmup_steps: int = 1000
     log_freq: int = 2
     eval_freq: int = 5000
-    num_workers: int = 4  # Base workers per GPU
+    num_workers: int = 2  # Base workers per GPU
     pin_memory: bool = True
     mixed_precision: bool = True
     device: str = 'cuda'
