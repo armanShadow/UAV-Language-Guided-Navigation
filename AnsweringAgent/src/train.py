@@ -372,9 +372,21 @@ def setup_distributed():
         # Not running with torchrun, assume single-GPU
         return False, 0, 1
     
+    # Check available GPU count
+    available_gpus = torch.cuda.device_count()
+    if available_gpus == 0:
+        print("No CUDA devices available! Running on CPU only.")
+        return False, 0, 1
+    
     local_rank = int(os.environ["LOCAL_RANK"])
     rank = int(os.environ.get("RANK", 0))
     world_size = int(os.environ.get("WORLD_SIZE", 1))
+    
+    # Ensure local_rank is within the range of available devices
+    if local_rank >= available_gpus:
+        print(f"WARNING: local_rank ({local_rank}) >= available GPUs ({available_gpus})")
+        print(f"Remapping local_rank to available device: {local_rank % available_gpus}")
+        local_rank = local_rank % available_gpus
     
     # Set the device
     torch.cuda.set_device(local_rank)
@@ -412,10 +424,20 @@ def main():
     """Main training function that works with torchrun."""
     global TRAINING_FAILED
     
-    # Enable detailed debug and error reporting 
-    if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-        set_debug_mode()
+    # Check CUDA availability first
+    if not torch.cuda.is_available():
+        print("CUDA is not available! Make sure you have working GPUs.")
+        print(f"Available devices: {torch.cuda.device_count()}")
+        sys.exit(1)
     
+    # Enable detailed debug and error reporting 
+    try:
+        if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+            set_debug_mode()
+    except Exception as e:
+        print(f"Error in debug mode setup: {e}")
+        # Continue execution even if debug setup fails
+        
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
     parser.add_argument('--debug', action='store_true', help='Enable debug mode with enhanced error reporting', default=True)
@@ -423,8 +445,10 @@ def main():
     
     # Initialize distributed environment using torchrun environment variables
     is_distributed, rank, world_size = setup_distributed()
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    device = torch.device(f'cuda:{local_rank}')
+    local_rank = int(os.environ.get("LOCAL_RANK", 0)) % torch.cuda.device_count()  # Ensure it's within range
+    device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
+    
+    print(f"Process {rank} using device: {device}, Local rank: {local_rank}, World size: {world_size}")
     
     # Set up signal handlers for proper cleanup
     def signal_handler(sig, frame):
