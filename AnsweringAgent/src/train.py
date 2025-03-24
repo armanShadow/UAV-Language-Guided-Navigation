@@ -106,10 +106,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     # Enable cuDNN benchmarking for faster convolutions
     torch.backends.cudnn.benchmark = True
     
-    # Remove memory limiting - use full GPU memory
-    # if hasattr(torch.cuda, 'set_per_process_memory_fraction'):
-    #    torch.cuda.set_per_process_memory_fraction(0.7)  # More conservative memory limit
-    
     # Clear cache once at beginning rather than every iteration
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -126,10 +122,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             gradient_buckets = setup_gradient_buckets(model)
         if rank == 0:
             logger.info(f"Created {len(gradient_buckets)} gradient buckets for efficient all-reduce")
-    
-    # Add profiling flag - only profile a small number of batches on first epoch
-    enable_profiling = (rank == 0 and start_epoch == 0)
-
+        
     try:
         for epoch in range(start_epoch, num_epochs):
             if is_distributed:
@@ -146,70 +139,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             if rank == 0:
                 logger.info(f"Starting epoch {epoch + 1}/{num_epochs}")
             
-            # Profile only the first 10 batches of the first epoch on rank 0
-            profiler = None
-            if enable_profiling and epoch == start_epoch:
-                logger.info("Starting profiling for the first 10 batches...")
-                profiler = profile(
-                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                    schedule=torch.profiler.schedule(
-                        wait=0,
-                        warmup=1,
-                        active=10,
-                        repeat=1
-                    ),
-                    on_trace_ready=torch.profiler.tensorboard_trace_handler(
-                        f"{config.log_dir}/profiler_output"
-                    ),
-                    record_shapes=True,
-                    profile_memory=True,
-                    with_stack=True
-                )
-                profiler.start()
-
-            # Prefetch next batch (beneficial for DDP training)
-            prefetch_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
-            next_batch = None
-            
-            # Create iterator explicitly for safer iteration
-            train_iter = iter(train_loader)
-
-            for batch_idx in range(len(train_loader)):
+            for batch_idx, batch in enumerate(train_loader):
                 try:
-                    # Get current batch safely
-                    if next_batch is not None:
-                        if prefetch_stream is not None:
-                            torch.cuda.current_stream().wait_stream(prefetch_stream)
-                        current_batch = next_batch
-                    else:
-                        current_batch = next(train_iter)
-                    
-                    # Start prefetching next batch in parallel - safely
-                    try:
-                        if batch_idx < len(train_loader) - 1 and prefetch_stream is not None:
-                            # Prefetch next batch in a try block to handle StopIteration safely
-                            try:
-                                next_batch_raw = next(train_iter)
-                                with torch.cuda.stream(prefetch_stream):
-                                    next_batch = {
-                                        'text_input': {k: v.to(device, non_blocking=True) for k, v in next_batch_raw['text_input'].items()},
-                                        'current_view_image': next_batch_raw['current_view_image'].to(device, non_blocking=True),
-                                        'previous_views_image': next_batch_raw['previous_views_image'].to(device, non_blocking=True),
-                                        'text_label': next_batch_raw['text_label'].to(device, non_blocking=True)
-                                    }
-                            except StopIteration:
-                                next_batch = None
-                    except Exception as e:
-                        # If any prefetch error, disable prefetching and continue with normal loading
-                        logger.warning(f"Prefetch error, disabling prefetching: {str(e)}")
-                        prefetch_stream = None
-                        next_batch = None
-
-                    # Move data to device (non-blocking for async transfer)
-                    text_input = {k: v.to(device, non_blocking=True) for k, v in current_batch['text_input'].items()}
-                    current_view = current_batch['current_view_image'].to(device, non_blocking=True)
-                    previous_views = current_batch['previous_views_image'].to(device, non_blocking=True)
-                    labels = current_batch['text_label'].to(device, non_blocking=True)
+                    # Simple direct data loading - no prefetching
+                    text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
+                    current_view = batch['current_view_image'].to(device, non_blocking=True)
+                    previous_views = batch['previous_views_image'].to(device, non_blocking=True)
+                    labels = batch['text_label'].to(device, non_blocking=True)
 
                     # Record function name for profiler
                     with record_function("model_forward_backward"):
@@ -278,22 +214,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     if batch_idx % 50 == 0 and torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     
-                    # Step the profiler if active
-                    if profiler is not None:
-                        # Make sure prefetch operations are done before profiler step
-                        if prefetch_stream is not None:
-                            torch.cuda.current_stream().wait_stream(prefetch_stream)
-                            
-                        profiler.step()
-                        # Stop after 10 batches (profiler will auto-stop based on schedule, this is a safeguard)
-                        if batch_idx >= 10:
-                            # Make sure all CUDA operations are complete before stopping profiler
-                            torch.cuda.synchronize()
-                            profiler.stop()
-                            profiler = None
-                            logger.info("Profiling completed. Results saved to tensorboard.")
-                            logger.info(f"To view profiling results, run: tensorboard --logdir={config.log_dir}/profiler_output")
-
                 except Exception as e:
                     TRAINING_FAILED = True
                     logger.error(f"Critical error in training batch {batch_idx}: {str(e)}")
