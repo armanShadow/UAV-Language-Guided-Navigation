@@ -23,6 +23,7 @@ import datetime
 import logging
 import faulthandler
 import tempfile
+from torch.profiler import profile, record_function, ProfilerActivity
 
 # Enable Python fault handler for segfaults
 faulthandler.enable()
@@ -115,6 +116,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
     # Keep track of the last best model's epoch
     last_best_epoch = None
+    
+    # Add profiling flag - only profile a small number of batches on first epoch
+    enable_profiling = (rank == 0 and start_epoch == 0)
 
     try:
         for epoch in range(start_epoch, num_epochs):
@@ -131,6 +135,27 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # Only rank 0 logs the results
             if rank == 0:
                 logger.info(f"Starting epoch {epoch + 1}/{num_epochs}")
+            
+            # Profile only the first 10 batches of the first epoch on rank 0
+            profiler = None
+            if enable_profiling and epoch == start_epoch:
+                logger.info("Starting profiling for the first 10 batches...")
+                profiler = profile(
+                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    schedule=torch.profiler.schedule(
+                        wait=0,
+                        warmup=1,
+                        active=10,
+                        repeat=1
+                    ),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(
+                        f"{config.log_dir}/profiler_output"
+                    ),
+                    record_shapes=True,
+                    profile_memory=True,
+                    with_stack=True
+                )
+                profiler.start()
 
             for batch_idx, batch in enumerate(train_loader):
                 try:
@@ -140,23 +165,25 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     previous_views = batch['previous_views_image'].to(device, non_blocking=True)
                     labels = batch['text_label'].to(device, non_blocking=True)
 
-                    # Forward pass with mixed precision
-                    with torch.cuda.amp.autocast():
-                        outputs = model(text_input, current_view, previous_views)
+                    # Record function name for profiler
+                    with record_function("model_forward_backward"):
+                        # Forward pass with mixed precision
+                        with torch.cuda.amp.autocast():
+                            outputs = model(text_input, current_view, previous_views)
 
-                        # Get batch and sequence dimensions
-                        batch_size, seq_len, vocab_size = outputs.size()
+                            # Get batch and sequence dimensions
+                            batch_size, seq_len, vocab_size = outputs.size()
 
-                        # Reshape outputs and labels consistently
-                        outputs_reshaped = outputs.contiguous().view(batch_size * seq_len, vocab_size)
-                        labels_reshaped = labels.contiguous().view(batch_size * seq_len)
+                            # Reshape outputs and labels consistently
+                            outputs_reshaped = outputs.contiguous().view(batch_size * seq_len, vocab_size)
+                            labels_reshaped = labels.contiguous().view(batch_size * seq_len)
 
-                        loss = criterion(outputs_reshaped, labels_reshaped)
-                        # Scale loss by gradient accumulation steps
-                        loss = loss / config.training.gradient_accumulation_steps
+                            loss = criterion(outputs_reshaped, labels_reshaped)
+                            # Scale loss by gradient accumulation steps
+                            loss = loss / config.training.gradient_accumulation_steps
 
-                    # Backward pass with gradient scaling
-                    scaler.scale(loss).backward()
+                        # Backward pass with gradient scaling
+                        scaler.scale(loss).backward()
 
                     # Update weights if we've accumulated enough gradients
                     if (batch_idx + 1) % config.training.gradient_accumulation_steps == 0:
@@ -200,6 +227,16 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     del text_input, current_view, previous_views, outputs, outputs_reshaped, labels_reshaped
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
+                    
+                    # Step the profiler if active
+                    if profiler is not None:
+                        profiler.step()
+                        # Stop after 10 batches (profiler will auto-stop based on schedule, this is a safeguard)
+                        if batch_idx >= 10:
+                            profiler.stop()
+                            profiler = None
+                            logger.info("Profiling completed. Results saved to tensorboard.")
+                            logger.info(f"To view profiling results, run: tensorboard --logdir={config.log_dir}/profiler_output")
 
                 except Exception as e:
                     TRAINING_FAILED = True

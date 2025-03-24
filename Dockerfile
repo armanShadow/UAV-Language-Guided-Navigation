@@ -1,5 +1,6 @@
 # run the container:
 # docker run --gpus '"device=0,1,2"'     --shm-size=8g     -v $(pwd):/app/UAV-Language-Guided-Navigation     -v /export/openhome/vaziri/datasets:/app/datasets     --rm -it     armanshadow/ualgn:AnsweringAgentTrain
+# TODO: pip install torchboard
 
 # Use PyTorch 1.11.0 with CUDA 11.3
 FROM pytorch/pytorch:1.11.0-cuda11.3-cudnn8-runtime
