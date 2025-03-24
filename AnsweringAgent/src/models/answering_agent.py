@@ -100,11 +100,20 @@ class MultiModalAttention(nn.Module):
         return attn_output
 
 class AnsweringAgent(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, tokenizer=None):
         super().__init__()
 
         self.config = config
-
+        
+        # Use provided tokenizer or create one if not provided
+        if tokenizer is not None:
+            self.tokenizer = tokenizer
+        else:
+            from transformers import BertTokenizer
+            self.tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
+            
+        self.eos_token_id = self.tokenizer.sep_token_id  # Using [SEP] as EOS token
+        
         # Initialize BERT and tokenizer
         self.bert = BertModel.from_pretrained(config.model.bert_model_name)
         self.bert_dropout = nn.Dropout(config.model.dropout)
@@ -239,9 +248,36 @@ class AnsweringAgent(nn.Module):
         # Project to vocabulary size using weight tying with BERT embeddings
         output = F.linear(decoder_output, self.bert.embeddings.word_embeddings.weight)
         
-        # Take only the first max_answer_length tokens for the output
-        # TODO: #7 also you could consider other approaches other than truncation.
-        output = output[:, :self.config.model.max_answer_length, :]
+        # Dynamic length handling instead of truncation
+        if self.training:
+            # During training, still use max_answer_length as a safety cap
+            output = output[:, :self.config.model.max_answer_length, :]
+        else:
+            # During inference, process until EOS token or max length
+            batch_size = output.size(0)
+            device = output.device
+            max_len = min(output.size(1), self.config.model.max_answer_length)
+            
+            # Initialize output tensor with padded length
+            dynamic_output = torch.zeros(batch_size, self.config.model.max_answer_length, 
+                                         output.size(2), device=device)
+            
+            for b in range(batch_size):
+                # Get the predicted token ids for this batch
+                pred_tokens = output[b, :max_len].argmax(dim=-1)
+                
+                # Find the first occurrence of EOS token
+                eos_positions = (pred_tokens == self.eos_token_id).nonzero(as_tuple=True)[0]
+                
+                # If EOS found, only keep tokens until EOS (inclusive)
+                if len(eos_positions) > 0:
+                    end_pos = eos_positions[0].item() + 1  # +1 to include the EOS token
+                    dynamic_output[b, :end_pos] = output[b, :end_pos]
+                else:
+                    # No EOS found, keep all tokens up to max_len
+                    dynamic_output[b, :max_len] = output[b, :max_len]
+            
+            output = dynamic_output
         
         return output
     

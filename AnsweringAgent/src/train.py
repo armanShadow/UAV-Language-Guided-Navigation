@@ -504,7 +504,7 @@ def main():
             torch.cuda.empty_cache()
             
             # Set max split size to reduce memory fragmentation
-            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:64'
     
     # Enable detailed debug and error reporting only on main process
     try:
@@ -561,7 +561,7 @@ def main():
             logger.info("Starting model initialization...")
             
         # Initialize model and move to correct GPU
-        model = AnsweringAgent(config)
+        model = AnsweringAgent(config, tokenizer)
         if is_distributed:
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model.to(device)
