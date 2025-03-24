@@ -5,6 +5,7 @@ from models.feature_extractor import FeatureExtractor
 from typing import Dict, Tuple, Optional
 import math
 from config import Config
+import torch.nn.functional as F
 
 
 class PositionalEncoding(nn.Module):
@@ -144,9 +145,6 @@ class AnsweringAgent(nn.Module):
 
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=config.model.num_decoder_layers)
 
-        # Add output projection layer
-        self.output_projection = nn.Linear(config.model.hidden_size, config.model.vocab_size)
-
         # Initialize weights
         self._init_weights()
 
@@ -158,11 +156,6 @@ class AnsweringAgent(nn.Module):
                 nn.init.xavier_normal_(m.weight, gain=1.0)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
-
-        # Initialize output layer
-        nn.init.xavier_normal_(self.output_projection.weight, gain=1.0)
-        if self.output_projection.bias is not None:
-            nn.init.zeros_(self.output_projection.bias)
 
         # Initialize decoder
         for p in self.decoder.parameters():
@@ -243,8 +236,8 @@ class AnsweringAgent(nn.Module):
         # Transpose back to [batch_size, seq_len, hidden_size]
         decoder_output = decoder_output.transpose(0, 1)
         
-        # Project to vocabulary size
-        output = self.output_projection(decoder_output)
+        # Project to vocabulary size using weight tying with BERT embeddings
+        output = F.linear(decoder_output, self.bert.embeddings.word_embeddings.weight)
         
         # Take only the first max_answer_length tokens for the output
         # TODO: #7 also you could consider other approaches other than truncation.
