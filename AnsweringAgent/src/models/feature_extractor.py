@@ -210,15 +210,15 @@ class FeatureExtractor(nn.Module):
             f"Final output size {output.size(-1)} != hidden size {self.hidden_size}"
         
     def _init_darknet(self, config: Config):
-        """Initialize and load Darknet backbone.
+        """Initialize the Darknet model with pre-trained weights.
         
         Args:
             config: Configuration object containing model settings
         """
         self.darknet = Darknet(config)
         
-        # Load weights
-        new_state = torch.load(config.data.darknet_weights_path)
+        # Load weights on CPU first to prevent OOM in distributed training
+        new_state = torch.load(config.data.darknet_weights_path, map_location='cpu')
         state = self.darknet.state_dict()
         model_keys = set(state.keys())
         state_dict = {k: v for k, v in new_state['model'].items() if k in model_keys}
