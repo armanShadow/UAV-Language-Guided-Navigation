@@ -168,29 +168,43 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 profiler.start()
 
             # Prefetch next batch (beneficial for DDP training)
-            prefetch_stream = torch.cuda.Stream()
+            prefetch_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
             next_batch = None
+            
+            # Create iterator explicitly for safer iteration
+            train_iter = iter(train_loader)
 
-            for batch_idx, batch in enumerate(train_loader):
+            for batch_idx in range(len(train_loader)):
                 try:
-                    # Wait for previous prefetch to complete if needed
+                    # Get current batch safely
                     if next_batch is not None:
-                        torch.cuda.current_stream().wait_stream(prefetch_stream)
+                        if prefetch_stream is not None:
+                            torch.cuda.current_stream().wait_stream(prefetch_stream)
                         current_batch = next_batch
                     else:
-                        current_batch = batch
+                        current_batch = next(train_iter)
                     
-                    # Start prefetching next batch in parallel
-                    if batch_idx < len(train_loader) - 1:
-                        next_batch = next(iter(train_loader))
-                        with torch.cuda.stream(prefetch_stream):
-                            next_batch = {
-                                'text_input': {k: v.to(device, non_blocking=True) for k, v in next_batch['text_input'].items()},
-                                'current_view_image': next_batch['current_view_image'].to(device, non_blocking=True),
-                                'previous_views_image': next_batch['previous_views_image'].to(device, non_blocking=True),
-                                'text_label': next_batch['text_label'].to(device, non_blocking=True)
-                            }
-                    
+                    # Start prefetching next batch in parallel - safely
+                    try:
+                        if batch_idx < len(train_loader) - 1 and prefetch_stream is not None:
+                            # Prefetch next batch in a try block to handle StopIteration safely
+                            try:
+                                next_batch_raw = next(train_iter)
+                                with torch.cuda.stream(prefetch_stream):
+                                    next_batch = {
+                                        'text_input': {k: v.to(device, non_blocking=True) for k, v in next_batch_raw['text_input'].items()},
+                                        'current_view_image': next_batch_raw['current_view_image'].to(device, non_blocking=True),
+                                        'previous_views_image': next_batch_raw['previous_views_image'].to(device, non_blocking=True),
+                                        'text_label': next_batch_raw['text_label'].to(device, non_blocking=True)
+                                    }
+                            except StopIteration:
+                                next_batch = None
+                    except Exception as e:
+                        # If any prefetch error, disable prefetching and continue with normal loading
+                        logger.warning(f"Prefetch error, disabling prefetching: {str(e)}")
+                        prefetch_stream = None
+                        next_batch = None
+
                     # Move data to device (non-blocking for async transfer)
                     text_input = {k: v.to(device, non_blocking=True) for k, v in current_batch['text_input'].items()}
                     current_view = current_batch['current_view_image'].to(device, non_blocking=True)
@@ -266,9 +280,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     
                     # Step the profiler if active
                     if profiler is not None:
+                        # Make sure prefetch operations are done before profiler step
+                        if prefetch_stream is not None:
+                            torch.cuda.current_stream().wait_stream(prefetch_stream)
+                            
                         profiler.step()
                         # Stop after 10 batches (profiler will auto-stop based on schedule, this is a safeguard)
                         if batch_idx >= 10:
+                            # Make sure all CUDA operations are complete before stopping profiler
+                            torch.cuda.synchronize()
                             profiler.stop()
                             profiler = None
                             logger.info("Profiling completed. Results saved to tensorboard.")
