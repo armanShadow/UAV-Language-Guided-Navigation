@@ -521,7 +521,8 @@ def main():
     # Set memory allocation optimizations early, before any CUDA operations
     if torch.cuda.is_available():
         # Set max split size to reduce memory fragmentation - good for all training
-        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128,garbage_collection_threshold:0.8'
+        # Using only parameters supported in PyTorch 1.11.0
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
         
         # Optimize NCCL for better multi-GPU communication
         os.environ['NCCL_NSOCKS_PERTHREAD'] = '4'
