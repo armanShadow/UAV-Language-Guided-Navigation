@@ -24,7 +24,7 @@ class ModelConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for training settings."""
-    batch_size: int = 2  # Base batch size per GPU
+    per_gpu_batch_size: int = 1  # Base batch size per GPU
     num_epochs: int = 200000
     learning_rate: float = 1e-5
     weight_decay: float = 0.01
@@ -41,7 +41,7 @@ class TrainingConfig:
     scheduler_factor: float = 0.5
     scheduler_patience: int = 5
     scheduler_verbose: bool = True
-    gradient_accumulation_steps: int = 2
+    gradient_accumulation_steps: int = 1
 
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""

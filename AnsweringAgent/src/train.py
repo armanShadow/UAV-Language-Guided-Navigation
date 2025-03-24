@@ -97,8 +97,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     global TRAINING_FAILED
 
     save_frequency = config.training.checkpoint_frequency
-    # Log less frequently to reduce overhead - adjust based on dataset size
-    log_frequency = max(10, len(train_loader) // 3)  # Log approximately 10 times per epoch
+    log_frequency = max(10, len(train_loader) // 3)
 
     # Enable automatic mixed precision training
     scaler = torch.cuda.amp.GradScaler()
@@ -108,7 +107,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     
     # Reserve less memory on startup to avoid OOM
     if hasattr(torch.cuda, 'set_per_process_memory_fraction'):
-        torch.cuda.set_per_process_memory_fraction(0.8)  # Use only 80% of GPU memory
+        torch.cuda.set_per_process_memory_fraction(0.7)  # More conservative memory limit
     
     # Optimize memory allocation
     if hasattr(torch.cuda, 'empty_cache'):
@@ -119,7 +118,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
     try:
         for epoch in range(start_epoch, num_epochs):
-            # Set epoch for samplers if distributed
             if is_distributed:
                 train_loader.sampler.set_epoch(epoch)
                 val_loader.sampler.set_epoch(epoch)
@@ -128,7 +126,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             total_loss = 0
             optimizer.zero_grad(set_to_none=True)
 
-            # Track start time for per-epoch metrics
             epoch_start_time = time.time()
 
             # Only rank 0 logs the results
@@ -199,9 +196,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         logger.info(f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, '
                                    f'Loss: {avg_loss:.4f}, Throughput: {throughput:.2f} samples/sec')
 
-                    # Free up memory
-                    if batch_idx % 10 == 0:
-                        del text_input, current_view, previous_views, outputs, outputs_reshaped, labels_reshaped
+                    # Free up memory more aggressively
+                    del text_input, current_view, previous_views, outputs, outputs_reshaped, labels_reshaped
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
 
                 except Exception as e:
                     TRAINING_FAILED = True
@@ -639,14 +637,14 @@ def main():
             shuffle = True
         
         if rank == 0:
-            batch_str = f"Per-GPU batch size: {config.training.batch_size}"
+            batch_str = f"Per-GPU batch size: {config.training.per_gpu_batch_size}"
             if is_distributed:
-                batch_str += f" (global batch size: {config.training.batch_size * world_size})"
+                batch_str += f" (global batch size: {config.training.per_gpu_batch_size * world_size})"
             logger.info(batch_str)
 
         train_loader = DataLoader(
             train_dataset,
-            batch_size=config.training.batch_size,
+            batch_size=config.training.per_gpu_batch_size,
             sampler=train_sampler,
             shuffle=shuffle,  # Only shuffle if not using sampler
             num_workers=config.training.num_workers,
@@ -656,7 +654,7 @@ def main():
 
         val_loader = DataLoader(
             val_dataset,
-            batch_size=config.training.batch_size,
+            batch_size=config.training.per_gpu_batch_size,
             sampler=val_sampler,
             shuffle=False,
             num_workers=config.training.num_workers,
