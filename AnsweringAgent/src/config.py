@@ -24,7 +24,7 @@ class ModelConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for training settings."""
-    per_gpu_batch_size: int = 1  # Base batch size per GPU
+    per_gpu_batch_size: int = 4  # Increased from 1 to 4
     num_epochs: int = 200000
     learning_rate: float = 1e-5
     weight_decay: float = 0.01
@@ -32,7 +32,7 @@ class TrainingConfig:
     warmup_steps: int = 1000
     log_freq: int = 2
     eval_freq: int = 5000
-    num_workers: int = 4  # Base workers per GPU
+    num_workers: int = 4  # Increased from 1 to 4
     pin_memory: bool = True
     mixed_precision: bool = True
     device: str = 'cuda'
@@ -41,7 +41,7 @@ class TrainingConfig:
     scheduler_factor: float = 0.5
     scheduler_patience: int = 5
     scheduler_verbose: bool = True
-    gradient_accumulation_steps: int = 1
+    gradient_accumulation_steps: int = 4  # Increased from 1 to 4
 
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""

@@ -106,16 +106,26 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     # Enable cuDNN benchmarking for faster convolutions
     torch.backends.cudnn.benchmark = True
     
-    # Reserve less memory on startup to avoid OOM
-    if hasattr(torch.cuda, 'set_per_process_memory_fraction'):
-        torch.cuda.set_per_process_memory_fraction(0.7)  # More conservative memory limit
+    # Remove memory limiting - use full GPU memory
+    # if hasattr(torch.cuda, 'set_per_process_memory_fraction'):
+    #    torch.cuda.set_per_process_memory_fraction(0.7)  # More conservative memory limit
     
-    # Optimize memory allocation
-    if hasattr(torch.cuda, 'empty_cache'):
+    # Clear cache once at beginning rather than every iteration
+    if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
     # Keep track of the last best model's epoch
     last_best_epoch = None
+    
+    # Setup gradient buckets for efficient all-reduce if using distributed training
+    gradient_buckets = None
+    if is_distributed:
+        if hasattr(model, 'module'):
+            gradient_buckets = setup_gradient_buckets(model.module)
+        else:
+            gradient_buckets = setup_gradient_buckets(model)
+        if rank == 0:
+            logger.info(f"Created {len(gradient_buckets)} gradient buckets for efficient all-reduce")
     
     # Add profiling flag - only profile a small number of batches on first epoch
     enable_profiling = (rank == 0 and start_epoch == 0)
@@ -157,13 +167,35 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 )
                 profiler.start()
 
+            # Prefetch next batch (beneficial for DDP training)
+            prefetch_stream = torch.cuda.Stream()
+            next_batch = None
+
             for batch_idx, batch in enumerate(train_loader):
                 try:
+                    # Wait for previous prefetch to complete if needed
+                    if next_batch is not None:
+                        torch.cuda.current_stream().wait_stream(prefetch_stream)
+                        current_batch = next_batch
+                    else:
+                        current_batch = batch
+                    
+                    # Start prefetching next batch in parallel
+                    if batch_idx < len(train_loader) - 1:
+                        next_batch = next(iter(train_loader))
+                        with torch.cuda.stream(prefetch_stream):
+                            next_batch = {
+                                'text_input': {k: v.to(device, non_blocking=True) for k, v in next_batch['text_input'].items()},
+                                'current_view_image': next_batch['current_view_image'].to(device, non_blocking=True),
+                                'previous_views_image': next_batch['previous_views_image'].to(device, non_blocking=True),
+                                'text_label': next_batch['text_label'].to(device, non_blocking=True)
+                            }
+                    
                     # Move data to device (non-blocking for async transfer)
-                    text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
-                    current_view = batch['current_view_image'].to(device, non_blocking=True)
-                    previous_views = batch['previous_views_image'].to(device, non_blocking=True)
-                    labels = batch['text_label'].to(device, non_blocking=True)
+                    text_input = {k: v.to(device, non_blocking=True) for k, v in current_batch['text_input'].items()}
+                    current_view = current_batch['current_view_image'].to(device, non_blocking=True)
+                    previous_views = current_batch['previous_views_image'].to(device, non_blocking=True)
+                    labels = current_batch['text_label'].to(device, non_blocking=True)
 
                     # Record function name for profiler
                     with record_function("model_forward_backward"):
@@ -189,10 +221,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     if (batch_idx + 1) % config.training.gradient_accumulation_steps == 0:
                         # Synchronize gradients across processes in distributed mode
                         if is_distributed and dist.is_initialized():
-                            for param in model.parameters():
-                                if param.grad is not None:
-                                    dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
-                                    param.grad.data /= dist.get_world_size()
+                            # Use bucket view approach for more efficient all-reduce
+                            all_reduce_bucketed(gradient_buckets, dist.get_world_size())
 
                         # Unscale gradients for clipping
                         scaler.unscale_(optimizer)
@@ -205,7 +235,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
                 
-                    memory_stats = log_gpu_memory()
+                    # Only log memory occasionally to reduce overhead
+                    if batch_idx % log_frequency == 0:
+                        memory_stats = log_gpu_memory()
+                    else:
+                        memory_stats = ""
 
                     # Log at specified frequency
                     if batch_idx % log_frequency == 0 and rank == 0:
@@ -219,13 +253,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             samples_processed = (batch_idx + 1) * batch_size
                         throughput = samples_processed / elapsed
                         
-                        logger.info(f'GPU Memory: {memory_stats}')
+                        if memory_stats:
+                            logger.info(f'GPU Memory: {memory_stats}')
                         logger.info(f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, '
                                    f'Loss: {avg_loss:.4f}, Throughput: {throughput:.2f} samples/sec')
 
-                    # Free up memory more aggressively
+                    # Free variables but don't empty cache every iteration - too expensive
                     del text_input, current_view, previous_views, outputs, outputs_reshaped, labels_reshaped
-                    if torch.cuda.is_available():
+                    # Only clear cache occasionally to reduce overhead
+                    if batch_idx % 50 == 0 and torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     
                     # Step the profiler if active
@@ -482,12 +518,19 @@ def main():
     """Main training function that works with torchrun."""
     global TRAINING_FAILED
     
+    # Set memory allocation optimizations early, before any CUDA operations
+    if torch.cuda.is_available():
+        # Set max split size to reduce memory fragmentation - good for all training
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128,garbage_collection_threshold:0.8'
+        
+        # Optimize NCCL for better multi-GPU communication
+        os.environ['NCCL_NSOCKS_PERTHREAD'] = '4'
+        os.environ['NCCL_SOCKET_NTHREADS'] = '4'
+    
     # Parse arguments first
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
-    parser.add_argument('--debug', action='store_true', help='Enable debug mode with enhanced error reporting')
     parser.add_argument('--single-gpu', action='store_true', help='Force running on a single GPU even with torchrun')
-    parser.add_argument('--reduce-memory', action='store_true', help='Enable aggressive memory optimization')
     args = parser.parse_args()
     
     # Check CUDA availability first
@@ -530,18 +573,6 @@ def main():
     
     print(f"Process {rank} using device: {device}, Local rank: {local_rank}, World size: {world_size}, Distributed: {is_distributed}")
     
-    # Apply memory optimizations if requested
-    if args.reduce_memory:
-        if torch.cuda.is_available():
-            # Set memory fraction
-            if hasattr(torch.cuda, 'set_per_process_memory_fraction'):
-                torch.cuda.set_per_process_memory_fraction(0.7)  # More conservative
-            
-            # Empty cache
-            torch.cuda.empty_cache()
-            
-            # Set max split size to reduce memory fragmentation
-            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:64'
     
     # Enable detailed debug and error reporting only on main process
     try:
@@ -750,6 +781,99 @@ def main():
         
         # Exit with error code
         sys.exit(1)
+
+
+# Helper functions for efficient gradient all_reduce
+def _flatten_dense_tensors(tensors):
+    """Flatten and concatenate dense tensors."""
+    flat = torch.cat([t.contiguous().view(-1) for t in tensors])
+    return flat
+
+def _unflatten_dense_tensors(flat, tensors):
+    """View the flattened tensor as tensors with original shapes."""
+    outputs = []
+    offset = 0
+    for tensor in tensors:
+        numel = tensor.numel()
+        outputs.append(flat.narrow(0, offset, numel).view_as(tensor))
+        offset += numel
+    return outputs
+
+# New, more efficient approach using bucket views
+def setup_gradient_buckets(model, bucket_size_mb=25):
+    """Setup gradient buckets for efficient all-reduce.
+    Args:
+        model: The model to setup buckets for
+        bucket_size_mb: Target bucket size in MB
+    Returns:
+        List of buckets, where each bucket is a list of parameters
+    """
+    buckets = []
+    current_bucket = []
+    current_size = 0
+    target_size = bucket_size_mb * 1024 * 1024 / 4  # Convert MB to number of float32 elements
+
+    # Group parameters with gradients
+    for param in model.parameters():
+        if param.requires_grad:
+            param_size = param.numel()
+            
+            # If adding this parameter exceeds target bucket size, start a new bucket
+            if current_size + param_size > target_size and current_bucket:
+                buckets.append(current_bucket)
+                current_bucket = []
+                current_size = 0
+            
+            current_bucket.append(param)
+            current_size += param_size
+    
+    # Add last bucket if it has parameters
+    if current_bucket:
+        buckets.append(current_bucket)
+    
+    return buckets
+
+def all_reduce_bucketed(buckets, world_size):
+    """Perform all-reduce on parameter buckets more efficiently.
+    Args:
+        buckets: List of bucket lists, where each bucket is a list of parameters
+        world_size: Number of processes in the distributed group
+    """
+    with record_function("all_reduce_bucketed"):
+        for bucket in buckets:
+            # Get grad buffer views from all parameters in bucket
+            grads = [param.grad.data for param in bucket if param.grad is not None]
+            
+            if not grads:
+                continue
+                
+            # Create a single flat buffer to hold all grads in this bucket
+            # We first determine the required dtype and device
+            first_grad = grads[0]
+            flat_buffer = torch.zeros(
+                sum(grad.numel() for grad in grads),
+                dtype=first_grad.dtype,
+                device=first_grad.device
+            )
+            
+            # Copy grads to flat buffer with views
+            offset = 0
+            grad_views = []
+            for grad in grads:
+                grad_numel = grad.numel()
+                grad_view = flat_buffer[offset:offset+grad_numel].view_as(grad)
+                grad_view.copy_(grad)
+                grad_views.append(grad_view)
+                offset += grad_numel
+            
+            # All-reduce on the flat buffer
+            dist.all_reduce(flat_buffer, op=dist.ReduceOp.SUM)
+            
+            # Scale by world size
+            flat_buffer.div_(world_size)
+            
+            # The grad views automatically update the original grads
+            # We don't need to copy back
 
 
 if __name__ == '__main__':
