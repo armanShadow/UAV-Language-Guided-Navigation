@@ -24,6 +24,11 @@ import logging
 import faulthandler
 import tempfile
 from torch.profiler import profile, ProfilerActivity
+import numpy as np
+import argparse
+import threading
+import torch.multiprocessing as mp
+import json
 
 # Enable Python fault handler for segfaults
 faulthandler.enable()
@@ -38,6 +43,7 @@ print(f"Torch elastic error file: {temp_error_file.name}")
 
 # Global flag to track if training should continue
 TRAINING_FAILED = False
+CHECKPOINT_LOCK = threading.Lock()
 
 def set_debug_mode():
     """Enable various debugging and error reporting options"""
@@ -427,6 +433,17 @@ def cleanup():
         torch.cuda.empty_cache()
 
 
+def set_seed(seed):
+    """Set random seeds for reproducibility across all libraries."""
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+
 def main():
     """Main training function that works with torchrun."""
     global TRAINING_FAILED
@@ -509,6 +526,10 @@ def main():
     # Load configuration
     config = Config()
     
+    # Set seed for reproducibility - must happen after config is loaded but before any random operations
+    set_seed(config.training.seed)
+    if rank == 0:
+        print(f"Set random seed to {config.training.seed} for all processes")
 
     # Initialize logger - only rank 0 should log to console
     logger = setup_logger('training', log_dir=config.log_dir)
@@ -618,9 +639,30 @@ def main():
             raise e
         
         generator = torch.Generator().manual_seed(config.training.seed)
+        
+        # Create a 3-way split: 90% train, 5% validation, 5% test
         train_size = int(config.data.train_val_split * len(dataset))
-        val_size = len(dataset) - train_size
-        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size], generator=generator)
+        remaining_size = len(dataset) - train_size
+        val_size = int(config.data.val_test_split * remaining_size)
+        test_size = remaining_size - val_size
+        
+        # Create splits
+        train_dataset, val_test_dataset = torch.utils.data.random_split(
+            dataset, [train_size, remaining_size], generator=generator
+        )
+        
+        val_dataset, test_dataset = torch.utils.data.random_split(
+            val_test_dataset, [val_size, test_size], generator=generator
+        )
+        
+        if rank == 0:
+            logger.info(f"Dataset split: {train_size} training, {val_size} validation, {test_size} test samples")
+            
+            # Save test dataset indices for later evaluation
+            test_indices = test_dataset.indices
+            test_save_path = os.path.join(config.log_dir, "test_indices.pt")
+            torch.save(test_indices, test_save_path)
+            logger.info(f"Test dataset indices saved to {test_save_path}")
 
         # Use DistributedSampler for distributed training
         if is_distributed:
@@ -636,7 +678,7 @@ def main():
             batch_str = f"Per-GPU batch size: {config.training.per_gpu_batch_size}"
             if is_distributed:
                 effective_batch_size = config.training.per_gpu_batch_size * world_size * config.training.gradient_accumulation_steps
-                batch_str += f" (global batch size: {effective_batch_size}, with gradient_accumulation_steps={config.training.gradient_accumulation_steps})"
+                batch_str += f" (effective batch size: {effective_batch_size}, with gradient_accumulation_steps={config.training.gradient_accumulation_steps})"
             logger.info(batch_str)
 
         train_loader = DataLoader(

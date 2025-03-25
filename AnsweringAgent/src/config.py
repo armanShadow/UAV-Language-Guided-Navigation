@@ -64,7 +64,8 @@ class DataConfig:
     darknet_config_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/yolo_v3.cfg")
     darknet_weights_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/best.pt")
     max_previous_views: int = 4
-    train_val_split: float = 0.95
+    train_val_split: float = 0.90  # Updated: 90% for training
+    val_test_split: float = 0.5    # New: 50% of remaining data for validation, 50% for testing
     max_seq_length: int = 512
 
     def __post_init__(self):
