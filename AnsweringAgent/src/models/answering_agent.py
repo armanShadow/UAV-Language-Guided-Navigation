@@ -263,36 +263,9 @@ class AnsweringAgent(nn.Module):
         # Project to vocabulary size using weight tying with BERT embeddings
         output = F.linear(decoder_output, self.bert.embeddings.word_embeddings.weight)
         
-        # Dynamic length handling instead of truncation
-        if self.training:
-            # During training, still use max_answer_length as a safety cap
-            output = output[:, :self.config.model.max_answer_length, :]
-        else:
-            # During inference, process until EOS token or max length
-            batch_size = output.size(0)
-            device = output.device
-            max_len = min(output.size(1), self.config.model.max_answer_length)
-            
-            # Initialize output tensor with padded length
-            dynamic_output = torch.zeros(batch_size, self.config.model.max_answer_length, 
-                                         output.size(2), device=device)
-            
-            for b in range(batch_size):
-                # Get the predicted token ids for this batch
-                pred_tokens = output[b, :max_len].argmax(dim=-1)
-                
-                # Find the first occurrence of EOS token
-                eos_positions = (pred_tokens == self.eos_token_id).nonzero(as_tuple=True)[0]
-                
-                # If EOS found, only keep tokens until EOS (inclusive)
-                if len(eos_positions) > 0:
-                    end_pos = eos_positions[0].item() + 1  # +1 to include the EOS token
-                    dynamic_output[b, :end_pos] = output[b, :end_pos]
-                else:
-                    # No EOS found, keep all tokens up to max_len
-                    dynamic_output[b, :max_len] = output[b, :max_len]
-            
-            output = dynamic_output
+        # Only use truncation for both training and validation
+        # This makes validation faster and consistent with training
+        output = output[:, :self.config.model.max_answer_length, :]
         
         return output
     
@@ -309,3 +282,46 @@ class AnsweringAgent(nn.Module):
         mask = torch.triu(torch.ones(sz, sz, device=device), diagonal=1).bool()
         mask = mask.float().masked_fill(mask, float('-inf')).masked_fill(~mask, float(0.0))
         return mask
+
+    def generate(self, text_input, current_view, previous_views):
+        """
+        Generate output text with dynamic length handling for inference.
+        This method should only be used during actual inference, not during validation.
+        
+        Args:
+            text_input (dict): Dictionary containing BERT inputs
+            current_view (torch.Tensor): Current view image tensor [batch_size, C, H, W]
+            previous_views (list): List of previous view image tensors
+            
+        Returns:
+            torch.Tensor: Output with dynamic length based on EOS token detection
+        """
+        # Run the standard forward pass
+        with torch.no_grad():
+            output = self.forward(text_input, current_view, previous_views)
+            
+            # Now apply dynamic length handling for generation
+            batch_size = output.size(0)
+            device = output.device
+            max_len = min(output.size(1), self.config.model.max_answer_length)
+            
+            # Initialize output tensor with padded length
+            dynamic_output = torch.zeros(batch_size, self.config.model.max_answer_length, 
+                                        output.size(2), device=device)
+            
+            for b in range(batch_size):
+                # Get the predicted token ids for this batch
+                pred_tokens = output[b, :max_len].argmax(dim=-1)
+                
+                # Find the first occurrence of EOS token
+                eos_positions = (pred_tokens == self.eos_token_id).nonzero(as_tuple=True)[0]
+                
+                # If EOS found, only keep tokens until EOS (inclusive)
+                if len(eos_positions) > 0:
+                    end_pos = eos_positions[0].item() + 1  # +1 to include the EOS token
+                    dynamic_output[b, :end_pos] = output[b, :end_pos]
+                else:
+                    # No EOS found, keep all tokens up to max_len
+                    dynamic_output[b, :max_len] = output[b, :max_len]
+            
+            return dynamic_output
