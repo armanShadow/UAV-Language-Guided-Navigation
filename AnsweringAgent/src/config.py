@@ -24,7 +24,7 @@ class ModelConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for training settings."""
-    per_gpu_batch_size: int = 7
+    per_gpu_batch_size: int = 6
     num_epochs: int = 200000
     learning_rate: float = 1e-5
     weight_decay: float = 0.01
