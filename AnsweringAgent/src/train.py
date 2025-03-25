@@ -633,7 +633,7 @@ def main():
             shuffle = True
         
         if rank == 0:
-            batch_str = f"Per-GPU batch size: {config.training.per_gpu_batch_size * config.training.gradient_accumulation_steps}"
+            batch_str = f"Per-GPU batch size: {config.training.per_gpu_batch_size}"
             if is_distributed:
                 effective_batch_size = config.training.per_gpu_batch_size * world_size * config.training.gradient_accumulation_steps
                 batch_str += f" (global batch size: {effective_batch_size}, with gradient_accumulation_steps={config.training.gradient_accumulation_steps})"
