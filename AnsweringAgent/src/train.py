@@ -23,7 +23,7 @@ import datetime
 import logging
 import faulthandler
 import tempfile
-from torch.profiler import profile, record_function, ProfilerActivity
+from torch.profiler import profile, ProfilerActivity
 
 # Enable Python fault handler for segfaults
 faulthandler.enable()
@@ -157,25 +157,23 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     previous_views = batch['previous_views_image'].to(device, non_blocking=True)
                     labels = batch['text_label'].to(device, non_blocking=True)
 
-                    # Record function name for profiler
-                    with record_function("model_forward_backward"):
-                        # Forward pass with mixed precision
-                        with torch.cuda.amp.autocast():
-                            outputs = model(text_input, current_view, previous_views)
+                    # Forward pass with mixed precision
+                    with torch.cuda.amp.autocast():
+                        outputs = model(text_input, current_view, previous_views)
 
-                            # Get batch and sequence dimensions
-                            batch_size, seq_len, vocab_size = outputs.size()
+                        # Get batch and sequence dimensions
+                        batch_size, seq_len, vocab_size = outputs.size()
 
-                            # Reshape outputs and labels consistently
-                            outputs_reshaped = outputs.contiguous().view(batch_size * seq_len, vocab_size)
-                            labels_reshaped = labels.contiguous().view(batch_size * seq_len)
+                        # Reshape outputs and labels consistently
+                        outputs_reshaped = outputs.contiguous().view(batch_size * seq_len, vocab_size)
+                        labels_reshaped = labels.contiguous().view(batch_size * seq_len)
 
-                            loss = criterion(outputs_reshaped, labels_reshaped)
-                            # Scale loss by gradient accumulation steps
-                            loss = loss / config.training.gradient_accumulation_steps
+                        loss = criterion(outputs_reshaped, labels_reshaped)
+                        # Scale loss by gradient accumulation steps
+                        loss = loss / config.training.gradient_accumulation_steps
 
-                        # Backward pass with gradient scaling
-                        scaler.scale(loss).backward()
+                    # Backward pass with gradient scaling
+                    scaler.scale(loss).backward()
 
                     # Update weights if we've accumulated enough gradients
                     if (batch_idx + 1) % config.training.gradient_accumulation_steps == 0:
@@ -672,9 +670,10 @@ def main():
             shuffle = True
         
         if rank == 0:
-            batch_str = f"Per-GPU batch size: {config.training.per_gpu_batch_size}"
+            batch_str = f"Per-GPU batch size: {config.training.per_gpu_batch_size * config.training.gradient_accumulation_steps}"
             if is_distributed:
-                batch_str += f" (global batch size: {config.training.per_gpu_batch_size * world_size})"
+                effective_batch_size = config.training.per_gpu_batch_size * world_size * config.training.gradient_accumulation_steps
+                batch_str += f" (global batch size: {effective_batch_size}, with gradient_accumulation_steps={config.training.gradient_accumulation_steps})"
             logger.info(batch_str)
 
         train_loader = DataLoader(
@@ -806,41 +805,40 @@ def all_reduce_bucketed(buckets, world_size):
         buckets: List of bucket lists, where each bucket is a list of parameters
         world_size: Number of processes in the distributed group
     """
-    with record_function("all_reduce_bucketed"):
-        for bucket in buckets:
-            # Get grad buffer views from all parameters in bucket
-            grads = [param.grad.data for param in bucket if param.grad is not None]
+    for bucket in buckets:
+        # Get grad buffer views from all parameters in bucket
+        grads = [param.grad.data for param in bucket if param.grad is not None]
+        
+        if not grads:
+            continue
             
-            if not grads:
-                continue
-                
-            # Create a single flat buffer to hold all grads in this bucket
-            # We first determine the required dtype and device
-            first_grad = grads[0]
-            flat_buffer = torch.zeros(
-                sum(grad.numel() for grad in grads),
-                dtype=first_grad.dtype,
-                device=first_grad.device
-            )
-            
-            # Copy grads to flat buffer with views
-            offset = 0
-            grad_views = []
-            for grad in grads:
-                grad_numel = grad.numel()
-                grad_view = flat_buffer[offset:offset+grad_numel].view_as(grad)
-                grad_view.copy_(grad)
-                grad_views.append(grad_view)
-                offset += grad_numel
-            
-            # All-reduce on the flat buffer
-            dist.all_reduce(flat_buffer, op=dist.ReduceOp.SUM)
-            
-            # Scale by world size
-            flat_buffer.div_(world_size)
-            
-            # The grad views automatically update the original grads
-            # We don't need to copy back
+        # Create a single flat buffer to hold all grads in this bucket
+        # We first determine the required dtype and device
+        first_grad = grads[0]
+        flat_buffer = torch.zeros(
+            sum(grad.numel() for grad in grads),
+            dtype=first_grad.dtype,
+            device=first_grad.device
+        )
+        
+        # Copy grads to flat buffer with views
+        offset = 0
+        grad_views = []
+        for grad in grads:
+            grad_numel = grad.numel()
+            grad_view = flat_buffer[offset:offset+grad_numel].view_as(grad)
+            grad_view.copy_(grad)
+            grad_views.append(grad_view)
+            offset += grad_numel
+        
+        # All-reduce on the flat buffer
+        dist.all_reduce(flat_buffer, op=dist.ReduceOp.SUM)
+        
+        # Scale by world size
+        flat_buffer.div_(world_size)
+        
+        # The grad views automatically update the original grads
+        # We don't need to copy back
 
 
 if __name__ == '__main__':

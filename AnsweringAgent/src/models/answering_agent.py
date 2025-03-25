@@ -6,7 +6,6 @@ from typing import Dict, Tuple, Optional
 import math
 from config import Config
 import torch.nn.functional as F
-from torch.profiler import record_function
 
 
 class PositionalEncoding(nn.Module):
