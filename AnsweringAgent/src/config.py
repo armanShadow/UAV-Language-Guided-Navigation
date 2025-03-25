@@ -41,10 +41,10 @@ class TrainingConfig:
     scheduler_factor: float = 0.5
     scheduler_patience: int = 5
     scheduler_verbose: bool = True
-    gradient_accumulation_steps: int = 2
+    gradient_accumulation_steps: int = 4
     # Early stopping parameters
     early_stopping: bool = True
-    early_stopping_patience: int = 15
+    early_stopping_patience: int = 10
     early_stopping_min_delta: float = 0.001
 
     def __post_init__(self):
