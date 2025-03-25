@@ -193,11 +193,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
                 
-                    # Only log memory occasionally to reduce overhead
-                    if batch_idx % log_frequency == 0:
-                        memory_stats = log_gpu_memory()
-                    else:
-                        memory_stats = ""
 
                     # Log at specified frequency
                     if batch_idx % log_frequency == 0 and rank == 0:
@@ -211,8 +206,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             samples_processed = (batch_idx + 1) * batch_size
                         throughput = samples_processed / elapsed
                         
-                        if memory_stats:
-                            logger.info(f'GPU Memory: {memory_stats}')
+                        memory_stats = log_gpu_memory()
+                        logger.info(f'Memory: {memory_stats}')
                         logger.info(f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, '
                                    f'Loss: {avg_loss:.4f}, Throughput: {throughput:.2f} samples/sec')
 
@@ -347,64 +342,18 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
 
 def log_gpu_memory():
-    """Log GPU memory usage for all available GPUs with consolidated statistics."""
+    """Log GPU memory usage for the current device only (no distributed operations)."""
     if not torch.cuda.is_available():
         return "No CUDA devices available"
         
     try:
+        # Only log the current device's memory
         current_device = torch.cuda.current_device()
         memory_allocated = torch.cuda.memory_allocated(current_device) / 1024 ** 2
         memory_reserved = torch.cuda.memory_reserved(current_device) / 1024 ** 2
         
-        # Create tensors to gather memory stats from all processes
-        world_size = dist.get_world_size() if dist.is_initialized() else 1
-        rank = dist.get_rank() if dist.is_initialized() else 0
-        
-        # If we're not in distributed mode, just return the current device stats
-        if not dist.is_initialized():
-            return f"GPU {current_device}: {memory_allocated:.1f}MB/{memory_reserved:.1f}MB"
-        
-        # For distributed mode, gather stats from all processes
-        gathered_allocated = torch.zeros(world_size, device=f'cuda:{current_device}')
-        gathered_reserved = torch.zeros(world_size, device=f'cuda:{current_device}')
-        
-        # Prepare tensors for total and mean statistics
-        total_allocated = torch.tensor([memory_allocated], device=f'cuda:{current_device}')
-        total_reserved = torch.tensor([memory_reserved], device=f'cuda:{current_device}')
-        
-        # Each process puts its memory stats in the corresponding index
-        gathered_allocated[rank] = memory_allocated
-        gathered_reserved[rank] = memory_reserved
-        
-        # Use all_gather instead of all_reduce to avoid potential deadlocks
-        # This is safer as each process only needs to provide its own data
-        all_allocated = [torch.zeros(1, device=f'cuda:{current_device}') for _ in range(world_size)]
-        all_reserved = [torch.zeros(1, device=f'cuda:{current_device}') for _ in range(world_size)]
-        
-        # Put local data in a tensor
-        local_allocated = torch.tensor([memory_allocated], device=f'cuda:{current_device}')
-        local_reserved = torch.tensor([memory_reserved], device=f'cuda:{current_device}')
-        
-        dist.all_gather(all_allocated, local_allocated)
-        dist.all_gather(all_reserved, local_reserved)
-       
-        # Format the memory stats string
-        memory_stats = []
-        total_allocated_sum = 0
-        total_reserved_sum = 0
-        
-        for i in range(world_size):
-            gpu_allocated = all_allocated[i].item()
-            gpu_reserved = all_reserved[i].item()
-            memory_stats.append(f'GPU {i}: {gpu_allocated:.1f}MB/{gpu_reserved:.1f}MB')
-            total_allocated_sum += gpu_allocated
-            total_reserved_sum += gpu_reserved
-        
-        # Add total and mean statistics
-        memory_stats.append(f'Total: {total_allocated_sum:.1f}MB allocated, {total_reserved_sum:.1f}MB reserved')
-        memory_stats.append(f'Mean: {(total_allocated_sum/world_size):.1f}MB allocated, {(total_reserved_sum/world_size):.1f}MB reserved')
-        
-        result = ', '.join(memory_stats)
+        # Simple format that's easy to read
+        result = f"GPU {current_device}: {memory_allocated:.1f}MB allocated, {memory_reserved:.1f}MB reserved"
         
         return result
     except Exception as e:
