@@ -139,6 +139,18 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             if early_stopping_triggered:
                 if rank == 0:
                     logger.info(f"Early stopping triggered after {epoch} epochs")
+                
+                # Add synchronization barrier to ensure all processes exit together
+                if is_distributed and dist.is_initialized():
+                    try:
+                        # Use barrier to synchronize processes before exiting
+                        dist.barrier()
+                        if rank == 0:
+                            logger.info("All processes synchronized before exit")
+                    except Exception as e:
+                        if rank == 0:
+                            logger.error(f"Error during synchronization barrier: {e}")
+                
                 break
                 
             if is_distributed:
@@ -727,6 +739,7 @@ def main():
             logger.info("Training completed successfully.")
 
     except Exception as e:
+        # Mark training as failed
         TRAINING_FAILED = True
         if logger:
             # Log all details of the exception
@@ -746,12 +759,38 @@ def main():
         else:
             print(f"Fatal error: {str(e)}")
             print(traceback.format_exc())
+    finally:
+        # Proper cleanup for distributed environment
+        if is_distributed and dist.is_initialized():
+            try:
+                # Use barrier to synchronize processes before cleanup
+                dist.barrier()
+                # Destroy process group
+                dist.destroy_process_group()
+                if rank == 0 and logger:
+                    logger.info("Distributed process group destroyed successfully")
+            except Exception as e:
+                if rank == 0 and logger:
+                    logger.error(f"Error during distributed cleanup: {e}")
+                else:
+                    print(f"Error during distributed cleanup: {e}")
         
-        # Clean up resources
+        # General cleanup
         cleanup()
         
-        # Exit with error code
-        sys.exit(1)
+        if rank == 0:
+            if TRAINING_FAILED:
+                if logger:
+                    logger.error("Training failed with errors")
+                else:
+                    print("Training failed with errors")
+                # Exit with error code
+                sys.exit(1)
+            else:
+                if logger:
+                    logger.info("Training completed successfully.")
+                else:
+                    print("Training completed successfully.")
 
 
 # Helper functions for efficient gradient all_reduce
