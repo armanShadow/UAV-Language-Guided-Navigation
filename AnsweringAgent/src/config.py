@@ -24,24 +24,28 @@ class ModelConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for training settings."""
-    per_gpu_batch_size: int = 6  # Increased from 1 to 4
+    per_gpu_batch_size: int = 6
     num_epochs: int = 200000
     learning_rate: float = 1e-5
     weight_decay: float = 0.01
     gradient_clip: float = 1.0
     warmup_steps: int = 1000
     log_freq: int = 2
-    eval_freq: int = 5000
-    num_workers: int = 4  # Increased from 1 to 4
+    eval_freq: int = 1  #(validate every ~33 minutes)
+    num_workers: int = 4
     pin_memory: bool = True
     mixed_precision: bool = True
     device: str = 'cuda'
     seed: int = 42
-    checkpoint_frequency: int = 1000
+    checkpoint_frequency: int = 1
     scheduler_factor: float = 0.5
     scheduler_patience: int = 5
     scheduler_verbose: bool = True
     gradient_accumulation_steps: int = 4  # Increased from 1 to 4
+    # Early stopping parameters
+    early_stopping: bool = True
+    early_stopping_patience: int = 15
+    early_stopping_min_delta: float = 0.001
 
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""
@@ -80,9 +84,6 @@ class Config:
     model: ModelConfig = ModelConfig()
     training: TrainingConfig = TrainingConfig()
     data: DataConfig = DataConfig()
-
-
-
 
     def __post_init__(self):
         """Create necessary directories."""

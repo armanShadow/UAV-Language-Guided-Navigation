@@ -113,6 +113,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     # Keep track of the last best model's epoch
     last_best_epoch = None
     
+    # Early stopping variables
+    early_stopping_counter = 0
+    early_stopping_triggered = False
+    
     # Setup gradient buckets for efficient all-reduce if using distributed training
     gradient_buckets = None
     if is_distributed:
@@ -125,6 +129,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         
     try:
         for epoch in range(start_epoch, num_epochs):
+            # Check if early stopping was triggered
+            if early_stopping_triggered:
+                if rank == 0:
+                    logger.info(f"Early stopping triggered after {epoch} epochs")
+                break
+                
             if is_distributed:
                 train_loader.sampler.set_epoch(epoch)
                 val_loader.sampler.set_epoch(epoch)
@@ -271,6 +281,22 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                 if rank == 0:
                     logger.info(f'Validation Loss: {val_loss:.4f}')
+                    
+                    # Early stopping check
+                    if config.training.early_stopping:
+                        if val_loss < best_val_loss - config.training.early_stopping_min_delta:
+                            # Validation loss improved
+                            early_stopping_counter = 0
+                            logger.info(f"Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}")
+                        else:
+                            # Validation loss did not improve
+                            early_stopping_counter += 1
+                            logger.info(f"Validation loss did not improve. Counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
+                            
+                            if early_stopping_counter >= config.training.early_stopping_patience:
+                                logger.info(f"Early stopping triggered! No improvement for {config.training.early_stopping_patience} epochs.")
+                                early_stopping_triggered = True
+                    
                     scheduler.step(val_loss)
 
                     # Save best model
