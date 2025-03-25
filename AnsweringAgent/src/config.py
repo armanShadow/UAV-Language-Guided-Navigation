@@ -24,9 +24,9 @@ class ModelConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for training settings."""
-    per_gpu_batch_size: int = 7
+    per_gpu_batch_size: int = 6
     num_epochs: int = 200000
-    learning_rate: float = 1e-5
+    learning_rate: float = 5e-5
     weight_decay: float = 0.01
     gradient_clip: float = 1.0
     warmup_steps: int = 1000
@@ -41,7 +41,7 @@ class TrainingConfig:
     scheduler_factor: float = 0.5
     scheduler_patience: int = 5
     scheduler_verbose: bool = True
-    gradient_accumulation_steps: int = 2
+    gradient_accumulation_steps: int = 3
     # Early stopping parameters
     early_stopping: bool = True
     early_stopping_patience: int = 10
