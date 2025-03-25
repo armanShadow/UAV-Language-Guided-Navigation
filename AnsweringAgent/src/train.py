@@ -496,6 +496,8 @@ def main():
     parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
     parser.add_argument('--single-gpu', action='store_true', help='Force running on a single GPU even with torchrun')
+    parser.add_argument('--batch-size', type=int, help='Per-GPU batch size (overrides config value)', default=None)
+    parser.add_argument('--grad-steps', type=int, help='Gradient accumulation steps (overrides config value)', default=None)
     args = parser.parse_args()
     
     # Check CUDA availability first
@@ -558,6 +560,17 @@ def main():
     # Load configuration
     config = Config()
     
+    # Override config values with command-line arguments if provided
+    if args.batch_size is not None:
+        config.training.per_gpu_batch_size = args.batch_size
+        if rank == 0:
+            logger.info(f"Overriding batch size with command-line value: {args.batch_size}")
+            
+    if args.grad_steps is not None:
+        config.training.gradient_accumulation_steps = args.grad_steps
+        if rank == 0:
+            logger.info(f"Overriding gradient accumulation steps with command-line value: {args.grad_steps}")
+            
     # Initialize logger - only rank 0 should log to console
     logger = setup_logger('training', log_dir=config.log_dir)
     
