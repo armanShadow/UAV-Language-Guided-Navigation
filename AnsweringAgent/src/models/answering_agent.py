@@ -212,8 +212,7 @@ class AnsweringAgent(nn.Module):
         }.items() if v is not None}
         
         # Process text input with BERT
-        with record_function("bert_forward"):
-            text_outputs = self.bert(**text_input)
+        text_outputs = self.bert(**text_input)
         text_features = text_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
         text_features = self.bert_dropout(text_features)
         
@@ -221,38 +220,46 @@ class AnsweringAgent(nn.Module):
         text_features = self.pos_encoder(text_features)
         
         # Get visual features
-        with record_function("feature_extractor_forward"):
-            visual_features = self.feature_extractor(current_view, previous_views)  # [batch_size, hidden_size]
+        visual_features = self.feature_extractor(current_view, previous_views)  # [batch_size, hidden_size]
         
         # Verify feature dimensions
         assert visual_features.size(-1) == self.config.model.hidden_size, \
             f"Visual features dim {visual_features.size(-1)} != hidden size {self.config.model.hidden_size}"
         
-        # Expand visual features to match sequence length
-        # TODO: #9: You could use other approaches other than this. it copies the data 512 times
-        visual_features = visual_features.unsqueeze(1).expand(-1, seq_len, -1)  # [batch_size, seq_len, hidden_size]
+        # Modified approach: Use cross-modal attention instead of expanding
+        # Instead of: visual_features = visual_features.unsqueeze(1).expand(-1, seq_len, -1)
         
-        # Combine text and visual features
-        with record_function("combine_features"):
-            combined_features = self.combine_features(text_features, visual_features)  # [batch_size, seq_len, hidden_size]
+        # Use the feature_attention module for cross-modal attention
+        # This lets text tokens attend to visual features more efficiently
+        
+        # Prepare visual features for attention (add sequence dimension)
+        visual_features_for_attn = visual_features.unsqueeze(1)  # [batch_size, 1, hidden_size]
+        
+        # Perform cross-modal attention between text and visual features
+        text_with_visual_context = self.feature_attention(
+            query=text_features,              # [batch_size, seq_len, hidden_size]
+            key=visual_features_for_attn,     # [batch_size, 1, hidden_size]
+            value=visual_features_for_attn    # [batch_size, 1, hidden_size]
+        )  # [batch_size, seq_len, hidden_size]
+        
+        # Combine text features with attended visual features
+        combined_features = text_with_visual_context
         
         # Create target mask to prevent attention to future tokens
         target_mask = self.generate_square_subsequent_mask(seq_len, input_ids.device)
         
         # Process through decoder
-        with record_function("decoder_forward"):
-            decoder_output = self.decoder(
-                tgt=combined_features.transpose(0, 1),
-                memory=visual_features.transpose(0, 1),
-                tgt_mask=target_mask
-            )
+        decoder_output = self.decoder(
+            tgt=combined_features.transpose(0, 1),  # [seq_len, batch_size, hidden_size]
+            memory=visual_features.unsqueeze(0),    # [1, batch_size, hidden_size]
+            tgt_mask=target_mask
+        )
         
         # Transpose back to [batch_size, seq_len, hidden_size]
         decoder_output = decoder_output.transpose(0, 1)
         
         # Project to vocabulary size using weight tying with BERT embeddings
-        with record_function("output_projection"):
-            output = F.linear(decoder_output, self.bert.embeddings.word_embeddings.weight)
+        output = F.linear(decoder_output, self.bert.embeddings.word_embeddings.weight)
         
         # Dynamic length handling instead of truncation
         if self.training:
@@ -300,48 +307,3 @@ class AnsweringAgent(nn.Module):
         mask = torch.triu(torch.ones(sz, sz, device=device), diagonal=1).bool()
         mask = mask.float().masked_fill(mask, float('-inf')).masked_fill(~mask, float(0.0))
         return mask
-
-
-    def combine_features(self, text_features, visual_features):
-        """
-        Combines text and visual features using attention and fusion.
-        
-        Args:
-            text_features (torch.Tensor): Text features from BERT [batch_size, seq_len, hidden_size]
-            visual_features (torch.Tensor): Visual features [batch_size, seq_len, hidden_size]
-            
-        Returns:
-            torch.Tensor: Combined features [batch_size, seq_len, hidden_size]
-        """
-        batch_size, seq_len, hidden_size = text_features.size()
-        
-        # Verify dimensions
-        assert hidden_size == self.config.model.hidden_size, \
-            f"Text features dimension {hidden_size} != hidden size {self.config.model.hidden_size}"
-        assert visual_features.size(-1) == hidden_size, \
-            f"Visual features dimension {visual_features.size(-1)} != hidden size {hidden_size}"
-        assert visual_features.size(1) == seq_len, \
-            f"Visual features sequence length {visual_features.size(1)} != text sequence length {seq_len}"
-        
-        # Transpose inputs for attention (from [batch_size, seq_len, hidden_size] to [seq_len, batch_size, hidden_size])
-        text_features = text_features.transpose(0, 1)
-        visual_features = visual_features.transpose(0, 1)
-        
-        # Apply feature attention between text and visual features
-        with record_function("feature_attention"):
-            attended_features = self.feature_attention(
-                query=text_features,              # [seq_len, batch_size, hidden_size]
-                key=visual_features,              # [seq_len, batch_size, hidden_size]
-                value=visual_features             # [seq_len, batch_size, hidden_size]
-            )
-        
-        # Transpose back to [batch_size, seq_len, hidden_size]
-        attended_features = attended_features.transpose(0, 1)
-        text_features = text_features.transpose(0, 1)
-        
-        # Concatenate and fuse text and attended visual features
-        with record_function("feature_fusion"):
-            combined = torch.cat([text_features, attended_features], dim=-1)  # [batch_size, seq_len, hidden_size*2]
-            fused_features = self.feature_fusion(combined)  # [batch_size, seq_len, hidden_size]
-        
-        return fused_features
