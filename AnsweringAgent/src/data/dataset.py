@@ -128,8 +128,8 @@ class AnsweringDataset(Dataset):
         
         # Handle case where previous_views is empty
         if len(previous_views) == 0:
-            # Create default tensors with shape (3, 224, 224)
-            default_views = torch.zeros((self.max_previous_views, 3, 224, 224), dtype=torch.float32)
+            # Instead of zeros, replicate the current view for all previous views
+            default_views = torch.stack([current_view] * self.max_previous_views, dim=0)
             return {
                 'text_input': processed_data['text_input'],
                 'text_label': processed_data['text_label']['input_ids'],
@@ -141,8 +141,8 @@ class AnsweringDataset(Dataset):
         if len(previous_views) > self.max_previous_views:
             previous_views = previous_views[:self.max_previous_views]
         elif len(previous_views) < self.max_previous_views:
-            # Create padding tensors with the same shape as the first tensor
-            padding = [torch.zeros_like(previous_views[0]) 
+            # Instead of zero padding, replicate the current view for padding
+            padding = [current_view.clone() 
                       for _ in range(self.max_previous_views - len(previous_views))]
             previous_views.extend(padding)
         
