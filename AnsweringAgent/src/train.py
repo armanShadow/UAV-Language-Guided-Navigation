@@ -560,6 +560,10 @@ def main():
     # Load configuration
     config = Config()
     
+
+    # Initialize logger - only rank 0 should log to console
+    logger = setup_logger('training', log_dir=config.log_dir)
+
     # Override config values with command-line arguments if provided
     if args.batch_size is not None:
         config.training.per_gpu_batch_size = args.batch_size
@@ -570,9 +574,6 @@ def main():
         config.training.gradient_accumulation_steps = args.grad_steps
         if rank == 0:
             logger.info(f"Overriding gradient accumulation steps with command-line value: {args.grad_steps}")
-            
-    # Initialize logger - only rank 0 should log to console
-    logger = setup_logger('training', log_dir=config.log_dir)
     
     # Silence non-rank-0 processes by setting logger level
     if rank != 0:
