@@ -233,17 +233,20 @@ class AnsweringAgent(nn.Module):
         # This lets text tokens attend to visual features more efficiently
         
         # Prepare visual features for attention (add sequence dimension)
-        visual_features_for_attn = visual_features.unsqueeze(1)  # [batch_size, 1, hidden_size]
+        # Need to transpose from [batch_size, seq_len, hidden] to [seq_len, batch_size, hidden]
+        # for the MultiModalAttention class
+        text_features_t = text_features.transpose(0, 1)  # [seq_len, batch_size, hidden_size]
+        visual_features_t = visual_features.unsqueeze(0)  # [1, batch_size, hidden_size]
         
         # Perform cross-modal attention between text and visual features
         text_with_visual_context = self.feature_attention(
-            query=text_features,              # [batch_size, seq_len, hidden_size]
-            key=visual_features_for_attn,     # [batch_size, 1, hidden_size]
-            value=visual_features_for_attn    # [batch_size, 1, hidden_size]
-        )  # [batch_size, seq_len, hidden_size]
+            query=text_features_t,           # [seq_len, batch_size, hidden_size]
+            key=visual_features_t,           # [1, batch_size, hidden_size]
+            value=visual_features_t          # [1, batch_size, hidden_size]
+        )  # [seq_len, batch_size, hidden_size]
         
-        # Combine text features with attended visual features
-        combined_features = text_with_visual_context
+        # Transpose back to [batch_size, seq_len, hidden_size]
+        combined_features = text_with_visual_context.transpose(0, 1)
         
         # Create target mask to prevent attention to future tokens
         target_mask = self.generate_square_subsequent_mask(seq_len, input_ids.device)
