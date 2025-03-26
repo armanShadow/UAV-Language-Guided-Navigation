@@ -31,7 +31,7 @@ class TrainingConfig:
     gradient_clip: float = 0.5
     warmup_steps: int = 1000
     log_freq: int = 2
-    eval_freq: int = 100  #(validate every ~66 minutes)
+    eval_freq: int = 10  #(validate every ~66 minutes)
     num_workers: int = 4
     pin_memory: bool = True
     mixed_precision: bool = True
