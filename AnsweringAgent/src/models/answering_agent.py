@@ -219,11 +219,26 @@ class AnsweringAgent(nn.Module):
         text_features = text_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
         text_features = self.bert_dropout(text_features)
         
+        # Add Gaussian noise to text features during training
+        if self.training:
+            text_features = text_features + torch.randn_like(text_features) * 0.1
+        
         # Add positional encoding to text features
         text_features = self.pos_encoder(text_features)
         
         # Get visual features
         visual_features = self.feature_extractor(current_view, previous_views)  # [batch_size, hidden_size]
+        
+        # Add Gaussian noise to visual features during training
+        if self.training:
+            visual_features = visual_features + torch.randn_like(visual_features) * 0.1
+        
+        # Add L2 regularization on feature representations
+        self.visual_features_norm = torch.norm(visual_features, p=2, dim=1).mean()
+        self.text_features_norm = torch.norm(text_features, p=2, dim=-1).mean()
+        
+        # Store combined feature norm for regularization in training loop
+        self.feature_reg_norm = 0.5 * (self.visual_features_norm + self.text_features_norm)
         
         # Verify feature dimensions
         assert visual_features.size(-1) == self.config.model.hidden_size, \

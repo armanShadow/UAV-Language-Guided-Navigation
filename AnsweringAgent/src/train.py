@@ -46,6 +46,54 @@ print(f"Torch elastic error file: {temp_error_file.name}")
 TRAINING_FAILED = False
 CHECKPOINT_LOCK = threading.Lock()
 
+# Exponential Moving Average Implementation
+class EMA:
+    def __init__(self, model, decay=0.999):
+        self.model = model
+        self.decay = decay
+        self.shadow = {}
+        self.backup = {}
+        
+        # Register model parameters
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                self.shadow[name] = param.data.clone()
+    
+    def update(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.shadow
+                new_average = self.decay * self.shadow[name] + (1.0 - self.decay) * param.data
+                self.shadow[name] = new_average.clone()
+    
+    def apply_shadow(self):
+        """Apply the EMA weights to the model for evaluation"""
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.shadow
+                self.backup[name] = param.data.clone()
+                param.data = self.shadow[name].clone()
+    
+    def restore(self):
+        """Restore the original weights for training"""
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.backup
+                param.data = self.backup[name].clone()
+        self.backup = {}
+    
+    def state_dict(self):
+        return {
+            'decay': self.decay,
+            'shadow': self.shadow,
+            'backup': self.backup
+        }
+    
+    def load_state_dict(self, state_dict):
+        self.decay = state_dict['decay']
+        self.shadow = state_dict['shadow']
+        self.backup = state_dict['backup']
+
 def set_debug_mode():
     """Enable various debugging and error reporting options"""
     # Enable Python's detailed traceback
@@ -113,6 +161,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     # Enable cuDNN benchmarking for faster convolutions
     torch.backends.cudnn.benchmark = True
     
+    # Initialize Exponential Moving Average
+    ema = EMA(model, decay=0.999)
+    
     # Clear cache once at beginning rather than every iteration
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -123,6 +174,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     # Early stopping variables
     early_stopping_counter = 0
     early_stopping_triggered = False
+    prev_val_loss = float('inf')  # Track previous validation loss for comparison
     
     # Setup gradient buckets for efficient all-reduce if using distributed training
     gradient_buckets = None
@@ -188,6 +240,17 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         labels_reshaped = labels.contiguous().view(batch_size * seq_len)
 
                         loss = criterion(outputs_reshaped, labels_reshaped)
+                        
+                        # Add L2 regularization loss on feature representations
+                        if hasattr(model, 'module'):
+                            feat_norm = model.module.feature_reg_norm
+                        else:
+                            feat_norm = model.feature_reg_norm
+                        
+                        # Add feature regularization with weight 0.005
+                        reg_loss = 0.005 * feat_norm
+                        loss = loss + reg_loss
+                        
                         # Scale loss by gradient accumulation steps
                         loss = loss / config.training.gradient_accumulation_steps
 
@@ -210,11 +273,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         scaler.update()
                         # Step the scheduler after each update
                         scheduler.step()
+                        # Update EMA weights
+                        ema.update()
                         optimizer.zero_grad(set_to_none=True)
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
                 
-
                     # Log at specified frequency
                     if batch_idx % log_frequency == 0 and rank == 0:
                         avg_loss = total_loss / (batch_idx + 1)
@@ -263,6 +327,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 val_loss = 0
                 if rank == 0:
                     logger.info("Starting validation...")
+                
+                # Apply EMA weights for validation
+                ema.apply_shadow()
 
                 with torch.no_grad():
                     for batch_idx, batch in enumerate(val_loader):
@@ -285,6 +352,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             logger.error(f"Critical error in validation batch {batch_idx}: {str(e)}")
                             logger.error(traceback.format_exc())
                             raise e
+                
+                # Restore original weights after validation
+                ema.restore()
 
                 # Synchronize validation loss across processes in distributed mode
                 if is_distributed and dist.is_initialized():
@@ -298,20 +368,23 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     
                     # Early stopping check
                     if config.training.early_stopping:
-                        if val_loss < best_val_loss - config.training.early_stopping_min_delta:
-                            # Validation loss improved
+                        # Compare against best val loss first (for significant improvements)
+                        if val_loss < best_val_loss * (1.0 - config.training.early_stopping_min_delta):
+                            # Validation loss improved significantly compared to best
                             early_stopping_counter = 0
-                            logger.info(f"Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}")
+                            logger.info(f"Validation loss improved significantly from {best_val_loss:.4f} to {val_loss:.4f}")
+                        elif val_loss < prev_val_loss:
+                            # Not better than best, but better than previous - halve the counter
+                            early_stopping_counter = max(0, early_stopping_counter // 2)
+                            logger.info(f"Validation loss improved from previous ({prev_val_loss:.4f} to {val_loss:.4f}) but not better than best ({best_val_loss:.4f}). Counter reduced to {early_stopping_counter}.")
                         else:
-                            # Validation loss did not improve
+                            # Validation loss got worse
                             early_stopping_counter += 1
                             logger.info(f"Validation loss did not improve. Counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
                             
                             if early_stopping_counter >= config.training.early_stopping_patience:
-                                logger.info(f"Early stopping triggered! No improvement for {config.training.early_stopping_patience} epochs.")
+                                logger.info(f"Early stopping triggered! No sufficient improvement for {config.training.early_stopping_patience} epochs.")
                                 early_stopping_triggered = True
-                    
-                    scheduler.step()
 
                     # Save best model
                     if val_loss < best_val_loss:
@@ -320,7 +393,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             prev_best_model = os.path.join(checkpoint_dir, f'best_model_epoch_{last_best_epoch}.pt')
                             if os.path.exists(prev_best_model):
                                 try:
-                                    #os.remove(prev_best_model)
+                                    os.remove(prev_best_model)
                                     logger.info(f"Removed previous best model from epoch {last_best_epoch}")
                                 except Exception as e:
                                     logger.warning(f"Failed to remove previous best model: {str(e)}")
@@ -328,15 +401,23 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         best_val_loss = val_loss
                         last_best_epoch = epoch + 1
 
-                        # Save model
+                        # Save model with EMA weights
+                        ema.apply_shadow()  # Apply EMA weights for saving
                         model_to_save = model.module if hasattr(model, 'module') else model
-                        #torch.save({
-                        #    'model_state_dict': model_to_save.state_dict(),
-                        #    'val_loss': val_loss,
-                        #    'scheduler_state_dict': scheduler.state_dict(),
-                        #}, os.path.join(checkpoint_dir, f'best_model_epoch_{epoch + 1}.pt'))
-                        #logger.info(f'New best model saved at epoch {epoch + 1} (val_loss: {val_loss:.4f})')
+                        torch.save({
+                            'model_state_dict': model_to_save.state_dict(),
+                            'epoch': epoch + 1,
+                            'val_loss': val_loss,
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'scheduler_state_dict': scheduler.state_dict(),
+                            'ema': ema.state_dict()
+                        }, os.path.join(checkpoint_dir, f'best_model_epoch_{epoch + 1}.pt'))
+                        ema.restore()  # Restore original weights for training
+                        logger.info(f'New best model saved at epoch {epoch + 1} (val_loss: {val_loss:.4f})')
 
+                # Update previous validation loss for next comparison
+                prev_val_loss = val_loss
+                    
                 # Save periodic checkpoint
                 if (epoch + 1) % save_frequency == 0 and rank == 0:
                     model_to_save = model.module if hasattr(model, 'module') else model
@@ -346,6 +427,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         'optimizer_state_dict': optimizer.state_dict(),
                         'scheduler_state_dict': scheduler.state_dict(),
                         'val_loss': val_loss,
+                        'ema': ema.state_dict()
                     }, os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch + 1}.pt'))
                     logger.info(f'Checkpoint saved at epoch {epoch + 1}')
 
@@ -626,6 +708,12 @@ def main():
             best_val_loss = checkpoint.get('val_loss', float('inf'))
             if rank == 0:
                 logger.info(f"Resuming training from epoch {start_epoch}")
+            
+            # Load EMA state from checkpoint
+            if 'ema' in checkpoint:
+                ema.load_state_dict(checkpoint['ema'])
+                if rank == 0:
+                    logger.info("Loaded EMA state from checkpoint")
         
         # Load dataset
         try:

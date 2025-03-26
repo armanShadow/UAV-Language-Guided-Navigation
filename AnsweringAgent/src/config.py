@@ -15,8 +15,8 @@ class ModelConfig:
     dropout: float = 0.2
     feat_dropout: float = 0.4
     num_decoder_layers: int = 4
-    num_attention_heads: int = 8
-    feedforward_dim: int = 3072  # 4 * hidden_size
+    num_attention_heads: int = 4
+    feedforward_dim: int = 3072
     max_answer_length: int = 128
     vocab_size: int = 30522  # BERT vocabulary size for bert-base-uncased
     img_size: int = 224  # Image size for Darknet/YOLO model
@@ -45,7 +45,7 @@ class TrainingConfig:
     # Early stopping parameters
     early_stopping: bool = True
     early_stopping_patience: int = 10
-    early_stopping_min_delta: float = 0.001
+    early_stopping_min_delta: float = 0.005
 
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""
