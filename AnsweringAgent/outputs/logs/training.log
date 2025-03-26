@@ -18023,3 +18023,1122 @@ RuntimeError: NCCL communicator was aborted on rank 4.  Original reason for fail
     work = group._allgather_base(output_tensor, input_tensor)
 RuntimeError: NCCL communicator was aborted on rank 4.  Original reason for failure was: [Rank 4] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=7376621, OpType=_ALLGATHER_BASE, Timeout(ms)=1800000) ran for 1802938 milliseconds before timing out.
 
+2025-03-26 00:51:54,513 - training - INFO - Overriding batch size with command-line value: 7
+2025-03-26 00:51:54,514 - training - INFO - Overriding gradient accumulation steps with command-line value: 3
+2025-03-26 00:51:54,514 - training - INFO - Starting training with debugging enabled. Error file: /tmp/torch_elastic_error_b7ugvwcl.log
+2025-03-26 00:51:54,514 - training - INFO - Process information: Rank 0, Local Rank 0, World Size 8
+2025-03-26 00:51:54,514 - training - INFO - Device: cuda:0
+2025-03-26 00:51:55,118 - training - INFO - Training on 9 GPUs, distributed mode: True
+2025-03-26 00:51:55,118 - training - INFO - Starting dataset preprocessing on rank 0...
+2025-03-26 00:51:55,118 - training - INFO - Starting dataset preprocessing (this will run only once)...
+2025-03-26 00:51:55,120 - training - INFO - Preprocessed data already exists at /app/datasets/processed_dataset.pkl. Skipping preprocessing.
+2025-03-26 00:51:55,120 - training - INFO - Dataset preprocessing complete. Took 0.00 seconds.
+2025-03-26 00:51:59,809 - training - INFO - Starting model initialization...
+2025-03-26 00:52:03,124 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:52:03,124 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:52:03,324 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:52:03,325 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:52:03,540 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:52:03,540 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:52:03,723 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:52:03,723 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:52:03,724 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:52:03,724 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:52:03,724 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:52:03,724 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:52:03,728 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:52:03,728 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:52:04,395 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:52:04,395 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:52:04,644 - training - INFO - Distributed process group destroyed successfully
+2025-03-26 00:52:04,717 - training - ERROR - Training failed with errors
+2025-03-26 00:54:49,395 - training - INFO - Overriding batch size with command-line value: 7
+2025-03-26 00:54:49,395 - training - INFO - Overriding gradient accumulation steps with command-line value: 3
+2025-03-26 00:54:49,396 - training - INFO - Starting training with debugging enabled. Error file: /tmp/torch_elastic_error_cgdmgewi.log
+2025-03-26 00:54:49,396 - training - INFO - Process information: Rank 0, Local Rank 0, World Size 8
+2025-03-26 00:54:49,396 - training - INFO - Device: cuda:0
+2025-03-26 00:54:49,936 - training - INFO - Training on 9 GPUs, distributed mode: True
+2025-03-26 00:54:49,936 - training - INFO - Starting dataset preprocessing on rank 0...
+2025-03-26 00:54:49,936 - training - INFO - Starting dataset preprocessing (this will run only once)...
+2025-03-26 00:54:49,938 - training - INFO - Preprocessed data already exists at /app/datasets/processed_dataset.pkl. Skipping preprocessing.
+2025-03-26 00:54:49,938 - training - INFO - Dataset preprocessing complete. Took 0.00 seconds.
+2025-03-26 00:54:54,620 - training - INFO - Starting model initialization...
+2025-03-26 00:54:57,985 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:54:57,985 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:54:57,992 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:54:57,992 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:54:58,329 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:54:58,330 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:54:58,330 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:54:58,330 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:54:58,676 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:54:58,676 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:54:58,676 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:54:58,677 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:54:58,677 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:54:58,677 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:54:58,683 - training - ERROR - Fatal error in main function: local variable 'train_loader' referenced before assignment
+2025-03-26 00:54:58,684 - training - ERROR - Traceback (most recent call last):
+  File "AnsweringAgent/src/train.py", line 657, in main
+    total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+UnboundLocalError: local variable 'train_loader' referenced before assignment
+
+2025-03-26 00:54:58,930 - training - INFO - Distributed process group destroyed successfully
+2025-03-26 00:54:59,004 - training - ERROR - Training failed with errors
+2025-03-26 00:55:24,150 - training - INFO - Overriding batch size with command-line value: 7
+2025-03-26 00:55:24,150 - training - INFO - Overriding gradient accumulation steps with command-line value: 3
+2025-03-26 00:55:24,150 - training - INFO - Starting training with debugging enabled. Error file: /tmp/torch_elastic_error_0w4_rtqo.log
+2025-03-26 00:55:24,150 - training - INFO - Process information: Rank 0, Local Rank 0, World Size 8
+2025-03-26 00:55:24,150 - training - INFO - Device: cuda:0
+2025-03-26 00:55:24,685 - training - INFO - Training on 9 GPUs, distributed mode: True
+2025-03-26 00:55:24,685 - training - INFO - Starting dataset preprocessing on rank 0...
+2025-03-26 00:55:24,685 - training - INFO - Starting dataset preprocessing (this will run only once)...
+2025-03-26 00:55:24,685 - training - INFO - Preprocessed data already exists at /app/datasets/processed_dataset.pkl. Skipping preprocessing.
+2025-03-26 00:55:24,685 - training - INFO - Dataset preprocessing complete. Took 0.00 seconds.
+2025-03-26 00:55:29,347 - training - INFO - Starting model initialization...
+2025-03-26 00:55:39,033 - training - INFO - Dataset split: 2466 training, 137 validation, 137 test samples
+2025-03-26 00:55:39,395 - training - INFO - Test dataset indices saved to /app/UAV-Language-Guided-Navigation/AnsweringAgent/outputs/logs/test_indices.pt
+2025-03-26 00:55:39,395 - training - INFO - Per-GPU batch size: 7 (effective batch size: 168, with gradient_accumulation_steps=3)
+2025-03-26 00:55:39,417 - training - INFO - Created 24 gradient buckets for efficient all-reduce
+2025-03-26 00:55:39,455 - training - INFO - Starting epoch 1/200000
+2025-03-26 00:55:45,801 - training - INFO - Memory: GPU 0: 2032.9MB allocated, 5794.0MB reserved
+2025-03-26 00:55:45,802 - training - INFO - Epoch: 1/200000, Batch: 0/45, Loss: 11.0928, Throughput: 8.83 samples/sec
+2025-03-26 00:55:56,574 - training - INFO - Memory: GPU 0: 3192.2MB allocated, 8530.0MB reserved
+2025-03-26 00:55:56,574 - training - INFO - Epoch: 1/200000, Batch: 15/45, Loss: 11.0629, Throughput: 52.34 samples/sec
+2025-03-26 00:56:07,120 - training - INFO - Memory: GPU 0: 3191.6MB allocated, 8638.0MB reserved
+2025-03-26 00:56:07,121 - training - INFO - Epoch: 1/200000, Batch: 30/45, Loss: 11.0531, Throughput: 62.75 samples/sec
+2025-03-26 00:56:18,242 - training - INFO - Epoch 1 completed in 38.79s. Average loss: 11.0406
+2025-03-26 00:56:18,246 - training - INFO - Starting epoch 2/200000
+2025-03-26 00:56:18,967 - training - INFO - Memory: GPU 0: 3195.7MB allocated, 8378.0MB reserved
+2025-03-26 00:56:18,968 - training - INFO - Epoch: 2/200000, Batch: 0/45, Loss: 11.1975, Throughput: 77.85 samples/sec
+2025-03-26 00:56:29,685 - training - INFO - Memory: GPU 0: 3194.5MB allocated, 8626.0MB reserved
+2025-03-26 00:56:29,686 - training - INFO - Epoch: 2/200000, Batch: 15/45, Loss: 10.8640, Throughput: 78.33 samples/sec
+2025-03-26 00:56:40,160 - training - INFO - Memory: GPU 0: 3194.5MB allocated, 8626.0MB reserved
+2025-03-26 00:56:40,161 - training - INFO - Epoch: 2/200000, Batch: 30/45, Loss: 10.7736, Throughput: 79.22 samples/sec
+2025-03-26 00:56:50,086 - training - INFO - Epoch 2 completed in 31.84s. Average loss: 10.7216
+2025-03-26 00:56:50,090 - training - INFO - Starting epoch 3/200000
+2025-03-26 00:56:50,825 - training - INFO - Memory: GPU 0: 3194.5MB allocated, 8748.0MB reserved
+2025-03-26 00:56:50,825 - training - INFO - Epoch: 3/200000, Batch: 0/45, Loss: 10.0921, Throughput: 76.31 samples/sec
+2025-03-26 00:57:01,607 - training - INFO - Memory: GPU 0: 3194.3MB allocated, 8674.0MB reserved
+2025-03-26 00:57:01,607 - training - INFO - Epoch: 3/200000, Batch: 15/45, Loss: 10.2692, Throughput: 77.81 samples/sec
+2025-03-26 00:57:12,039 - training - INFO - Memory: GPU 0: 3194.3MB allocated, 8674.0MB reserved
+2025-03-26 00:57:12,040 - training - INFO - Epoch: 3/200000, Batch: 30/45, Loss: 10.1682, Throughput: 79.10 samples/sec
+2025-03-26 00:57:21,898 - training - INFO - Epoch 3 completed in 31.81s. Average loss: 10.0677
+2025-03-26 00:57:21,902 - training - INFO - Starting epoch 4/200000
+2025-03-26 00:57:22,599 - training - INFO - Memory: GPU 0: 3194.3MB allocated, 8796.0MB reserved
+2025-03-26 00:57:22,599 - training - INFO - Epoch: 4/200000, Batch: 0/45, Loss: 9.7331, Throughput: 80.57 samples/sec
+2025-03-26 00:57:33,413 - training - INFO - Memory: GPU 0: 3192.3MB allocated, 8668.0MB reserved
+2025-03-26 00:57:33,413 - training - INFO - Epoch: 4/200000, Batch: 15/45, Loss: 9.5067, Throughput: 77.85 samples/sec
+2025-03-26 00:57:41,777 - training - INFO - Training completed successfully.
+2025-03-26 01:02:11,399 - training - INFO - Overriding batch size with command-line value: 7
+2025-03-26 01:02:11,399 - training - INFO - Overriding gradient accumulation steps with command-line value: 3
+2025-03-26 01:02:11,399 - training - INFO - Starting training with debugging enabled. Error file: /tmp/torch_elastic_error_mz466362.log
+2025-03-26 01:02:11,399 - training - INFO - Process information: Rank 0, Local Rank 0, World Size 8
+2025-03-26 01:02:11,400 - training - INFO - Device: cuda:0
+2025-03-26 01:02:12,017 - training - INFO - Training on 9 GPUs, distributed mode: True
+2025-03-26 01:02:12,017 - training - INFO - Starting dataset preprocessing on rank 0...
+2025-03-26 01:02:12,017 - training - INFO - Starting dataset preprocessing (this will run only once)...
+2025-03-26 01:02:12,019 - training - INFO - Preprocessed data already exists at /app/datasets/processed_dataset.pkl. Skipping preprocessing.
+2025-03-26 01:02:12,019 - training - INFO - Dataset preprocessing complete. Took 0.00 seconds.
+2025-03-26 01:02:16,660 - training - INFO - Starting model initialization...
+2025-03-26 01:02:26,353 - training - INFO - Dataset split: 2466 training, 137 validation, 137 test samples
+2025-03-26 01:02:26,476 - training - INFO - Test dataset indices saved to /app/UAV-Language-Guided-Navigation/AnsweringAgent/outputs/logs/test_indices.pt
+2025-03-26 01:02:26,476 - training - INFO - Per-GPU batch size: 7 (effective batch size: 168, with gradient_accumulation_steps=3)
+2025-03-26 01:02:26,501 - training - INFO - Created 24 gradient buckets for efficient all-reduce
+2025-03-26 01:02:26,506 - training - INFO - Starting epoch 1/200000
+2025-03-26 01:02:32,875 - training - INFO - Memory: GPU 0: 2035.7MB allocated, 5848.0MB reserved
+2025-03-26 01:02:32,875 - training - INFO - Epoch: 1/200000, Batch: 0/45, Loss: 11.0932, Throughput: 8.79 samples/sec
+2025-03-26 01:02:43,647 - training - INFO - Memory: GPU 0: 3191.5MB allocated, 8530.0MB reserved
+2025-03-26 01:02:43,648 - training - INFO - Epoch: 1/200000, Batch: 15/45, Loss: 11.0640, Throughput: 52.28 samples/sec
+2025-03-26 01:02:54,268 - training - INFO - Memory: GPU 0: 3191.5MB allocated, 8530.0MB reserved
+2025-03-26 01:02:54,268 - training - INFO - Epoch: 1/200000, Batch: 30/45, Loss: 11.0536, Throughput: 62.53 samples/sec
+2025-03-26 01:03:05,454 - training - INFO - Epoch 1 completed in 38.95s. Average loss: 11.0405
+2025-03-26 01:03:05,460 - training - INFO - Starting epoch 2/200000
+2025-03-26 01:03:06,200 - training - INFO - Memory: GPU 0: 3191.6MB allocated, 8284.0MB reserved
+2025-03-26 01:03:06,200 - training - INFO - Epoch: 2/200000, Batch: 0/45, Loss: 11.1971, Throughput: 75.78 samples/sec
+2025-03-26 01:03:16,859 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8650.0MB reserved
+2025-03-26 01:03:16,859 - training - INFO - Epoch: 2/200000, Batch: 15/45, Loss: 10.8636, Throughput: 78.61 samples/sec
+2025-03-26 01:03:27,554 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8650.0MB reserved
+2025-03-26 01:03:27,554 - training - INFO - Epoch: 2/200000, Batch: 30/45, Loss: 10.7731, Throughput: 78.58 samples/sec
+2025-03-26 01:03:37,469 - training - INFO - Epoch 2 completed in 32.01s. Average loss: 10.7216
+2025-03-26 01:03:37,474 - training - INFO - Starting epoch 3/200000
+2025-03-26 01:03:38,212 - training - INFO - Memory: GPU 0: 3191.0MB allocated, 8772.0MB reserved
+2025-03-26 01:03:38,212 - training - INFO - Epoch: 3/200000, Batch: 0/45, Loss: 10.0946, Throughput: 76.13 samples/sec
+2025-03-26 01:03:49,016 - training - INFO - Memory: GPU 0: 3190.0MB allocated, 8776.0MB reserved
+2025-03-26 01:03:49,017 - training - INFO - Epoch: 3/200000, Batch: 15/45, Loss: 10.2696, Throughput: 77.65 samples/sec
+2025-03-26 01:03:59,655 - training - INFO - Memory: GPU 0: 3190.0MB allocated, 8776.0MB reserved
+2025-03-26 01:03:59,655 - training - INFO - Epoch: 3/200000, Batch: 30/45, Loss: 10.1681, Throughput: 78.28 samples/sec
+2025-03-26 01:04:09,596 - training - INFO - Epoch 3 completed in 32.12s. Average loss: 10.0677
+2025-03-26 01:04:09,600 - training - INFO - Starting epoch 4/200000
+2025-03-26 01:04:10,300 - training - INFO - Memory: GPU 0: 3190.0MB allocated, 8898.0MB reserved
+2025-03-26 01:04:10,300 - training - INFO - Epoch: 4/200000, Batch: 0/45, Loss: 9.7353, Throughput: 80.16 samples/sec
+2025-03-26 01:04:21,175 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8660.0MB reserved
+2025-03-26 01:04:21,175 - training - INFO - Epoch: 4/200000, Batch: 15/45, Loss: 9.5068, Throughput: 77.42 samples/sec
+2025-03-26 01:04:31,714 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8660.0MB reserved
+2025-03-26 01:04:31,715 - training - INFO - Epoch: 4/200000, Batch: 30/45, Loss: 9.3567, Throughput: 78.51 samples/sec
+2025-03-26 01:04:41,611 - training - INFO - Epoch 4 completed in 32.01s. Average loss: 9.2050
+2025-03-26 01:04:41,615 - training - INFO - Starting epoch 5/200000
+2025-03-26 01:04:42,321 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8782.0MB reserved
+2025-03-26 01:04:42,321 - training - INFO - Epoch: 5/200000, Batch: 0/45, Loss: 8.9318, Throughput: 79.46 samples/sec
+2025-03-26 01:04:53,075 - training - INFO - Memory: GPU 0: 3187.5MB allocated, 8660.0MB reserved
+2025-03-26 01:04:53,076 - training - INFO - Epoch: 5/200000, Batch: 15/45, Loss: 8.5916, Throughput: 78.20 samples/sec
+2025-03-26 01:05:03,656 - training - INFO - Memory: GPU 0: 3186.8MB allocated, 8660.0MB reserved
+2025-03-26 01:05:03,657 - training - INFO - Epoch: 5/200000, Batch: 30/45, Loss: 8.4202, Throughput: 78.76 samples/sec
+2025-03-26 01:05:13,523 - training - INFO - Epoch 5 completed in 31.91s. Average loss: 8.2899
+2025-03-26 01:05:13,527 - training - INFO - Starting epoch 6/200000
+2025-03-26 01:05:14,228 - training - INFO - Memory: GPU 0: 3187.5MB allocated, 8784.0MB reserved
+2025-03-26 01:05:14,228 - training - INFO - Epoch: 6/200000, Batch: 0/45, Loss: 7.6650, Throughput: 80.07 samples/sec
+2025-03-26 01:05:24,969 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8664.0MB reserved
+2025-03-26 01:05:24,969 - training - INFO - Epoch: 6/200000, Batch: 15/45, Loss: 7.7617, Throughput: 78.32 samples/sec
+2025-03-26 01:05:35,595 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8664.0MB reserved
+2025-03-26 01:05:35,596 - training - INFO - Epoch: 6/200000, Batch: 30/45, Loss: 7.6445, Throughput: 78.67 samples/sec
+2025-03-26 01:05:45,534 - training - INFO - Epoch 6 completed in 32.01s. Average loss: 7.5829
+2025-03-26 01:05:45,537 - training - INFO - Starting epoch 7/200000
+2025-03-26 01:05:46,233 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8784.0MB reserved
+2025-03-26 01:05:46,234 - training - INFO - Epoch: 7/200000, Batch: 0/45, Loss: 7.1256, Throughput: 80.71 samples/sec
+2025-03-26 01:05:57,104 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8666.0MB reserved
+2025-03-26 01:05:57,105 - training - INFO - Epoch: 7/200000, Batch: 15/45, Loss: 7.2731, Throughput: 77.47 samples/sec
+2025-03-26 01:06:07,613 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8666.0MB reserved
+2025-03-26 01:06:07,614 - training - INFO - Epoch: 7/200000, Batch: 30/45, Loss: 7.1818, Throughput: 78.65 samples/sec
+2025-03-26 01:06:17,559 - training - INFO - Epoch 7 completed in 32.02s. Average loss: 7.1114
+2025-03-26 01:06:17,563 - training - INFO - Starting epoch 8/200000
+2025-03-26 01:06:18,285 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8788.0MB reserved
+2025-03-26 01:06:18,286 - training - INFO - Epoch: 8/200000, Batch: 0/45, Loss: 6.8648, Throughput: 77.75 samples/sec
+2025-03-26 01:06:29,114 - training - INFO - Memory: GPU 0: 3186.8MB allocated, 8672.0MB reserved
+2025-03-26 01:06:29,114 - training - INFO - Epoch: 8/200000, Batch: 15/45, Loss: 6.8925, Throughput: 77.58 samples/sec
+2025-03-26 01:06:39,718 - training - INFO - Memory: GPU 0: 3186.8MB allocated, 8672.0MB reserved
+2025-03-26 01:06:39,719 - training - INFO - Epoch: 8/200000, Batch: 30/45, Loss: 6.8441, Throughput: 78.37 samples/sec
+2025-03-26 01:06:49,681 - training - INFO - Epoch 8 completed in 32.12s. Average loss: 6.7733
+2025-03-26 01:06:49,685 - training - INFO - Starting epoch 9/200000
+2025-03-26 01:06:50,396 - training - INFO - Memory: GPU 0: 3186.3MB allocated, 8792.0MB reserved
+2025-03-26 01:06:50,397 - training - INFO - Epoch: 9/200000, Batch: 0/45, Loss: 6.4557, Throughput: 78.84 samples/sec
+2025-03-26 01:07:01,199 - training - INFO - Memory: GPU 0: 3186.5MB allocated, 8664.0MB reserved
+2025-03-26 01:07:01,200 - training - INFO - Epoch: 9/200000, Batch: 15/45, Loss: 6.5260, Throughput: 77.83 samples/sec
+2025-03-26 01:07:11,752 - training - INFO - Memory: GPU 0: 3186.5MB allocated, 8664.0MB reserved
+2025-03-26 01:07:11,752 - training - INFO - Epoch: 9/200000, Batch: 30/45, Loss: 6.5213, Throughput: 78.67 samples/sec
+2025-03-26 01:07:21,636 - training - INFO - Epoch 9 completed in 31.95s. Average loss: 6.5075
+2025-03-26 01:07:21,640 - training - INFO - Starting epoch 10/200000
+2025-03-26 01:07:22,346 - training - INFO - Memory: GPU 0: 3185.9MB allocated, 8788.0MB reserved
+2025-03-26 01:07:22,347 - training - INFO - Epoch: 10/200000, Batch: 0/45, Loss: 6.2711, Throughput: 79.38 samples/sec
+2025-03-26 01:07:33,117 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8660.0MB reserved
+2025-03-26 01:07:33,118 - training - INFO - Epoch: 10/200000, Batch: 15/45, Loss: 6.3424, Throughput: 78.08 samples/sec
+2025-03-26 01:07:43,640 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8660.0MB reserved
+2025-03-26 01:07:43,641 - training - INFO - Epoch: 10/200000, Batch: 30/45, Loss: 6.3367, Throughput: 78.92 samples/sec
+2025-03-26 01:07:53,536 - training - INFO - Epoch 10 completed in 31.90s. Average loss: 6.3089
+2025-03-26 01:07:53,540 - training - INFO - Starting validation...
+2025-03-26 01:07:56,254 - training - INFO - Validation Loss: 6.3324
+2025-03-26 01:07:56,255 - training - INFO - Validation loss improved from inf to 6.3324
+2025-03-26 01:12:12,779 - training - INFO - New best model saved at epoch 10 (val_loss: 6.3324)
+2025-03-26 01:12:12,800 - training - INFO - Starting epoch 11/200000
+2025-03-26 01:12:13,496 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 01:12:13,496 - training - INFO - Epoch: 11/200000, Batch: 0/45, Loss: 6.5547, Throughput: 80.59 samples/sec
+2025-03-26 01:12:24,142 - training - INFO - Memory: GPU 0: 3186.3MB allocated, 8648.0MB reserved
+2025-03-26 01:12:24,143 - training - INFO - Epoch: 11/200000, Batch: 15/45, Loss: 6.2507, Throughput: 79.01 samples/sec
+2025-03-26 01:12:34,659 - training - INFO - Memory: GPU 0: 3186.3MB allocated, 8650.0MB reserved
+2025-03-26 01:12:34,659 - training - INFO - Epoch: 11/200000, Batch: 30/45, Loss: 6.2242, Throughput: 79.45 samples/sec
+2025-03-26 01:12:44,626 - training - INFO - Epoch 11 completed in 31.83s. Average loss: 6.1688
+2025-03-26 01:12:44,630 - training - INFO - Starting epoch 12/200000
+2025-03-26 01:12:45,313 - training - INFO - Memory: GPU 0: 3186.3MB allocated, 8772.0MB reserved
+2025-03-26 01:12:45,314 - training - INFO - Epoch: 12/200000, Batch: 0/45, Loss: 6.0953, Throughput: 82.30 samples/sec
+2025-03-26 01:12:55,988 - training - INFO - Memory: GPU 0: 3190.8MB allocated, 8678.0MB reserved
+2025-03-26 01:12:55,988 - training - INFO - Epoch: 12/200000, Batch: 15/45, Loss: 6.1514, Throughput: 78.91 samples/sec
+2025-03-26 01:13:06,495 - training - INFO - Memory: GPU 0: 3190.8MB allocated, 8678.0MB reserved
+2025-03-26 01:13:06,495 - training - INFO - Epoch: 12/200000, Batch: 30/45, Loss: 6.1076, Throughput: 79.40 samples/sec
+2025-03-26 01:13:16,451 - training - INFO - Epoch 12 completed in 31.82s. Average loss: 6.0665
+2025-03-26 01:13:16,455 - training - INFO - Starting epoch 13/200000
+2025-03-26 01:13:17,171 - training - INFO - Memory: GPU 0: 3190.8MB allocated, 8800.0MB reserved
+2025-03-26 01:13:17,172 - training - INFO - Epoch: 13/200000, Batch: 0/45, Loss: 6.2915, Throughput: 78.32 samples/sec
+2025-03-26 01:13:27,936 - training - INFO - Memory: GPU 0: 3189.9MB allocated, 8654.0MB reserved
+2025-03-26 01:13:27,937 - training - INFO - Epoch: 13/200000, Batch: 15/45, Loss: 6.0649, Throughput: 78.05 samples/sec
+2025-03-26 01:13:38,461 - training - INFO - Memory: GPU 0: 3189.9MB allocated, 8656.0MB reserved
+2025-03-26 01:13:38,461 - training - INFO - Epoch: 13/200000, Batch: 30/45, Loss: 6.0179, Throughput: 78.89 samples/sec
+2025-03-26 01:13:48,396 - training - INFO - Epoch 13 completed in 31.94s. Average loss: 5.9801
+2025-03-26 01:13:48,414 - training - INFO - Starting epoch 14/200000
+2025-03-26 01:13:49,090 - training - INFO - Memory: GPU 0: 3189.9MB allocated, 8778.0MB reserved
+2025-03-26 01:13:49,090 - training - INFO - Epoch: 14/200000, Batch: 0/45, Loss: 5.8007, Throughput: 82.99 samples/sec
+2025-03-26 01:13:59,868 - training - INFO - Memory: GPU 0: 3184.4MB allocated, 8658.0MB reserved
+2025-03-26 01:13:59,869 - training - INFO - Epoch: 14/200000, Batch: 15/45, Loss: 5.8960, Throughput: 78.24 samples/sec
+2025-03-26 01:14:10,350 - training - INFO - Memory: GPU 0: 3184.4MB allocated, 8660.0MB reserved
+2025-03-26 01:14:10,351 - training - INFO - Epoch: 14/200000, Batch: 30/45, Loss: 5.9007, Throughput: 79.14 samples/sec
+2025-03-26 01:14:20,299 - training - INFO - Epoch 14 completed in 31.88s. Average loss: 5.9071
+2025-03-26 01:14:20,303 - training - INFO - Starting epoch 15/200000
+2025-03-26 01:14:21,000 - training - INFO - Memory: GPU 0: 3184.4MB allocated, 8782.0MB reserved
+2025-03-26 01:14:21,000 - training - INFO - Epoch: 15/200000, Batch: 0/45, Loss: 6.3704, Throughput: 80.38 samples/sec
+2025-03-26 01:14:31,807 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8664.0MB reserved
+2025-03-26 01:14:31,807 - training - INFO - Epoch: 15/200000, Batch: 15/45, Loss: 5.9004, Throughput: 77.89 samples/sec
+2025-03-26 01:14:42,326 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8664.0MB reserved
+2025-03-26 01:14:42,326 - training - INFO - Epoch: 15/200000, Batch: 30/45, Loss: 5.8674, Throughput: 78.83 samples/sec
+2025-03-26 01:14:52,250 - training - INFO - Epoch 15 completed in 31.95s. Average loss: 5.8538
+2025-03-26 01:14:52,254 - training - INFO - Starting epoch 16/200000
+2025-03-26 01:14:52,974 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8788.0MB reserved
+2025-03-26 01:14:52,974 - training - INFO - Epoch: 16/200000, Batch: 0/45, Loss: 5.9540, Throughput: 77.90 samples/sec
+2025-03-26 01:15:03,776 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8662.0MB reserved
+2025-03-26 01:15:03,777 - training - INFO - Epoch: 16/200000, Batch: 15/45, Loss: 5.8400, Throughput: 77.77 samples/sec
+2025-03-26 01:15:14,374 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8662.0MB reserved
+2025-03-26 01:15:14,375 - training - INFO - Epoch: 16/200000, Batch: 30/45, Loss: 5.7950, Throughput: 78.49 samples/sec
+2025-03-26 01:15:24,333 - training - INFO - Epoch 16 completed in 32.08s. Average loss: 5.8004
+2025-03-26 01:15:24,337 - training - INFO - Starting epoch 17/200000
+2025-03-26 01:15:25,028 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8784.0MB reserved
+2025-03-26 01:15:25,028 - training - INFO - Epoch: 17/200000, Batch: 0/45, Loss: 5.8701, Throughput: 81.29 samples/sec
+2025-03-26 01:15:35,912 - training - INFO - Memory: GPU 0: 3186.6MB allocated, 8676.0MB reserved
+2025-03-26 01:15:35,912 - training - INFO - Epoch: 17/200000, Batch: 15/45, Loss: 5.7642, Throughput: 77.42 samples/sec
+2025-03-26 01:15:46,494 - training - INFO - Memory: GPU 0: 3186.6MB allocated, 8676.0MB reserved
+2025-03-26 01:15:46,494 - training - INFO - Epoch: 17/200000, Batch: 30/45, Loss: 5.7850, Throughput: 78.36 samples/sec
+2025-03-26 01:15:56,397 - training - INFO - Epoch 17 completed in 32.06s. Average loss: 5.7627
+2025-03-26 01:15:56,401 - training - INFO - Starting epoch 18/200000
+2025-03-26 01:15:57,104 - training - INFO - Memory: GPU 0: 3186.6MB allocated, 8798.0MB reserved
+2025-03-26 01:15:57,105 - training - INFO - Epoch: 18/200000, Batch: 0/45, Loss: 5.9635, Throughput: 79.79 samples/sec
+2025-03-26 01:16:07,989 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8664.0MB reserved
+2025-03-26 01:16:07,989 - training - INFO - Epoch: 18/200000, Batch: 15/45, Loss: 5.7430, Throughput: 77.33 samples/sec
+2025-03-26 01:16:18,601 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8666.0MB reserved
+2025-03-26 01:16:18,602 - training - INFO - Epoch: 18/200000, Batch: 30/45, Loss: 5.7476, Throughput: 78.20 samples/sec
+2025-03-26 01:16:28,515 - training - INFO - Epoch 18 completed in 32.11s. Average loss: 5.7338
+2025-03-26 01:16:28,519 - training - INFO - Starting epoch 19/200000
+2025-03-26 01:16:29,217 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8786.0MB reserved
+2025-03-26 01:16:29,218 - training - INFO - Epoch: 19/200000, Batch: 0/45, Loss: 5.6785, Throughput: 80.30 samples/sec
+2025-03-26 01:16:39,984 - training - INFO - Memory: GPU 0: 3186.8MB allocated, 8664.0MB reserved
+2025-03-26 01:16:39,984 - training - INFO - Epoch: 19/200000, Batch: 15/45, Loss: 5.7516, Throughput: 78.16 samples/sec
+2025-03-26 01:16:50,543 - training - INFO - Memory: GPU 0: 3186.8MB allocated, 8664.0MB reserved
+2025-03-26 01:16:50,544 - training - INFO - Epoch: 19/200000, Batch: 30/45, Loss: 5.6978, Throughput: 78.82 samples/sec
+2025-03-26 01:17:00,481 - training - INFO - Epoch 19 completed in 31.96s. Average loss: 5.6981
+2025-03-26 01:17:00,485 - training - INFO - Starting epoch 20/200000
+2025-03-26 01:17:01,186 - training - INFO - Memory: GPU 0: 3186.8MB allocated, 8784.0MB reserved
+2025-03-26 01:17:01,187 - training - INFO - Epoch: 20/200000, Batch: 0/45, Loss: 5.9919, Throughput: 79.87 samples/sec
+2025-03-26 01:17:11,921 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8666.0MB reserved
+2025-03-26 01:17:11,921 - training - INFO - Epoch: 20/200000, Batch: 15/45, Loss: 5.6588, Throughput: 78.35 samples/sec
+2025-03-26 01:17:22,437 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8666.0MB reserved
+2025-03-26 01:17:22,438 - training - INFO - Epoch: 20/200000, Batch: 30/45, Loss: 5.6763, Throughput: 79.08 samples/sec
+2025-03-26 01:17:32,355 - training - INFO - Epoch 20 completed in 31.87s. Average loss: 5.6763
+2025-03-26 01:17:32,358 - training - INFO - Starting validation...
+2025-03-26 01:17:32,688 - training - INFO - Validation Loss: 6.0247
+2025-03-26 01:17:32,688 - training - INFO - Validation loss improved from 6.3324 to 6.0247
+2025-03-26 01:17:33,548 - training - INFO - Removed previous best model from epoch 10
+2025-03-26 01:21:41,807 - training - INFO - New best model saved at epoch 20 (val_loss: 6.0247)
+2025-03-26 01:21:42,040 - training - INFO - Starting epoch 21/200000
+2025-03-26 01:21:42,687 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 01:21:42,687 - training - INFO - Epoch: 21/200000, Batch: 0/45, Loss: 5.5651, Throughput: 86.81 samples/sec
+2025-03-26 01:21:53,337 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8646.0MB reserved
+2025-03-26 01:21:53,337 - training - INFO - Epoch: 21/200000, Batch: 15/45, Loss: 5.7325, Throughput: 79.33 samples/sec
+2025-03-26 01:22:03,931 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 01:22:03,932 - training - INFO - Epoch: 21/200000, Batch: 30/45, Loss: 5.6914, Throughput: 79.31 samples/sec
+2025-03-26 01:22:13,861 - training - INFO - Epoch 21 completed in 31.82s. Average loss: 5.6366
+2025-03-26 01:22:13,864 - training - INFO - Starting epoch 22/200000
+2025-03-26 01:22:14,557 - training - INFO - Memory: GPU 0: 3190.3MB allocated, 8770.0MB reserved
+2025-03-26 01:22:14,557 - training - INFO - Epoch: 22/200000, Batch: 0/45, Loss: 5.4794, Throughput: 80.98 samples/sec
+2025-03-26 01:22:25,282 - training - INFO - Memory: GPU 0: 3190.0MB allocated, 8660.0MB reserved
+2025-03-26 01:22:25,283 - training - INFO - Epoch: 22/200000, Batch: 15/45, Loss: 5.6140, Throughput: 78.49 samples/sec
+2025-03-26 01:22:35,870 - training - INFO - Memory: GPU 0: 3190.0MB allocated, 8662.0MB reserved
+2025-03-26 01:22:35,870 - training - INFO - Epoch: 22/200000, Batch: 30/45, Loss: 5.6229, Throughput: 78.90 samples/sec
+2025-03-26 01:22:45,774 - training - INFO - Epoch 22 completed in 31.91s. Average loss: 5.6122
+2025-03-26 01:22:45,778 - training - INFO - Starting epoch 23/200000
+2025-03-26 01:22:46,471 - training - INFO - Memory: GPU 0: 3192.8MB allocated, 8784.0MB reserved
+2025-03-26 01:22:46,471 - training - INFO - Epoch: 23/200000, Batch: 0/45, Loss: 5.7267, Throughput: 80.85 samples/sec
+2025-03-26 01:22:57,256 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8670.0MB reserved
+2025-03-26 01:22:57,256 - training - INFO - Epoch: 23/200000, Batch: 15/45, Loss: 5.6210, Throughput: 78.07 samples/sec
+2025-03-26 01:23:07,768 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8670.0MB reserved
+2025-03-26 01:23:07,769 - training - INFO - Epoch: 23/200000, Batch: 30/45, Loss: 5.6085, Throughput: 78.95 samples/sec
+2025-03-26 01:23:17,644 - training - INFO - Epoch 23 completed in 31.87s. Average loss: 5.5935
+2025-03-26 01:23:17,648 - training - INFO - Starting epoch 24/200000
+2025-03-26 01:23:18,344 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8790.0MB reserved
+2025-03-26 01:23:18,344 - training - INFO - Epoch: 24/200000, Batch: 0/45, Loss: 5.7328, Throughput: 80.67 samples/sec
+2025-03-26 01:23:29,110 - training - INFO - Memory: GPU 0: 3189.1MB allocated, 8656.0MB reserved
+2025-03-26 01:23:29,110 - training - INFO - Epoch: 24/200000, Batch: 15/45, Loss: 5.5450, Throughput: 78.18 samples/sec
+2025-03-26 01:23:39,620 - training - INFO - Memory: GPU 0: 3189.1MB allocated, 8656.0MB reserved
+2025-03-26 01:23:39,620 - training - INFO - Epoch: 24/200000, Batch: 30/45, Loss: 5.5417, Throughput: 79.01 samples/sec
+2025-03-26 01:23:49,551 - training - INFO - Epoch 24 completed in 31.90s. Average loss: 5.5765
+2025-03-26 01:23:49,554 - training - INFO - Starting epoch 25/200000
+2025-03-26 01:23:50,245 - training - INFO - Memory: GPU 0: 3189.1MB allocated, 8778.0MB reserved
+2025-03-26 01:23:50,245 - training - INFO - Epoch: 25/200000, Batch: 0/45, Loss: 5.5165, Throughput: 81.25 samples/sec
+2025-03-26 01:24:00,940 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8668.0MB reserved
+2025-03-26 01:24:00,941 - training - INFO - Epoch: 25/200000, Batch: 15/45, Loss: 5.5868, Throughput: 78.70 samples/sec
+2025-03-26 01:24:11,500 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8668.0MB reserved
+2025-03-26 01:24:11,500 - training - INFO - Epoch: 25/200000, Batch: 30/45, Loss: 5.5235, Throughput: 79.11 samples/sec
+2025-03-26 01:24:21,385 - training - INFO - Epoch 25 completed in 31.83s. Average loss: 5.5547
+2025-03-26 01:24:21,388 - training - INFO - Starting epoch 26/200000
+2025-03-26 01:24:22,090 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8790.0MB reserved
+2025-03-26 01:24:22,091 - training - INFO - Epoch: 26/200000, Batch: 0/45, Loss: 6.0070, Throughput: 79.83 samples/sec
+2025-03-26 01:24:32,840 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8660.0MB reserved
+2025-03-26 01:24:32,841 - training - INFO - Epoch: 26/200000, Batch: 15/45, Loss: 5.5093, Throughput: 78.25 samples/sec
+2025-03-26 01:24:43,336 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8660.0MB reserved
+2025-03-26 01:24:43,337 - training - INFO - Epoch: 26/200000, Batch: 30/45, Loss: 5.5297, Throughput: 79.10 samples/sec
+2025-03-26 01:24:53,209 - training - INFO - Epoch 26 completed in 31.82s. Average loss: 5.5278
+2025-03-26 01:24:53,212 - training - INFO - Starting epoch 27/200000
+2025-03-26 01:24:53,936 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8784.0MB reserved
+2025-03-26 01:24:53,936 - training - INFO - Epoch: 27/200000, Batch: 0/45, Loss: 5.7176, Throughput: 77.58 samples/sec
+2025-03-26 01:25:04,689 - training - INFO - Memory: GPU 0: 3190.1MB allocated, 8656.0MB reserved
+2025-03-26 01:25:04,689 - training - INFO - Epoch: 27/200000, Batch: 15/45, Loss: 5.5303, Throughput: 78.09 samples/sec
+2025-03-26 01:25:15,259 - training - INFO - Memory: GPU 0: 3190.1MB allocated, 8656.0MB reserved
+2025-03-26 01:25:15,260 - training - INFO - Epoch: 27/200000, Batch: 30/45, Loss: 5.5154, Throughput: 78.75 samples/sec
+2025-03-26 01:25:25,285 - training - INFO - Epoch 27 completed in 32.07s. Average loss: 5.5157
+2025-03-26 01:25:25,289 - training - INFO - Starting epoch 28/200000
+2025-03-26 01:25:25,986 - training - INFO - Memory: GPU 0: 3190.1MB allocated, 8778.0MB reserved
+2025-03-26 01:25:25,986 - training - INFO - Epoch: 28/200000, Batch: 0/45, Loss: 5.5662, Throughput: 80.55 samples/sec
+2025-03-26 01:25:36,832 - training - INFO - Memory: GPU 0: 3184.8MB allocated, 8666.0MB reserved
+2025-03-26 01:25:36,832 - training - INFO - Epoch: 28/200000, Batch: 15/45, Loss: 5.5396, Throughput: 77.64 samples/sec
+2025-03-26 01:25:47,388 - training - INFO - Memory: GPU 0: 3184.8MB allocated, 8668.0MB reserved
+2025-03-26 01:25:47,388 - training - INFO - Epoch: 28/200000, Batch: 30/45, Loss: 5.5185, Throughput: 78.56 samples/sec
+2025-03-26 01:25:57,281 - training - INFO - Epoch 28 completed in 31.99s. Average loss: 5.5000
+2025-03-26 01:25:57,284 - training - INFO - Starting epoch 29/200000
+2025-03-26 01:25:57,978 - training - INFO - Memory: GPU 0: 3184.8MB allocated, 8790.0MB reserved
+2025-03-26 01:25:57,979 - training - INFO - Epoch: 29/200000, Batch: 0/45, Loss: 5.5227, Throughput: 80.85 samples/sec
+2025-03-26 01:26:08,797 - training - INFO - Memory: GPU 0: 3188.1MB allocated, 8664.0MB reserved
+2025-03-26 01:26:08,797 - training - INFO - Epoch: 29/200000, Batch: 15/45, Loss: 5.4652, Throughput: 77.84 samples/sec
+2025-03-26 01:26:19,380 - training - INFO - Memory: GPU 0: 3188.1MB allocated, 8666.0MB reserved
+2025-03-26 01:26:19,381 - training - INFO - Epoch: 29/200000, Batch: 30/45, Loss: 5.4690, Throughput: 78.57 samples/sec
+2025-03-26 01:26:29,349 - training - INFO - Epoch 29 completed in 32.06s. Average loss: 5.4798
+2025-03-26 01:26:29,354 - training - INFO - Starting epoch 30/200000
+2025-03-26 01:26:30,037 - training - INFO - Memory: GPU 0: 3188.1MB allocated, 8788.0MB reserved
+2025-03-26 01:26:30,038 - training - INFO - Epoch: 30/200000, Batch: 0/45, Loss: 5.4028, Throughput: 82.15 samples/sec
+2025-03-26 01:26:40,816 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8662.0MB reserved
+2025-03-26 01:26:40,816 - training - INFO - Epoch: 30/200000, Batch: 15/45, Loss: 5.4621, Throughput: 78.19 samples/sec
+2025-03-26 01:26:51,334 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8662.0MB reserved
+2025-03-26 01:26:51,335 - training - INFO - Epoch: 30/200000, Batch: 30/45, Loss: 5.4833, Throughput: 78.99 samples/sec
+2025-03-26 01:27:01,212 - training - INFO - Epoch 30 completed in 31.86s. Average loss: 5.4753
+2025-03-26 01:27:01,216 - training - INFO - Starting validation...
+2025-03-26 01:27:01,526 - training - INFO - Validation Loss: 6.1797
+2025-03-26 01:27:01,526 - training - INFO - Validation loss did not improve. Counter: 1/10
+2025-03-26 01:27:01,827 - training - INFO - Starting epoch 31/200000
+2025-03-26 01:27:02,531 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 01:27:02,532 - training - INFO - Epoch: 31/200000, Batch: 0/45, Loss: 5.4169, Throughput: 79.62 samples/sec
+2025-03-26 01:27:13,253 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 01:27:13,254 - training - INFO - Epoch: 31/200000, Batch: 15/45, Loss: 5.5271, Throughput: 78.43 samples/sec
+2025-03-26 01:27:23,805 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 01:27:23,805 - training - INFO - Epoch: 31/200000, Batch: 30/45, Loss: 5.4740, Throughput: 79.00 samples/sec
+2025-03-26 01:27:33,696 - training - INFO - Epoch 31 completed in 31.87s. Average loss: 5.4649
+2025-03-26 01:27:33,700 - training - INFO - Starting epoch 32/200000
+2025-03-26 01:27:34,381 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8768.0MB reserved
+2025-03-26 01:27:34,381 - training - INFO - Epoch: 32/200000, Batch: 0/45, Loss: 5.3289, Throughput: 82.54 samples/sec
+2025-03-26 01:27:45,114 - training - INFO - Memory: GPU 0: 3187.8MB allocated, 8674.0MB reserved
+2025-03-26 01:27:45,115 - training - INFO - Epoch: 32/200000, Batch: 15/45, Loss: 5.5064, Throughput: 78.51 samples/sec
+2025-03-26 01:27:55,670 - training - INFO - Memory: GPU 0: 3187.8MB allocated, 8674.0MB reserved
+2025-03-26 01:27:55,670 - training - INFO - Epoch: 32/200000, Batch: 30/45, Loss: 5.4621, Throughput: 79.03 samples/sec
+2025-03-26 01:28:05,565 - training - INFO - Epoch 32 completed in 31.87s. Average loss: 5.4536
+2025-03-26 01:28:05,569 - training - INFO - Starting epoch 33/200000
+2025-03-26 01:28:06,252 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8796.0MB reserved
+2025-03-26 01:28:06,252 - training - INFO - Epoch: 33/200000, Batch: 0/45, Loss: 5.6297, Throughput: 82.12 samples/sec
+2025-03-26 01:28:16,951 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8654.0MB reserved
+2025-03-26 01:28:16,951 - training - INFO - Epoch: 33/200000, Batch: 15/45, Loss: 5.4373, Throughput: 78.73 samples/sec
+2025-03-26 01:28:27,443 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8656.0MB reserved
+2025-03-26 01:28:27,444 - training - INFO - Epoch: 33/200000, Batch: 30/45, Loss: 5.3980, Throughput: 79.37 samples/sec
+2025-03-26 01:28:37,323 - training - INFO - Epoch 33 completed in 31.75s. Average loss: 5.4370
+2025-03-26 01:28:37,327 - training - INFO - Starting epoch 34/200000
+2025-03-26 01:28:38,026 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8776.0MB reserved
+2025-03-26 01:28:38,026 - training - INFO - Epoch: 34/200000, Batch: 0/45, Loss: 5.2439, Throughput: 80.31 samples/sec
+2025-03-26 01:28:48,842 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8668.0MB reserved
+2025-03-26 01:28:48,843 - training - INFO - Epoch: 34/200000, Batch: 15/45, Loss: 5.4397, Throughput: 77.82 samples/sec
+2025-03-26 01:28:59,330 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8668.0MB reserved
+2025-03-26 01:28:59,331 - training - INFO - Epoch: 34/200000, Batch: 30/45, Loss: 5.4663, Throughput: 78.90 samples/sec
+2025-03-26 01:29:09,223 - training - INFO - Epoch 34 completed in 31.90s. Average loss: 5.4432
+2025-03-26 01:29:09,227 - training - INFO - Starting epoch 35/200000
+2025-03-26 01:29:09,927 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8788.0MB reserved
+2025-03-26 01:29:09,927 - training - INFO - Epoch: 35/200000, Batch: 0/45, Loss: 5.5888, Throughput: 80.09 samples/sec
+2025-03-26 01:29:20,709 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8666.0MB reserved
+2025-03-26 01:29:20,710 - training - INFO - Epoch: 35/200000, Batch: 15/45, Loss: 5.3053, Throughput: 78.05 samples/sec
+2025-03-26 01:29:31,211 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8666.0MB reserved
+2025-03-26 01:29:31,211 - training - INFO - Epoch: 35/200000, Batch: 30/45, Loss: 5.3627, Throughput: 78.97 samples/sec
+2025-03-26 01:29:41,140 - training - INFO - Epoch 35 completed in 31.91s. Average loss: 5.4291
+2025-03-26 01:29:41,144 - training - INFO - Starting epoch 36/200000
+2025-03-26 01:29:41,849 - training - INFO - Memory: GPU 0: 3188.1MB allocated, 8786.0MB reserved
+2025-03-26 01:29:41,849 - training - INFO - Epoch: 36/200000, Batch: 0/45, Loss: 5.4721, Throughput: 79.46 samples/sec
+2025-03-26 01:29:52,649 - training - INFO - Memory: GPU 0: 3184.4MB allocated, 8654.0MB reserved
+2025-03-26 01:29:52,650 - training - INFO - Epoch: 36/200000, Batch: 15/45, Loss: 5.4181, Throughput: 77.89 samples/sec
+2025-03-26 01:30:03,248 - training - INFO - Memory: GPU 0: 3184.4MB allocated, 8656.0MB reserved
+2025-03-26 01:30:03,249 - training - INFO - Epoch: 36/200000, Batch: 30/45, Loss: 5.4302, Throughput: 78.54 samples/sec
+2025-03-26 01:30:13,189 - training - INFO - Epoch 36 completed in 32.05s. Average loss: 5.4214
+2025-03-26 01:30:13,193 - training - INFO - Starting epoch 37/200000
+2025-03-26 01:30:13,885 - training - INFO - Memory: GPU 0: 3184.4MB allocated, 8776.0MB reserved
+2025-03-26 01:30:13,886 - training - INFO - Epoch: 37/200000, Batch: 0/45, Loss: 5.0830, Throughput: 80.92 samples/sec
+2025-03-26 01:30:24,662 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8672.0MB reserved
+2025-03-26 01:30:24,662 - training - INFO - Epoch: 37/200000, Batch: 15/45, Loss: 5.4281, Throughput: 78.14 samples/sec
+2025-03-26 01:30:35,268 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8674.0MB reserved
+2025-03-26 01:30:35,268 - training - INFO - Epoch: 37/200000, Batch: 30/45, Loss: 5.4072, Throughput: 78.65 samples/sec
+2025-03-26 01:30:45,199 - training - INFO - Epoch 37 completed in 32.01s. Average loss: 5.4136
+2025-03-26 01:30:45,203 - training - INFO - Starting epoch 38/200000
+2025-03-26 01:30:45,904 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8794.0MB reserved
+2025-03-26 01:30:45,904 - training - INFO - Epoch: 38/200000, Batch: 0/45, Loss: 5.2399, Throughput: 80.11 samples/sec
+2025-03-26 01:30:56,618 - training - INFO - Memory: GPU 0: 3184.5MB allocated, 8664.0MB reserved
+2025-03-26 01:30:56,619 - training - INFO - Epoch: 38/200000, Batch: 15/45, Loss: 5.4380, Throughput: 78.50 samples/sec
+2025-03-26 01:31:07,148 - training - INFO - Memory: GPU 0: 3184.5MB allocated, 8664.0MB reserved
+2025-03-26 01:31:07,148 - training - INFO - Epoch: 38/200000, Batch: 30/45, Loss: 5.4270, Throughput: 79.11 samples/sec
+2025-03-26 01:31:17,089 - training - INFO - Epoch 38 completed in 31.89s. Average loss: 5.4139
+2025-03-26 01:31:17,093 - training - INFO - Starting epoch 39/200000
+2025-03-26 01:31:17,789 - training - INFO - Memory: GPU 0: 3184.3MB allocated, 8786.0MB reserved
+2025-03-26 01:31:17,790 - training - INFO - Epoch: 39/200000, Batch: 0/45, Loss: 5.5107, Throughput: 80.58 samples/sec
+2025-03-26 01:31:28,599 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8666.0MB reserved
+2025-03-26 01:31:28,600 - training - INFO - Epoch: 39/200000, Batch: 15/45, Loss: 5.4322, Throughput: 77.88 samples/sec
+2025-03-26 01:31:39,166 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8666.0MB reserved
+2025-03-26 01:31:39,167 - training - INFO - Epoch: 39/200000, Batch: 30/45, Loss: 5.4041, Throughput: 78.66 samples/sec
+2025-03-26 01:31:49,047 - training - INFO - Epoch 39 completed in 31.95s. Average loss: 5.4006
+2025-03-26 01:31:49,051 - training - INFO - Starting epoch 40/200000
+2025-03-26 01:31:49,776 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8790.0MB reserved
+2025-03-26 01:31:49,776 - training - INFO - Epoch: 40/200000, Batch: 0/45, Loss: 5.4572, Throughput: 77.38 samples/sec
+2025-03-26 01:32:00,576 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8674.0MB reserved
+2025-03-26 01:32:00,576 - training - INFO - Epoch: 40/200000, Batch: 15/45, Loss: 5.4161, Throughput: 77.76 samples/sec
+2025-03-26 01:32:11,158 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8674.0MB reserved
+2025-03-26 01:32:11,158 - training - INFO - Epoch: 40/200000, Batch: 30/45, Loss: 5.4102, Throughput: 78.54 samples/sec
+2025-03-26 01:32:21,006 - training - INFO - Epoch 40 completed in 31.95s. Average loss: 5.3953
+2025-03-26 01:32:21,009 - training - INFO - Starting validation...
+2025-03-26 01:32:21,309 - training - INFO - Validation Loss: 6.1784
+2025-03-26 01:32:21,309 - training - INFO - Validation loss did not improve. Counter: 2/10
+2025-03-26 01:32:21,594 - training - INFO - Starting epoch 41/200000
+2025-03-26 01:32:22,291 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 01:32:22,291 - training - INFO - Epoch: 41/200000, Batch: 0/45, Loss: 5.4250, Throughput: 80.52 samples/sec
+2025-03-26 01:32:32,892 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8646.0MB reserved
+2025-03-26 01:32:32,893 - training - INFO - Epoch: 41/200000, Batch: 15/45, Loss: 5.3633, Throughput: 79.32 samples/sec
+2025-03-26 01:32:43,412 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 01:32:43,412 - training - INFO - Epoch: 41/200000, Batch: 30/45, Loss: 5.3711, Throughput: 79.57 samples/sec
+2025-03-26 01:32:53,309 - training - INFO - Epoch 41 completed in 31.71s. Average loss: 5.3880
+2025-03-26 01:32:53,312 - training - INFO - Starting epoch 42/200000
+2025-03-26 01:32:54,008 - training - INFO - Memory: GPU 0: 3188.5MB allocated, 8772.0MB reserved
+2025-03-26 01:32:54,008 - training - INFO - Epoch: 42/200000, Batch: 0/45, Loss: 5.2514, Throughput: 80.68 samples/sec
+2025-03-26 01:33:04,803 - training - INFO - Memory: GPU 0: 3189.8MB allocated, 8664.0MB reserved
+2025-03-26 01:33:04,803 - training - INFO - Epoch: 42/200000, Batch: 15/45, Loss: 5.3770, Throughput: 77.99 samples/sec
+2025-03-26 01:33:15,413 - training - INFO - Memory: GPU 0: 3187.6MB allocated, 8664.0MB reserved
+2025-03-26 01:33:15,414 - training - INFO - Epoch: 42/200000, Batch: 30/45, Loss: 5.3987, Throughput: 78.55 samples/sec
+2025-03-26 01:33:25,332 - training - INFO - Epoch 42 completed in 32.02s. Average loss: 5.3803
+2025-03-26 01:33:25,336 - training - INFO - Starting epoch 43/200000
+2025-03-26 01:33:26,026 - training - INFO - Memory: GPU 0: 3189.8MB allocated, 8788.0MB reserved
+2025-03-26 01:33:26,026 - training - INFO - Epoch: 43/200000, Batch: 0/45, Loss: 5.3257, Throughput: 81.28 samples/sec
+2025-03-26 01:33:36,668 - training - INFO - Memory: GPU 0: 3192.8MB allocated, 8672.0MB reserved
+2025-03-26 01:33:36,669 - training - INFO - Epoch: 43/200000, Batch: 15/45, Loss: 5.4449, Throughput: 79.08 samples/sec
+2025-03-26 01:33:47,099 - training - INFO - Memory: GPU 0: 3192.8MB allocated, 8672.0MB reserved
+2025-03-26 01:33:47,099 - training - INFO - Epoch: 43/200000, Batch: 30/45, Loss: 5.4148, Throughput: 79.78 samples/sec
+2025-03-26 01:33:57,012 - training - INFO - Epoch 43 completed in 31.68s. Average loss: 5.3792
+2025-03-26 01:33:57,016 - training - INFO - Starting epoch 44/200000
+2025-03-26 01:33:57,726 - training - INFO - Memory: GPU 0: 3192.8MB allocated, 8794.0MB reserved
+2025-03-26 01:33:57,726 - training - INFO - Epoch: 44/200000, Batch: 0/45, Loss: 5.4303, Throughput: 78.96 samples/sec
+2025-03-26 01:34:08,514 - training - INFO - Memory: GPU 0: 3188.5MB allocated, 8670.0MB reserved
+2025-03-26 01:34:08,514 - training - INFO - Epoch: 44/200000, Batch: 15/45, Loss: 5.3441, Throughput: 77.93 samples/sec
+2025-03-26 01:34:19,135 - training - INFO - Memory: GPU 0: 3188.5MB allocated, 8672.0MB reserved
+2025-03-26 01:34:19,135 - training - INFO - Epoch: 44/200000, Batch: 30/45, Loss: 5.3748, Throughput: 78.49 samples/sec
+2025-03-26 01:34:29,018 - training - INFO - Epoch 44 completed in 32.00s. Average loss: 5.3798
+2025-03-26 01:34:29,021 - training - INFO - Starting epoch 45/200000
+2025-03-26 01:34:29,720 - training - INFO - Memory: GPU 0: 3188.5MB allocated, 8794.0MB reserved
+2025-03-26 01:34:29,721 - training - INFO - Epoch: 45/200000, Batch: 0/45, Loss: 5.5134, Throughput: 80.19 samples/sec
+2025-03-26 01:34:40,565 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8660.0MB reserved
+2025-03-26 01:34:40,565 - training - INFO - Epoch: 45/200000, Batch: 15/45, Loss: 5.3200, Throughput: 77.63 samples/sec
+2025-03-26 01:34:51,117 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8660.0MB reserved
+2025-03-26 01:34:51,118 - training - INFO - Epoch: 45/200000, Batch: 30/45, Loss: 5.3288, Throughput: 78.57 samples/sec
+2025-03-26 01:35:01,030 - training - INFO - Epoch 45 completed in 32.01s. Average loss: 5.3681
+2025-03-26 01:35:01,034 - training - INFO - Starting epoch 46/200000
+2025-03-26 01:35:01,729 - training - INFO - Memory: GPU 0: 3186.0MB allocated, 8780.0MB reserved
+2025-03-26 01:35:01,729 - training - INFO - Epoch: 46/200000, Batch: 0/45, Loss: 5.6363, Throughput: 80.82 samples/sec
+2025-03-26 01:35:12,591 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8664.0MB reserved
+2025-03-26 01:35:12,591 - training - INFO - Epoch: 46/200000, Batch: 15/45, Loss: 5.3539, Throughput: 77.55 samples/sec
+2025-03-26 01:35:23,172 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8664.0MB reserved
+2025-03-26 01:35:23,173 - training - INFO - Epoch: 46/200000, Batch: 30/45, Loss: 5.3822, Throughput: 78.42 samples/sec
+2025-03-26 01:35:33,158 - training - INFO - Epoch 46 completed in 32.12s. Average loss: 5.3771
+2025-03-26 01:35:33,162 - training - INFO - Starting epoch 47/200000
+2025-03-26 01:35:33,871 - training - INFO - Memory: GPU 0: 3187.8MB allocated, 8788.0MB reserved
+2025-03-26 01:35:34,078 - training - INFO - Epoch: 47/200000, Batch: 0/45, Loss: 5.3763, Throughput: 79.21 samples/sec
+2025-03-26 01:35:44,731 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8664.0MB reserved
+2025-03-26 01:35:44,731 - training - INFO - Epoch: 47/200000, Batch: 15/45, Loss: 5.3482, Throughput: 77.45 samples/sec
+2025-03-26 01:35:55,350 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8664.0MB reserved
+2025-03-26 01:35:55,351 - training - INFO - Epoch: 47/200000, Batch: 30/45, Loss: 5.3560, Throughput: 78.24 samples/sec
+2025-03-26 01:36:05,214 - training - INFO - Epoch 47 completed in 32.05s. Average loss: 5.3660
+2025-03-26 01:36:05,217 - training - INFO - Starting epoch 48/200000
+2025-03-26 01:36:05,898 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8786.0MB reserved
+2025-03-26 01:36:05,898 - training - INFO - Epoch: 48/200000, Batch: 0/45, Loss: 5.3669, Throughput: 82.37 samples/sec
+2025-03-26 01:36:16,694 - training - INFO - Memory: GPU 0: 3187.7MB allocated, 8678.0MB reserved
+2025-03-26 01:36:16,695 - training - INFO - Epoch: 48/200000, Batch: 15/45, Loss: 5.3881, Throughput: 78.08 samples/sec
+2025-03-26 01:36:27,202 - training - INFO - Memory: GPU 0: 3187.7MB allocated, 8680.0MB reserved
+2025-03-26 01:36:27,203 - training - INFO - Epoch: 48/200000, Batch: 30/45, Loss: 5.3534, Throughput: 78.97 samples/sec
+2025-03-26 01:36:37,151 - training - INFO - Epoch 48 completed in 31.93s. Average loss: 5.3598
+2025-03-26 01:36:37,155 - training - INFO - Starting epoch 49/200000
+2025-03-26 01:36:37,868 - training - INFO - Memory: GPU 0: 3187.7MB allocated, 8800.0MB reserved
+2025-03-26 01:36:37,868 - training - INFO - Epoch: 49/200000, Batch: 0/45, Loss: 5.5105, Throughput: 78.80 samples/sec
+2025-03-26 01:36:48,702 - training - INFO - Memory: GPU 0: 3185.0MB allocated, 8672.0MB reserved
+2025-03-26 01:36:48,702 - training - INFO - Epoch: 49/200000, Batch: 15/45, Loss: 5.4111, Throughput: 77.61 samples/sec
+2025-03-26 01:36:59,273 - training - INFO - Memory: GPU 0: 3185.0MB allocated, 8672.0MB reserved
+2025-03-26 01:36:59,274 - training - INFO - Epoch: 49/200000, Batch: 30/45, Loss: 5.3948, Throughput: 78.49 samples/sec
+2025-03-26 01:37:09,176 - training - INFO - Epoch 49 completed in 32.02s. Average loss: 5.3617
+2025-03-26 01:37:09,180 - training - INFO - Starting epoch 50/200000
+2025-03-26 01:37:09,902 - training - INFO - Memory: GPU 0: 3185.0MB allocated, 8792.0MB reserved
+2025-03-26 01:37:09,902 - training - INFO - Epoch: 50/200000, Batch: 0/45, Loss: 5.3992, Throughput: 77.69 samples/sec
+2025-03-26 01:37:20,667 - training - INFO - Memory: GPU 0: 3189.0MB allocated, 8662.0MB reserved
+2025-03-26 01:37:20,668 - training - INFO - Epoch: 50/200000, Batch: 15/45, Loss: 5.3149, Throughput: 78.02 samples/sec
+2025-03-26 01:37:31,204 - training - INFO - Memory: GPU 0: 3189.0MB allocated, 8662.0MB reserved
+2025-03-26 01:37:31,205 - training - INFO - Epoch: 50/200000, Batch: 30/45, Loss: 5.3323, Throughput: 78.83 samples/sec
+2025-03-26 01:37:41,164 - training - INFO - Epoch 50 completed in 31.98s. Average loss: 5.3636
+2025-03-26 01:37:41,167 - training - INFO - Starting validation...
+2025-03-26 01:37:41,467 - training - INFO - Validation Loss: 6.1235
+2025-03-26 01:37:41,468 - training - INFO - Validation loss did not improve. Counter: 3/10
+2025-03-26 01:37:41,763 - training - INFO - Starting epoch 51/200000
+2025-03-26 01:37:42,468 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 01:37:42,468 - training - INFO - Epoch: 51/200000, Batch: 0/45, Loss: 5.2169, Throughput: 79.55 samples/sec
+2025-03-26 01:37:53,196 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8640.0MB reserved
+2025-03-26 01:37:53,196 - training - INFO - Epoch: 51/200000, Batch: 15/45, Loss: 5.3644, Throughput: 78.39 samples/sec
+2025-03-26 01:38:03,827 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8640.0MB reserved
+2025-03-26 01:38:03,827 - training - INFO - Epoch: 51/200000, Batch: 30/45, Loss: 5.3704, Throughput: 78.69 samples/sec
+2025-03-26 01:38:13,715 - training - INFO - Epoch 51 completed in 31.95s. Average loss: 5.3618
+2025-03-26 01:38:13,719 - training - INFO - Starting epoch 52/200000
+2025-03-26 01:38:14,408 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8762.0MB reserved
+2025-03-26 01:38:14,408 - training - INFO - Epoch: 52/200000, Batch: 0/45, Loss: 5.4191, Throughput: 81.45 samples/sec
+2025-03-26 01:38:25,184 - training - INFO - Memory: GPU 0: 3193.0MB allocated, 8680.0MB reserved
+2025-03-26 01:38:25,184 - training - INFO - Epoch: 52/200000, Batch: 15/45, Loss: 5.3320, Throughput: 78.17 samples/sec
+2025-03-26 01:38:35,637 - training - INFO - Memory: GPU 0: 3193.0MB allocated, 8680.0MB reserved
+2025-03-26 01:38:35,637 - training - INFO - Epoch: 52/200000, Batch: 30/45, Loss: 5.3472, Throughput: 79.21 samples/sec
+2025-03-26 01:38:45,539 - training - INFO - Epoch 52 completed in 31.82s. Average loss: 5.3440
+2025-03-26 01:38:45,543 - training - INFO - Starting epoch 53/200000
+2025-03-26 01:38:46,241 - training - INFO - Memory: GPU 0: 3193.0MB allocated, 8802.0MB reserved
+2025-03-26 01:38:46,241 - training - INFO - Epoch: 53/200000, Batch: 0/45, Loss: 5.3838, Throughput: 80.27 samples/sec
+2025-03-26 01:38:57,017 - training - INFO - Memory: GPU 0: 3189.3MB allocated, 8664.0MB reserved
+2025-03-26 01:38:57,018 - training - INFO - Epoch: 53/200000, Batch: 15/45, Loss: 5.2994, Throughput: 78.10 samples/sec
+2025-03-26 01:39:07,600 - training - INFO - Memory: GPU 0: 3189.3MB allocated, 8664.0MB reserved
+2025-03-26 01:39:07,600 - training - INFO - Epoch: 53/200000, Batch: 30/45, Loss: 5.3024, Throughput: 78.71 samples/sec
+2025-03-26 01:39:17,524 - training - INFO - Epoch 53 completed in 31.98s. Average loss: 5.3406
+2025-03-26 01:39:17,528 - training - INFO - Starting epoch 54/200000
+2025-03-26 01:39:18,222 - training - INFO - Memory: GPU 0: 3189.3MB allocated, 8784.0MB reserved
+2025-03-26 01:39:18,222 - training - INFO - Epoch: 54/200000, Batch: 0/45, Loss: 5.1164, Throughput: 80.90 samples/sec
+2025-03-26 01:39:29,010 - training - INFO - Memory: GPU 0: 3188.6MB allocated, 8680.0MB reserved
+2025-03-26 01:39:29,010 - training - INFO - Epoch: 54/200000, Batch: 15/45, Loss: 5.2976, Throughput: 78.05 samples/sec
+2025-03-26 01:39:39,447 - training - INFO - Memory: GPU 0: 3188.6MB allocated, 8680.0MB reserved
+2025-03-26 01:39:39,447 - training - INFO - Epoch: 54/200000, Batch: 30/45, Loss: 5.3261, Throughput: 79.20 samples/sec
+2025-03-26 01:39:49,289 - training - INFO - Epoch 54 completed in 31.76s. Average loss: 5.3390
+2025-03-26 01:39:49,293 - training - INFO - Starting epoch 55/200000
+2025-03-26 01:39:49,985 - training - INFO - Memory: GPU 0: 3188.6MB allocated, 8802.0MB reserved
+2025-03-26 01:39:49,985 - training - INFO - Epoch: 55/200000, Batch: 0/45, Loss: 5.6699, Throughput: 81.11 samples/sec
+2025-03-26 01:40:00,748 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8668.0MB reserved
+2025-03-26 01:40:00,748 - training - INFO - Epoch: 55/200000, Batch: 15/45, Loss: 5.3252, Throughput: 78.23 samples/sec
+2025-03-26 01:40:11,238 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8668.0MB reserved
+2025-03-26 01:40:11,238 - training - INFO - Epoch: 55/200000, Batch: 30/45, Loss: 5.3421, Throughput: 79.11 samples/sec
+2025-03-26 01:40:21,105 - training - INFO - Epoch 55 completed in 31.81s. Average loss: 5.3311
+2025-03-26 01:40:21,109 - training - INFO - Starting epoch 56/200000
+2025-03-26 01:40:21,798 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8788.0MB reserved
+2025-03-26 01:40:21,798 - training - INFO - Epoch: 56/200000, Batch: 0/45, Loss: 5.2421, Throughput: 81.30 samples/sec
+2025-03-26 01:40:32,602 - training - INFO - Memory: GPU 0: 3189.3MB allocated, 8666.0MB reserved
+2025-03-26 01:40:32,602 - training - INFO - Epoch: 56/200000, Batch: 15/45, Loss: 5.3603, Throughput: 77.98 samples/sec
+2025-03-26 01:40:43,150 - training - INFO - Memory: GPU 0: 3189.3MB allocated, 8666.0MB reserved
+2025-03-26 01:40:43,150 - training - INFO - Epoch: 56/200000, Batch: 30/45, Loss: 5.2917, Throughput: 78.77 samples/sec
+2025-03-26 01:40:53,048 - training - INFO - Epoch 56 completed in 31.94s. Average loss: 5.3306
+2025-03-26 01:40:53,052 - training - INFO - Starting epoch 57/200000
+2025-03-26 01:40:53,742 - training - INFO - Memory: GPU 0: 3189.3MB allocated, 8786.0MB reserved
+2025-03-26 01:40:53,742 - training - INFO - Epoch: 57/200000, Batch: 0/45, Loss: 5.4984, Throughput: 81.35 samples/sec
+2025-03-26 01:41:04,484 - training - INFO - Memory: GPU 0: 3185.8MB allocated, 8654.0MB reserved
+2025-03-26 01:41:04,484 - training - INFO - Epoch: 57/200000, Batch: 15/45, Loss: 5.3578, Throughput: 78.39 samples/sec
+2025-03-26 01:41:15,008 - training - INFO - Memory: GPU 0: 3185.8MB allocated, 8656.0MB reserved
+2025-03-26 01:41:15,008 - training - INFO - Epoch: 57/200000, Batch: 30/45, Loss: 5.3025, Throughput: 79.07 samples/sec
+2025-03-26 01:41:24,879 - training - INFO - Epoch 57 completed in 31.83s. Average loss: 5.3261
+2025-03-26 01:41:24,883 - training - INFO - Starting epoch 58/200000
+2025-03-26 01:41:25,582 - training - INFO - Memory: GPU 0: 3185.8MB allocated, 8778.0MB reserved
+2025-03-26 01:41:25,582 - training - INFO - Epoch: 58/200000, Batch: 0/45, Loss: 5.3615, Throughput: 80.33 samples/sec
+2025-03-26 01:41:36,301 - training - INFO - Memory: GPU 0: 3186.8MB allocated, 8676.0MB reserved
+2025-03-26 01:41:36,302 - training - INFO - Epoch: 58/200000, Batch: 15/45, Loss: 5.2142, Throughput: 78.48 samples/sec
+2025-03-26 01:41:46,760 - training - INFO - Memory: GPU 0: 3186.8MB allocated, 8676.0MB reserved
+2025-03-26 01:41:46,760 - training - INFO - Epoch: 58/200000, Batch: 30/45, Loss: 5.2727, Throughput: 79.36 samples/sec
+2025-03-26 01:41:56,618 - training - INFO - Epoch 58 completed in 31.74s. Average loss: 5.3231
+2025-03-26 01:41:56,622 - training - INFO - Starting epoch 59/200000
+2025-03-26 01:41:57,302 - training - INFO - Memory: GPU 0: 3186.0MB allocated, 8800.0MB reserved
+2025-03-26 01:41:57,302 - training - INFO - Epoch: 59/200000, Batch: 0/45, Loss: 5.1978, Throughput: 82.42 samples/sec
+2025-03-26 01:42:08,062 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8670.0MB reserved
+2025-03-26 01:42:08,063 - training - INFO - Epoch: 59/200000, Batch: 15/45, Loss: 5.3120, Throughput: 78.33 samples/sec
+2025-03-26 01:42:18,671 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8672.0MB reserved
+2025-03-26 01:42:18,671 - training - INFO - Epoch: 59/200000, Batch: 30/45, Loss: 5.3068, Throughput: 78.74 samples/sec
+2025-03-26 01:42:28,623 - training - INFO - Epoch 59 completed in 32.00s. Average loss: 5.3217
+2025-03-26 01:42:28,627 - training - INFO - Starting epoch 60/200000
+2025-03-26 01:42:29,311 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8794.0MB reserved
+2025-03-26 01:42:29,312 - training - INFO - Epoch: 60/200000, Batch: 0/45, Loss: 5.3661, Throughput: 82.03 samples/sec
+2025-03-26 01:42:40,066 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8678.0MB reserved
+2025-03-26 01:42:40,066 - training - INFO - Epoch: 60/200000, Batch: 15/45, Loss: 5.3365, Throughput: 78.33 samples/sec
+2025-03-26 01:42:50,651 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8680.0MB reserved
+2025-03-26 01:42:50,652 - training - INFO - Epoch: 60/200000, Batch: 30/45, Loss: 5.3377, Throughput: 78.82 samples/sec
+2025-03-26 01:43:00,553 - training - INFO - Epoch 60 completed in 31.93s. Average loss: 5.3184
+2025-03-26 01:43:00,556 - training - INFO - Starting validation...
+2025-03-26 01:43:00,859 - training - INFO - Validation Loss: 6.2340
+2025-03-26 01:43:00,859 - training - INFO - Validation loss did not improve. Counter: 4/10
+2025-03-26 01:43:01,158 - training - INFO - Starting epoch 61/200000
+2025-03-26 01:43:01,863 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 01:43:01,863 - training - INFO - Epoch: 61/200000, Batch: 0/45, Loss: 5.2216, Throughput: 79.42 samples/sec
+2025-03-26 01:43:12,457 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 01:43:12,457 - training - INFO - Epoch: 61/200000, Batch: 15/45, Loss: 5.3336, Throughput: 79.31 samples/sec
+2025-03-26 01:43:22,894 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 01:43:22,894 - training - INFO - Epoch: 61/200000, Batch: 30/45, Loss: 5.3365, Throughput: 79.87 samples/sec
+2025-03-26 01:43:32,913 - training - INFO - Epoch 61 completed in 31.75s. Average loss: 5.3220
+2025-03-26 01:43:32,916 - training - INFO - Starting epoch 62/200000
+2025-03-26 01:43:33,608 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8770.0MB reserved
+2025-03-26 01:43:33,609 - training - INFO - Epoch: 62/200000, Batch: 0/45, Loss: 5.2019, Throughput: 81.08 samples/sec
+2025-03-26 01:43:44,327 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8654.0MB reserved
+2025-03-26 01:43:44,328 - training - INFO - Epoch: 62/200000, Batch: 15/45, Loss: 5.3194, Throughput: 78.53 samples/sec
+2025-03-26 01:43:54,810 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8654.0MB reserved
+2025-03-26 01:43:54,810 - training - INFO - Epoch: 62/200000, Batch: 30/45, Loss: 5.3506, Throughput: 79.30 samples/sec
+2025-03-26 01:44:04,772 - training - INFO - Epoch 62 completed in 31.86s. Average loss: 5.3085
+2025-03-26 01:44:04,775 - training - INFO - Starting epoch 63/200000
+2025-03-26 01:44:05,487 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8778.0MB reserved
+2025-03-26 01:44:05,488 - training - INFO - Epoch: 63/200000, Batch: 0/45, Loss: 5.1431, Throughput: 78.85 samples/sec
+2025-03-26 01:44:16,304 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8672.0MB reserved
+2025-03-26 01:44:16,357 - training - INFO - Epoch: 63/200000, Batch: 15/45, Loss: 5.3327, Throughput: 77.74 samples/sec
+2025-03-26 01:44:26,969 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8672.0MB reserved
+2025-03-26 01:44:26,969 - training - INFO - Epoch: 63/200000, Batch: 30/45, Loss: 5.2937, Throughput: 78.23 samples/sec
+2025-03-26 01:44:36,903 - training - INFO - Epoch 63 completed in 32.13s. Average loss: 5.3010
+2025-03-26 01:44:36,906 - training - INFO - Starting epoch 64/200000
+2025-03-26 01:44:37,621 - training - INFO - Memory: GPU 0: 3189.3MB allocated, 8794.0MB reserved
+2025-03-26 01:44:37,621 - training - INFO - Epoch: 64/200000, Batch: 0/45, Loss: 5.3288, Throughput: 78.58 samples/sec
+2025-03-26 01:44:48,396 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8674.0MB reserved
+2025-03-26 01:44:48,396 - training - INFO - Epoch: 64/200000, Batch: 15/45, Loss: 5.2693, Throughput: 78.00 samples/sec
+2025-03-26 01:44:58,896 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8674.0MB reserved
+2025-03-26 01:44:58,896 - training - INFO - Epoch: 64/200000, Batch: 30/45, Loss: 5.2964, Throughput: 78.95 samples/sec
+2025-03-26 01:45:08,923 - training - INFO - Epoch 64 completed in 32.02s. Average loss: 5.3239
+2025-03-26 01:45:08,926 - training - INFO - Starting epoch 65/200000
+2025-03-26 01:45:09,627 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8796.0MB reserved
+2025-03-26 01:45:09,628 - training - INFO - Epoch: 65/200000, Batch: 0/45, Loss: 4.9617, Throughput: 79.94 samples/sec
+2025-03-26 01:45:20,496 - training - INFO - Memory: GPU 0: 3186.6MB allocated, 8668.0MB reserved
+2025-03-26 01:45:20,496 - training - INFO - Epoch: 65/200000, Batch: 15/45, Loss: 5.3302, Throughput: 77.45 samples/sec
+2025-03-26 01:45:30,984 - training - INFO - Memory: GPU 0: 3186.6MB allocated, 8668.0MB reserved
+2025-03-26 01:45:30,984 - training - INFO - Epoch: 65/200000, Batch: 30/45, Loss: 5.3005, Throughput: 78.71 samples/sec
+2025-03-26 01:45:40,913 - training - INFO - Epoch 65 completed in 31.99s. Average loss: 5.3135
+2025-03-26 01:45:40,917 - training - INFO - Starting epoch 66/200000
+2025-03-26 01:45:41,628 - training - INFO - Memory: GPU 0: 3186.6MB allocated, 8790.0MB reserved
+2025-03-26 01:45:41,628 - training - INFO - Epoch: 66/200000, Batch: 0/45, Loss: 5.4476, Throughput: 79.00 samples/sec
+2025-03-26 01:45:52,325 - training - INFO - Memory: GPU 0: 3188.5MB allocated, 8672.0MB reserved
+2025-03-26 01:45:52,326 - training - INFO - Epoch: 66/200000, Batch: 15/45, Loss: 5.2905, Throughput: 78.55 samples/sec
+2025-03-26 01:46:02,797 - training - INFO - Memory: GPU 0: 3188.5MB allocated, 8672.0MB reserved
+2025-03-26 01:46:02,798 - training - INFO - Epoch: 66/200000, Batch: 30/45, Loss: 5.2879, Throughput: 79.35 samples/sec
+2025-03-26 01:46:12,670 - training - INFO - Epoch 66 completed in 31.75s. Average loss: 5.3056
+2025-03-26 01:46:12,673 - training - INFO - Starting epoch 67/200000
+2025-03-26 01:46:13,375 - training - INFO - Memory: GPU 0: 3188.5MB allocated, 8794.0MB reserved
+2025-03-26 01:46:13,375 - training - INFO - Epoch: 67/200000, Batch: 0/45, Loss: 5.3110, Throughput: 79.96 samples/sec
+2025-03-26 01:46:24,091 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8668.0MB reserved
+2025-03-26 01:46:24,091 - training - INFO - Epoch: 67/200000, Batch: 15/45, Loss: 5.3469, Throughput: 78.48 samples/sec
+2025-03-26 01:46:34,586 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8668.0MB reserved
+2025-03-26 01:46:34,587 - training - INFO - Epoch: 67/200000, Batch: 30/45, Loss: 5.2933, Throughput: 79.23 samples/sec
+2025-03-26 01:46:44,495 - training - INFO - Epoch 67 completed in 31.82s. Average loss: 5.3066
+2025-03-26 01:46:44,499 - training - INFO - Starting epoch 68/200000
+2025-03-26 01:46:45,180 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8790.0MB reserved
+2025-03-26 01:46:45,180 - training - INFO - Epoch: 68/200000, Batch: 0/45, Loss: 5.4944, Throughput: 82.47 samples/sec
+2025-03-26 01:46:56,061 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8680.0MB reserved
+2025-03-26 01:46:56,062 - training - INFO - Epoch: 68/200000, Batch: 15/45, Loss: 5.3421, Throughput: 77.51 samples/sec
+2025-03-26 01:47:06,588 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8680.0MB reserved
+2025-03-26 01:47:06,588 - training - INFO - Epoch: 68/200000, Batch: 30/45, Loss: 5.3070, Throughput: 78.59 samples/sec
+2025-03-26 01:47:16,516 - training - INFO - Epoch 68 completed in 32.02s. Average loss: 5.2928
+2025-03-26 01:47:16,520 - training - INFO - Starting epoch 69/200000
+2025-03-26 01:47:17,222 - training - INFO - Memory: GPU 0: 3188.3MB allocated, 8802.0MB reserved
+2025-03-26 01:47:17,223 - training - INFO - Epoch: 69/200000, Batch: 0/45, Loss: 5.3290, Throughput: 79.98 samples/sec
+2025-03-26 01:47:28,013 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8670.0MB reserved
+2025-03-26 01:47:28,013 - training - INFO - Epoch: 69/200000, Batch: 15/45, Loss: 5.2593, Throughput: 77.97 samples/sec
+2025-03-26 01:47:38,525 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8672.0MB reserved
+2025-03-26 01:47:38,525 - training - INFO - Epoch: 69/200000, Batch: 30/45, Loss: 5.2957, Throughput: 78.89 samples/sec
+2025-03-26 01:47:48,488 - training - INFO - Epoch 69 completed in 31.97s. Average loss: 5.3009
+2025-03-26 01:47:48,492 - training - INFO - Starting epoch 70/200000
+2025-03-26 01:47:49,181 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8794.0MB reserved
+2025-03-26 01:47:49,182 - training - INFO - Epoch: 70/200000, Batch: 0/45, Loss: 5.1086, Throughput: 81.46 samples/sec
+2025-03-26 01:47:59,958 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8676.0MB reserved
+2025-03-26 01:47:59,959 - training - INFO - Epoch: 70/200000, Batch: 15/45, Loss: 5.3206, Throughput: 78.16 samples/sec
+2025-03-26 01:48:10,461 - training - INFO - Memory: GPU 0: 3185.5MB allocated, 8676.0MB reserved
+2025-03-26 01:48:10,461 - training - INFO - Epoch: 70/200000, Batch: 30/45, Loss: 5.3037, Throughput: 79.03 samples/sec
+2025-03-26 01:48:20,305 - training - INFO - Epoch 70 completed in 31.81s. Average loss: 5.2830
+2025-03-26 01:48:20,308 - training - INFO - Starting validation...
+2025-03-26 01:48:20,610 - training - INFO - Validation Loss: 6.3297
+2025-03-26 01:48:20,610 - training - INFO - Validation loss did not improve. Counter: 5/10
+2025-03-26 01:48:20,898 - training - INFO - Starting epoch 71/200000
+2025-03-26 01:48:21,606 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 01:48:21,606 - training - INFO - Epoch: 71/200000, Batch: 0/45, Loss: 5.3388, Throughput: 79.31 samples/sec
+2025-03-26 01:48:32,368 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8646.0MB reserved
+2025-03-26 01:48:32,368 - training - INFO - Epoch: 71/200000, Batch: 15/45, Loss: 5.2206, Throughput: 78.12 samples/sec
+2025-03-26 01:48:42,914 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 01:48:42,914 - training - INFO - Epoch: 71/200000, Batch: 30/45, Loss: 5.2629, Throughput: 78.86 samples/sec
+2025-03-26 01:48:52,862 - training - INFO - Epoch 71 completed in 31.96s. Average loss: 5.2797
+2025-03-26 01:48:52,865 - training - INFO - Starting epoch 72/200000
+2025-03-26 01:48:53,550 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8770.0MB reserved
+2025-03-26 01:48:53,551 - training - INFO - Epoch: 72/200000, Batch: 0/45, Loss: 5.3072, Throughput: 82.06 samples/sec
+2025-03-26 01:49:04,382 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8662.0MB reserved
+2025-03-26 01:49:04,382 - training - INFO - Epoch: 72/200000, Batch: 15/45, Loss: 5.2672, Throughput: 77.82 samples/sec
+2025-03-26 01:49:14,997 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8662.0MB reserved
+2025-03-26 01:49:14,997 - training - INFO - Epoch: 72/200000, Batch: 30/45, Loss: 5.3022, Throughput: 78.45 samples/sec
+2025-03-26 01:49:24,994 - training - INFO - Epoch 72 completed in 32.13s. Average loss: 5.2815
+2025-03-26 01:49:24,998 - training - INFO - Starting epoch 73/200000
+2025-03-26 01:49:25,693 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8784.0MB reserved
+2025-03-26 01:49:25,693 - training - INFO - Epoch: 73/200000, Batch: 0/45, Loss: 5.5222, Throughput: 80.71 samples/sec
+2025-03-26 01:49:36,542 - training - INFO - Memory: GPU 0: 3188.1MB allocated, 8662.0MB reserved
+2025-03-26 01:49:36,543 - training - INFO - Epoch: 73/200000, Batch: 15/45, Loss: 5.2883, Throughput: 77.63 samples/sec
+2025-03-26 01:49:47,110 - training - INFO - Memory: GPU 0: 3188.1MB allocated, 8662.0MB reserved
+2025-03-26 01:49:47,111 - training - INFO - Epoch: 73/200000, Batch: 30/45, Loss: 5.2797, Throughput: 78.51 samples/sec
+2025-03-26 01:49:57,097 - training - INFO - Epoch 73 completed in 32.10s. Average loss: 5.2817
+2025-03-26 01:49:57,101 - training - INFO - Starting epoch 74/200000
+2025-03-26 01:49:57,782 - training - INFO - Memory: GPU 0: 3188.1MB allocated, 8782.0MB reserved
+2025-03-26 01:49:57,782 - training - INFO - Epoch: 74/200000, Batch: 0/45, Loss: 5.2266, Throughput: 82.37 samples/sec
+2025-03-26 01:50:08,528 - training - INFO - Memory: GPU 0: 3189.8MB allocated, 8656.0MB reserved
+2025-03-26 01:50:08,529 - training - INFO - Epoch: 74/200000, Batch: 15/45, Loss: 5.3034, Throughput: 78.41 samples/sec
+2025-03-26 01:50:19,022 - training - INFO - Memory: GPU 0: 3189.8MB allocated, 8656.0MB reserved
+2025-03-26 01:50:19,023 - training - INFO - Epoch: 74/200000, Batch: 30/45, Loss: 5.3120, Throughput: 79.20 samples/sec
+2025-03-26 01:50:28,881 - training - INFO - Epoch 74 completed in 31.78s. Average loss: 5.2711
+2025-03-26 01:50:28,885 - training - INFO - Starting epoch 75/200000
+2025-03-26 01:50:29,590 - training - INFO - Memory: GPU 0: 3189.8MB allocated, 8780.0MB reserved
+2025-03-26 01:50:29,591 - training - INFO - Epoch: 75/200000, Batch: 0/45, Loss: 5.3055, Throughput: 79.49 samples/sec
+2025-03-26 01:50:40,326 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8660.0MB reserved
+2025-03-26 01:50:40,327 - training - INFO - Epoch: 75/200000, Batch: 15/45, Loss: 5.3289, Throughput: 78.32 samples/sec
+2025-03-26 01:50:50,878 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8660.0MB reserved
+2025-03-26 01:50:50,878 - training - INFO - Epoch: 75/200000, Batch: 30/45, Loss: 5.2977, Throughput: 78.94 samples/sec
+2025-03-26 01:51:00,819 - training - INFO - Epoch 75 completed in 31.93s. Average loss: 5.2685
+2025-03-26 01:51:00,823 - training - INFO - Starting epoch 76/200000
+2025-03-26 01:51:01,536 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8780.0MB reserved
+2025-03-26 01:51:01,537 - training - INFO - Epoch: 76/200000, Batch: 0/45, Loss: 5.4130, Throughput: 78.56 samples/sec
+2025-03-26 01:51:12,281 - training - INFO - Memory: GPU 0: 3190.3MB allocated, 8656.0MB reserved
+2025-03-26 01:51:12,282 - training - INFO - Epoch: 76/200000, Batch: 15/45, Loss: 5.2027, Throughput: 78.20 samples/sec
+2025-03-26 01:51:22,781 - training - INFO - Memory: GPU 0: 3190.3MB allocated, 8656.0MB reserved
+2025-03-26 01:51:22,781 - training - INFO - Epoch: 76/200000, Batch: 30/45, Loss: 5.2595, Throughput: 79.06 samples/sec
+2025-03-26 01:51:32,727 - training - INFO - Epoch 76 completed in 31.90s. Average loss: 5.2635
+2025-03-26 01:51:32,731 - training - INFO - Starting epoch 77/200000
+2025-03-26 01:51:33,446 - training - INFO - Memory: GPU 0: 3190.3MB allocated, 8776.0MB reserved
+2025-03-26 01:51:33,446 - training - INFO - Epoch: 77/200000, Batch: 0/45, Loss: 5.3761, Throughput: 78.34 samples/sec
+2025-03-26 01:51:44,215 - training - INFO - Memory: GPU 0: 3185.8MB allocated, 8660.0MB reserved
+2025-03-26 01:51:44,215 - training - INFO - Epoch: 77/200000, Batch: 15/45, Loss: 5.2410, Throughput: 78.02 samples/sec
+2025-03-26 01:51:54,706 - training - INFO - Memory: GPU 0: 3185.8MB allocated, 8662.0MB reserved
+2025-03-26 01:51:54,707 - training - INFO - Epoch: 77/200000, Batch: 30/45, Loss: 5.2488, Throughput: 79.00 samples/sec
+2025-03-26 01:52:04,585 - training - INFO - Epoch 77 completed in 31.85s. Average loss: 5.2510
+2025-03-26 01:52:04,589 - training - INFO - Starting epoch 78/200000
+2025-03-26 01:52:05,266 - training - INFO - Memory: GPU 0: 3185.8MB allocated, 8784.0MB reserved
+2025-03-26 01:52:05,266 - training - INFO - Epoch: 78/200000, Batch: 0/45, Loss: 5.4859, Throughput: 82.76 samples/sec
+2025-03-26 01:52:16,102 - training - INFO - Memory: GPU 0: 3187.4MB allocated, 8666.0MB reserved
+2025-03-26 01:52:16,102 - training - INFO - Epoch: 78/200000, Batch: 15/45, Loss: 5.3184, Throughput: 77.83 samples/sec
+2025-03-26 01:52:26,691 - training - INFO - Memory: GPU 0: 3187.4MB allocated, 8666.0MB reserved
+2025-03-26 01:52:26,691 - training - INFO - Epoch: 78/200000, Batch: 30/45, Loss: 5.2836, Throughput: 78.55 samples/sec
+2025-03-26 01:52:36,640 - training - INFO - Epoch 78 completed in 32.05s. Average loss: 5.2421
+2025-03-26 01:52:36,644 - training - INFO - Starting epoch 79/200000
+2025-03-26 01:52:37,319 - training - INFO - Memory: GPU 0: 3187.4MB allocated, 8788.0MB reserved
+2025-03-26 01:52:37,319 - training - INFO - Epoch: 79/200000, Batch: 0/45, Loss: 5.1021, Throughput: 83.10 samples/sec
+2025-03-26 01:52:48,050 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8668.0MB reserved
+2025-03-26 01:52:48,050 - training - INFO - Epoch: 79/200000, Batch: 15/45, Loss: 5.3199, Throughput: 78.57 samples/sec
+2025-03-26 01:52:58,570 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8668.0MB reserved
+2025-03-26 01:52:58,670 - training - INFO - Epoch: 79/200000, Batch: 30/45, Loss: 5.2585, Throughput: 79.18 samples/sec
+2025-03-26 01:53:08,590 - training - INFO - Epoch 79 completed in 31.95s. Average loss: 5.2606
+2025-03-26 01:53:08,594 - training - INFO - Starting epoch 80/200000
+2025-03-26 01:53:09,279 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8790.0MB reserved
+2025-03-26 01:53:09,279 - training - INFO - Epoch: 80/200000, Batch: 0/45, Loss: 5.2386, Throughput: 81.88 samples/sec
+2025-03-26 01:53:20,042 - training - INFO - Memory: GPU 0: 3185.3MB allocated, 8668.0MB reserved
+2025-03-26 01:53:20,042 - training - INFO - Epoch: 80/200000, Batch: 15/45, Loss: 5.2234, Throughput: 78.28 samples/sec
+2025-03-26 01:53:30,586 - training - INFO - Memory: GPU 0: 3185.3MB allocated, 8668.0MB reserved
+2025-03-26 01:53:30,586 - training - INFO - Epoch: 80/200000, Batch: 30/45, Loss: 5.1597, Throughput: 78.94 samples/sec
+2025-03-26 01:53:40,492 - training - INFO - Epoch 80 completed in 31.90s. Average loss: 5.2390
+2025-03-26 01:53:40,495 - training - INFO - Starting validation...
+2025-03-26 01:53:40,792 - training - INFO - Validation Loss: 6.3818
+2025-03-26 01:53:40,793 - training - INFO - Validation loss did not improve. Counter: 6/10
+2025-03-26 01:53:41,082 - training - INFO - Starting epoch 81/200000
+2025-03-26 01:53:41,795 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 01:53:41,795 - training - INFO - Epoch: 81/200000, Batch: 0/45, Loss: 5.2106, Throughput: 78.73 samples/sec
+2025-03-26 01:53:52,447 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8646.0MB reserved
+2025-03-26 01:53:52,447 - training - INFO - Epoch: 81/200000, Batch: 15/45, Loss: 5.2069, Throughput: 78.85 samples/sec
+2025-03-26 01:54:02,979 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8646.0MB reserved
+2025-03-26 01:54:02,979 - training - INFO - Epoch: 81/200000, Batch: 30/45, Loss: 5.2059, Throughput: 79.28 samples/sec
+2025-03-26 01:54:12,850 - training - INFO - Epoch 81 completed in 31.77s. Average loss: 5.2361
+2025-03-26 01:54:12,853 - training - INFO - Starting epoch 82/200000
+2025-03-26 01:54:13,537 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8770.0MB reserved
+2025-03-26 01:54:13,537 - training - INFO - Epoch: 82/200000, Batch: 0/45, Loss: 4.9272, Throughput: 82.03 samples/sec
+2025-03-26 01:54:24,345 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8654.0MB reserved
+2025-03-26 01:54:24,345 - training - INFO - Epoch: 82/200000, Batch: 15/45, Loss: 5.2459, Throughput: 77.98 samples/sec
+2025-03-26 01:54:34,901 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8656.0MB reserved
+2025-03-26 01:54:34,901 - training - INFO - Epoch: 82/200000, Batch: 30/45, Loss: 5.2292, Throughput: 78.75 samples/sec
+2025-03-26 01:54:44,880 - training - INFO - Epoch 82 completed in 32.03s. Average loss: 5.2340
+2025-03-26 01:54:44,884 - training - INFO - Starting epoch 83/200000
+2025-03-26 01:54:45,588 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8778.0MB reserved
+2025-03-26 01:54:45,588 - training - INFO - Epoch: 83/200000, Batch: 0/45, Loss: 5.1173, Throughput: 79.71 samples/sec
+2025-03-26 01:54:56,466 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8672.0MB reserved
+2025-03-26 01:54:56,466 - training - INFO - Epoch: 83/200000, Batch: 15/45, Loss: 5.2538, Throughput: 77.36 samples/sec
+2025-03-26 01:55:07,108 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8672.0MB reserved
+2025-03-26 01:55:07,108 - training - INFO - Epoch: 83/200000, Batch: 30/45, Loss: 5.2036, Throughput: 78.12 samples/sec
+2025-03-26 01:55:17,010 - training - INFO - Epoch 83 completed in 32.13s. Average loss: 5.2306
+2025-03-26 01:55:17,014 - training - INFO - Starting epoch 84/200000
+2025-03-26 01:55:17,724 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8794.0MB reserved
+2025-03-26 01:55:17,724 - training - INFO - Epoch: 84/200000, Batch: 0/45, Loss: 5.1842, Throughput: 79.02 samples/sec
+2025-03-26 01:55:28,566 - training - INFO - Memory: GPU 0: 3186.9MB allocated, 8664.0MB reserved
+2025-03-26 01:55:28,567 - training - INFO - Epoch: 84/200000, Batch: 15/45, Loss: 5.2568, Throughput: 77.57 samples/sec
+2025-03-26 01:55:39,059 - training - INFO - Memory: GPU 0: 3186.9MB allocated, 8664.0MB reserved
+2025-03-26 01:55:39,060 - training - INFO - Epoch: 84/200000, Batch: 30/45, Loss: 5.2331, Throughput: 78.76 samples/sec
+2025-03-26 01:55:48,944 - training - INFO - Epoch 84 completed in 31.93s. Average loss: 5.2025
+2025-03-26 01:55:48,948 - training - INFO - Starting epoch 85/200000
+2025-03-26 01:55:49,653 - training - INFO - Memory: GPU 0: 3187.0MB allocated, 8786.0MB reserved
+2025-03-26 01:55:49,653 - training - INFO - Epoch: 85/200000, Batch: 0/45, Loss: 5.4579, Throughput: 79.62 samples/sec
+2025-03-26 01:56:00,356 - training - INFO - Memory: GPU 0: 3188.4MB allocated, 8680.0MB reserved
+2025-03-26 01:56:00,356 - training - INFO - Epoch: 85/200000, Batch: 15/45, Loss: 5.2342, Throughput: 78.56 samples/sec
+2025-03-26 01:56:10,852 - training - INFO - Memory: GPU 0: 3188.4MB allocated, 8682.0MB reserved
+2025-03-26 01:56:10,853 - training - INFO - Epoch: 85/200000, Batch: 30/45, Loss: 5.2270, Throughput: 79.26 samples/sec
+2025-03-26 01:56:20,715 - training - INFO - Epoch 85 completed in 31.77s. Average loss: 5.2118
+2025-03-26 01:56:20,719 - training - INFO - Starting epoch 86/200000
+2025-03-26 01:56:21,416 - training - INFO - Memory: GPU 0: 3188.4MB allocated, 8802.0MB reserved
+2025-03-26 01:56:21,416 - training - INFO - Epoch: 86/200000, Batch: 0/45, Loss: 5.1887, Throughput: 80.42 samples/sec
+2025-03-26 01:56:32,189 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8660.0MB reserved
+2025-03-26 01:56:32,189 - training - INFO - Epoch: 86/200000, Batch: 15/45, Loss: 5.1349, Throughput: 78.12 samples/sec
+2025-03-26 01:56:42,714 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8662.0MB reserved
+2025-03-26 01:56:42,714 - training - INFO - Epoch: 86/200000, Batch: 30/45, Loss: 5.2020, Throughput: 78.93 samples/sec
+2025-03-26 01:56:52,560 - training - INFO - Epoch 86 completed in 31.84s. Average loss: 5.1951
+2025-03-26 01:56:52,564 - training - INFO - Starting epoch 87/200000
+2025-03-26 01:56:53,252 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8784.0MB reserved
+2025-03-26 01:56:53,253 - training - INFO - Epoch: 87/200000, Batch: 0/45, Loss: 5.3741, Throughput: 81.55 samples/sec
+2025-03-26 01:57:04,031 - training - INFO - Memory: GPU 0: 3189.3MB allocated, 8680.0MB reserved
+2025-03-26 01:57:04,032 - training - INFO - Epoch: 87/200000, Batch: 15/45, Loss: 5.2557, Throughput: 78.15 samples/sec
+2025-03-26 01:57:14,500 - training - INFO - Memory: GPU 0: 3189.3MB allocated, 8680.0MB reserved
+2025-03-26 01:57:14,500 - training - INFO - Epoch: 87/200000, Batch: 30/45, Loss: 5.1883, Throughput: 79.14 samples/sec
+2025-03-26 01:57:24,357 - training - INFO - Epoch 87 completed in 31.79s. Average loss: 5.2002
+2025-03-26 01:57:24,361 - training - INFO - Starting epoch 88/200000
+2025-03-26 01:57:25,045 - training - INFO - Memory: GPU 0: 3189.3MB allocated, 8802.0MB reserved
+2025-03-26 01:57:25,045 - training - INFO - Epoch: 88/200000, Batch: 0/45, Loss: 5.1429, Throughput: 82.08 samples/sec
+2025-03-26 01:57:35,837 - training - INFO - Memory: GPU 0: 3186.3MB allocated, 8668.0MB reserved
+2025-03-26 01:57:35,838 - training - INFO - Epoch: 88/200000, Batch: 15/45, Loss: 5.1768, Throughput: 78.09 samples/sec
+2025-03-26 01:57:46,354 - training - INFO - Memory: GPU 0: 3186.3MB allocated, 8670.0MB reserved
+2025-03-26 01:57:46,354 - training - INFO - Epoch: 88/200000, Batch: 30/45, Loss: 5.1767, Throughput: 78.94 samples/sec
+2025-03-26 01:57:56,243 - training - INFO - Epoch 88 completed in 31.88s. Average loss: 5.1827
+2025-03-26 01:57:56,247 - training - INFO - Starting epoch 89/200000
+2025-03-26 01:57:56,938 - training - INFO - Memory: GPU 0: 3186.3MB allocated, 8790.0MB reserved
+2025-03-26 01:57:56,938 - training - INFO - Epoch: 89/200000, Batch: 0/45, Loss: 5.2076, Throughput: 81.27 samples/sec
+2025-03-26 01:58:07,689 - training - INFO - Memory: GPU 0: 3184.4MB allocated, 8672.0MB reserved
+2025-03-26 01:58:07,689 - training - INFO - Epoch: 89/200000, Batch: 15/45, Loss: 5.1052, Throughput: 78.32 samples/sec
+2025-03-26 01:58:18,176 - training - INFO - Memory: GPU 0: 3184.4MB allocated, 8672.0MB reserved
+2025-03-26 01:58:18,176 - training - INFO - Epoch: 89/200000, Batch: 30/45, Loss: 5.1128, Throughput: 79.17 samples/sec
+2025-03-26 01:58:28,046 - training - INFO - Epoch 89 completed in 31.80s. Average loss: 5.1748
+2025-03-26 01:58:28,050 - training - INFO - Starting epoch 90/200000
+2025-03-26 01:58:28,758 - training - INFO - Memory: GPU 0: 3184.4MB allocated, 8794.0MB reserved
+2025-03-26 01:58:28,759 - training - INFO - Epoch: 90/200000, Batch: 0/45, Loss: 5.2053, Throughput: 79.09 samples/sec
+2025-03-26 01:58:39,541 - training - INFO - Memory: GPU 0: 3186.3MB allocated, 8674.0MB reserved
+2025-03-26 01:58:39,542 - training - INFO - Epoch: 90/200000, Batch: 15/45, Loss: 5.2113, Throughput: 77.99 samples/sec
+2025-03-26 01:58:50,097 - training - INFO - Memory: GPU 0: 3186.3MB allocated, 8674.0MB reserved
+2025-03-26 01:58:50,098 - training - INFO - Epoch: 90/200000, Batch: 30/45, Loss: 5.2098, Throughput: 78.74 samples/sec
+2025-03-26 01:58:59,977 - training - INFO - Epoch 90 completed in 31.93s. Average loss: 5.1790
+2025-03-26 01:58:59,980 - training - INFO - Starting validation...
+2025-03-26 01:59:00,277 - training - INFO - Validation Loss: 6.4478
+2025-03-26 01:59:00,277 - training - INFO - Validation loss did not improve. Counter: 7/10
+2025-03-26 01:59:00,576 - training - INFO - Starting epoch 91/200000
+2025-03-26 01:59:01,301 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 01:59:01,301 - training - INFO - Epoch: 91/200000, Batch: 0/45, Loss: 4.8306, Throughput: 77.42 samples/sec
+2025-03-26 01:59:11,918 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 01:59:11,919 - training - INFO - Epoch: 91/200000, Batch: 15/45, Loss: 5.1386, Throughput: 79.01 samples/sec
+2025-03-26 01:59:22,381 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 01:59:22,381 - training - INFO - Epoch: 91/200000, Batch: 30/45, Loss: 5.1832, Throughput: 79.62 samples/sec
+2025-03-26 01:59:32,232 - training - INFO - Epoch 91 completed in 31.66s. Average loss: 5.1572
+2025-03-26 01:59:32,236 - training - INFO - Starting epoch 92/200000
+2025-03-26 01:59:32,915 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8768.0MB reserved
+2025-03-26 01:59:32,915 - training - INFO - Epoch: 92/200000, Batch: 0/45, Loss: 5.1502, Throughput: 82.61 samples/sec
+2025-03-26 01:59:43,585 - training - INFO - Memory: GPU 0: 3191.5MB allocated, 8656.0MB reserved
+2025-03-26 01:59:43,585 - training - INFO - Epoch: 92/200000, Batch: 15/45, Loss: 5.0857, Throughput: 78.96 samples/sec
+2025-03-26 01:59:54,120 - training - INFO - Memory: GPU 0: 3191.5MB allocated, 8656.0MB reserved
+2025-03-26 01:59:54,120 - training - INFO - Epoch: 92/200000, Batch: 30/45, Loss: 5.1205, Throughput: 79.34 samples/sec
+2025-03-26 02:00:04,056 - training - INFO - Epoch 92 completed in 31.82s. Average loss: 5.1652
+2025-03-26 02:00:04,059 - training - INFO - Starting epoch 93/200000
+2025-03-26 02:00:04,754 - training - INFO - Memory: GPU 0: 3191.5MB allocated, 8778.0MB reserved
+2025-03-26 02:00:04,754 - training - INFO - Epoch: 93/200000, Batch: 0/45, Loss: 5.1891, Throughput: 80.77 samples/sec
+2025-03-26 02:00:15,529 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8680.0MB reserved
+2025-03-26 02:00:15,529 - training - INFO - Epoch: 93/200000, Batch: 15/45, Loss: 5.1402, Throughput: 78.14 samples/sec
+2025-03-26 02:00:26,058 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8680.0MB reserved
+2025-03-26 02:00:26,058 - training - INFO - Epoch: 93/200000, Batch: 30/45, Loss: 5.1737, Throughput: 78.92 samples/sec
+2025-03-26 02:00:36,030 - training - INFO - Epoch 93 completed in 31.97s. Average loss: 5.1515
+2025-03-26 02:00:36,033 - training - INFO - Starting epoch 94/200000
+2025-03-26 02:00:36,710 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8802.0MB reserved
+2025-03-26 02:00:36,710 - training - INFO - Epoch: 94/200000, Batch: 0/45, Loss: 5.1576, Throughput: 82.97 samples/sec
+2025-03-26 02:00:47,523 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8670.0MB reserved
+2025-03-26 02:00:47,524 - training - INFO - Epoch: 94/200000, Batch: 15/45, Loss: 5.1279, Throughput: 77.99 samples/sec
+2025-03-26 02:00:58,079 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8670.0MB reserved
+2025-03-26 02:00:58,079 - training - INFO - Epoch: 94/200000, Batch: 30/45, Loss: 5.1534, Throughput: 78.76 samples/sec
+2025-03-26 02:01:08,031 - training - INFO - Epoch 94 completed in 32.00s. Average loss: 5.1541
+2025-03-26 02:01:08,035 - training - INFO - Starting epoch 95/200000
+2025-03-26 02:01:08,732 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8790.0MB reserved
+2025-03-26 02:01:08,732 - training - INFO - Epoch: 95/200000, Batch: 0/45, Loss: 4.8191, Throughput: 80.53 samples/sec
+2025-03-26 02:01:19,522 - training - INFO - Memory: GPU 0: 3190.8MB allocated, 8670.0MB reserved
+2025-03-26 02:01:19,523 - training - INFO - Epoch: 95/200000, Batch: 15/45, Loss: 5.1188, Throughput: 78.01 samples/sec
+2025-03-26 02:01:29,990 - training - INFO - Memory: GPU 0: 3190.8MB allocated, 8670.0MB reserved
+2025-03-26 02:01:29,991 - training - INFO - Epoch: 95/200000, Batch: 30/45, Loss: 5.1303, Throughput: 79.08 samples/sec
+2025-03-26 02:01:39,857 - training - INFO - Epoch 95 completed in 31.82s. Average loss: 5.1342
+2025-03-26 02:01:39,860 - training - INFO - Starting epoch 96/200000
+2025-03-26 02:01:40,570 - training - INFO - Memory: GPU 0: 3190.8MB allocated, 8794.0MB reserved
+2025-03-26 02:01:40,789 - training - INFO - Epoch: 96/200000, Batch: 0/45, Loss: 5.4684, Throughput: 79.14 samples/sec
+2025-03-26 02:01:51,516 - training - INFO - Memory: GPU 0: 3190.3MB allocated, 8658.0MB reserved
+2025-03-26 02:01:51,516 - training - INFO - Epoch: 96/200000, Batch: 15/45, Loss: 5.1035, Throughput: 76.88 samples/sec
+2025-03-26 02:02:02,112 - training - INFO - Memory: GPU 0: 3190.3MB allocated, 8658.0MB reserved
+2025-03-26 02:02:02,113 - training - INFO - Epoch: 96/200000, Batch: 30/45, Loss: 5.1519, Throughput: 78.02 samples/sec
+2025-03-26 02:02:12,082 - training - INFO - Epoch 96 completed in 32.22s. Average loss: 5.1355
+2025-03-26 02:02:12,086 - training - INFO - Starting epoch 97/200000
+2025-03-26 02:02:12,768 - training - INFO - Memory: GPU 0: 3190.3MB allocated, 8780.0MB reserved
+2025-03-26 02:02:12,768 - training - INFO - Epoch: 97/200000, Batch: 0/45, Loss: 5.3185, Throughput: 82.20 samples/sec
+2025-03-26 02:02:23,600 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8664.0MB reserved
+2025-03-26 02:02:23,601 - training - INFO - Epoch: 97/200000, Batch: 15/45, Loss: 5.1437, Throughput: 77.83 samples/sec
+2025-03-26 02:02:34,149 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8664.0MB reserved
+2025-03-26 02:02:34,149 - training - INFO - Epoch: 97/200000, Batch: 30/45, Loss: 5.0891, Throughput: 78.69 samples/sec
+2025-03-26 02:02:44,117 - training - INFO - Epoch 97 completed in 32.03s. Average loss: 5.1239
+2025-03-26 02:02:44,121 - training - INFO - Starting epoch 98/200000
+2025-03-26 02:02:44,818 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8786.0MB reserved
+2025-03-26 02:02:44,818 - training - INFO - Epoch: 98/200000, Batch: 0/45, Loss: 5.4138, Throughput: 80.51 samples/sec
+2025-03-26 02:02:55,536 - training - INFO - Memory: GPU 0: 3186.5MB allocated, 8666.0MB reserved
+2025-03-26 02:02:55,537 - training - INFO - Epoch: 98/200000, Batch: 15/45, Loss: 5.0811, Throughput: 78.50 samples/sec
+2025-03-26 02:03:05,974 - training - INFO - Memory: GPU 0: 3186.5MB allocated, 8666.0MB reserved
+2025-03-26 02:03:05,974 - training - INFO - Epoch: 98/200000, Batch: 30/45, Loss: 5.0974, Throughput: 79.44 samples/sec
+2025-03-26 02:03:15,821 - training - INFO - Epoch 98 completed in 31.70s. Average loss: 5.1169
+2025-03-26 02:03:15,825 - training - INFO - Starting epoch 99/200000
+2025-03-26 02:03:16,536 - training - INFO - Memory: GPU 0: 3186.5MB allocated, 8788.0MB reserved
+2025-03-26 02:03:16,536 - training - INFO - Epoch: 99/200000, Batch: 0/45, Loss: 5.1016, Throughput: 78.90 samples/sec
+2025-03-26 02:03:27,265 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8666.0MB reserved
+2025-03-26 02:03:27,265 - training - INFO - Epoch: 99/200000, Batch: 15/45, Loss: 5.0954, Throughput: 78.33 samples/sec
+2025-03-26 02:03:37,757 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8668.0MB reserved
+2025-03-26 02:03:37,757 - training - INFO - Epoch: 99/200000, Batch: 30/45, Loss: 5.1052, Throughput: 79.16 samples/sec
+2025-03-26 02:03:47,634 - training - INFO - Epoch 99 completed in 31.81s. Average loss: 5.1154
+2025-03-26 02:03:47,637 - training - INFO - Starting epoch 100/200000
+2025-03-26 02:03:48,327 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8790.0MB reserved
+2025-03-26 02:03:48,327 - training - INFO - Epoch: 100/200000, Batch: 0/45, Loss: 4.8589, Throughput: 81.33 samples/sec
+2025-03-26 02:03:59,194 - training - INFO - Memory: GPU 0: 3185.3MB allocated, 8670.0MB reserved
+2025-03-26 02:03:59,195 - training - INFO - Epoch: 100/200000, Batch: 15/45, Loss: 5.0681, Throughput: 77.54 samples/sec
+2025-03-26 02:04:09,897 - training - INFO - Memory: GPU 0: 3185.3MB allocated, 8672.0MB reserved
+2025-03-26 02:04:09,897 - training - INFO - Epoch: 100/200000, Batch: 30/45, Loss: 5.1234, Throughput: 77.99 samples/sec
+2025-03-26 02:04:19,775 - training - INFO - Epoch 100 completed in 32.14s. Average loss: 5.1187
+2025-03-26 02:04:19,778 - training - INFO - Starting validation...
+2025-03-26 02:04:20,086 - training - INFO - Validation Loss: 6.5245
+2025-03-26 02:04:20,086 - training - INFO - Validation loss did not improve. Counter: 8/10
+2025-03-26 02:04:20,371 - training - INFO - Starting epoch 101/200000
+2025-03-26 02:04:21,059 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 02:04:21,060 - training - INFO - Epoch: 101/200000, Batch: 0/45, Loss: 5.2707, Throughput: 81.62 samples/sec
+2025-03-26 02:04:31,823 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 02:04:31,823 - training - INFO - Epoch: 101/200000, Batch: 15/45, Loss: 5.1410, Throughput: 78.26 samples/sec
+2025-03-26 02:04:42,323 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 02:04:42,323 - training - INFO - Epoch: 101/200000, Batch: 30/45, Loss: 5.1778, Throughput: 79.09 samples/sec
+2025-03-26 02:04:52,213 - training - INFO - Epoch 101 completed in 31.84s. Average loss: 5.1024
+2025-03-26 02:04:52,217 - training - INFO - Starting epoch 102/200000
+2025-03-26 02:04:52,889 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8770.0MB reserved
+2025-03-26 02:04:52,889 - training - INFO - Epoch: 102/200000, Batch: 0/45, Loss: 4.9956, Throughput: 83.55 samples/sec
+2025-03-26 02:05:03,657 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8656.0MB reserved
+2025-03-26 02:05:03,658 - training - INFO - Epoch: 102/200000, Batch: 15/45, Loss: 5.0789, Throughput: 78.33 samples/sec
+2025-03-26 02:05:14,188 - training - INFO - Memory: GPU 0: 3189.6MB allocated, 8656.0MB reserved
+2025-03-26 02:05:14,188 - training - INFO - Epoch: 102/200000, Batch: 30/45, Loss: 5.0835, Throughput: 79.02 samples/sec
+2025-03-26 02:05:24,113 - training - INFO - Epoch 102 completed in 31.90s. Average loss: 5.1123
+2025-03-26 02:05:24,116 - training - INFO - Starting epoch 103/200000
+2025-03-26 02:05:24,808 - training - INFO - Memory: GPU 0: 3191.1MB allocated, 8778.0MB reserved
+2025-03-26 02:05:24,808 - training - INFO - Epoch: 103/200000, Batch: 0/45, Loss: 5.1486, Throughput: 81.10 samples/sec
+2025-03-26 02:05:35,564 - training - INFO - Memory: GPU 0: 3186.5MB allocated, 8664.0MB reserved
+2025-03-26 02:05:35,564 - training - INFO - Epoch: 103/200000, Batch: 15/45, Loss: 5.0774, Throughput: 78.28 samples/sec
+2025-03-26 02:05:46,056 - training - INFO - Memory: GPU 0: 3186.5MB allocated, 8664.0MB reserved
+2025-03-26 02:05:46,057 - training - INFO - Epoch: 103/200000, Batch: 30/45, Loss: 5.1052, Throughput: 79.13 samples/sec
+2025-03-26 02:05:56,008 - training - INFO - Epoch 103 completed in 31.89s. Average loss: 5.1031
+2025-03-26 02:05:56,012 - training - INFO - Starting epoch 104/200000
+2025-03-26 02:05:56,685 - training - INFO - Memory: GPU 0: 3186.5MB allocated, 8788.0MB reserved
+2025-03-26 02:05:56,685 - training - INFO - Epoch: 104/200000, Batch: 0/45, Loss: 5.2371, Throughput: 83.31 samples/sec
+2025-03-26 02:06:07,448 - training - INFO - Memory: GPU 0: 3188.8MB allocated, 8662.0MB reserved
+2025-03-26 02:06:07,448 - training - INFO - Epoch: 104/200000, Batch: 15/45, Loss: 5.1080, Throughput: 78.36 samples/sec
+2025-03-26 02:06:18,064 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8662.0MB reserved
+2025-03-26 02:06:18,064 - training - INFO - Epoch: 104/200000, Batch: 30/45, Loss: 5.0780, Throughput: 78.73 samples/sec
+2025-03-26 02:06:28,049 - training - INFO - Epoch 104 completed in 32.04s. Average loss: 5.0966
+2025-03-26 02:06:28,053 - training - INFO - Starting epoch 105/200000
+2025-03-26 02:06:28,745 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8784.0MB reserved
+2025-03-26 02:06:28,745 - training - INFO - Epoch: 105/200000, Batch: 0/45, Loss: 5.2290, Throughput: 81.07 samples/sec
+2025-03-26 02:06:39,433 - training - INFO - Memory: GPU 0: 3188.4MB allocated, 8660.0MB reserved
+2025-03-26 02:06:39,434 - training - INFO - Epoch: 105/200000, Batch: 15/45, Loss: 5.1141, Throughput: 78.74 samples/sec
+2025-03-26 02:06:49,910 - training - INFO - Memory: GPU 0: 3188.4MB allocated, 8660.0MB reserved
+2025-03-26 02:06:49,910 - training - INFO - Epoch: 105/200000, Batch: 30/45, Loss: 5.1091, Throughput: 79.43 samples/sec
+2025-03-26 02:06:59,804 - training - INFO - Epoch 105 completed in 31.75s. Average loss: 5.0888
+2025-03-26 02:06:59,808 - training - INFO - Starting epoch 106/200000
+2025-03-26 02:07:00,509 - training - INFO - Memory: GPU 0: 3188.4MB allocated, 8782.0MB reserved
+2025-03-26 02:07:00,510 - training - INFO - Epoch: 106/200000, Batch: 0/45, Loss: 4.4275, Throughput: 80.00 samples/sec
+2025-03-26 02:07:11,312 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8664.0MB reserved
+2025-03-26 02:07:11,313 - training - INFO - Epoch: 106/200000, Batch: 15/45, Loss: 4.9558, Throughput: 77.89 samples/sec
+2025-03-26 02:07:21,852 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8664.0MB reserved
+2025-03-26 02:07:21,853 - training - INFO - Epoch: 106/200000, Batch: 30/45, Loss: 5.0103, Throughput: 78.76 samples/sec
+2025-03-26 02:07:31,737 - training - INFO - Epoch 106 completed in 31.93s. Average loss: 5.0744
+2025-03-26 02:07:31,740 - training - INFO - Starting epoch 107/200000
+2025-03-26 02:07:32,427 - training - INFO - Memory: GPU 0: 3187.3MB allocated, 8786.0MB reserved
+2025-03-26 02:07:32,428 - training - INFO - Epoch: 107/200000, Batch: 0/45, Loss: 4.7992, Throughput: 81.68 samples/sec
+2025-03-26 02:07:43,212 - training - INFO - Memory: GPU 0: 3185.8MB allocated, 8678.0MB reserved
+2025-03-26 02:07:43,213 - training - INFO - Epoch: 107/200000, Batch: 15/45, Loss: 5.0433, Throughput: 78.11 samples/sec
+2025-03-26 02:07:53,701 - training - INFO - Memory: GPU 0: 3185.8MB allocated, 8680.0MB reserved
+2025-03-26 02:07:53,702 - training - INFO - Epoch: 107/200000, Batch: 30/45, Loss: 5.0461, Throughput: 79.05 samples/sec
+2025-03-26 02:08:03,553 - training - INFO - Epoch 107 completed in 31.81s. Average loss: 5.0722
+2025-03-26 02:08:03,557 - training - INFO - Starting epoch 108/200000
+2025-03-26 02:08:04,236 - training - INFO - Memory: GPU 0: 3185.8MB allocated, 8802.0MB reserved
+2025-03-26 02:08:04,236 - training - INFO - Epoch: 108/200000, Batch: 0/45, Loss: 5.0716, Throughput: 82.62 samples/sec
+2025-03-26 02:08:14,958 - training - INFO - Memory: GPU 0: 3185.3MB allocated, 8670.0MB reserved
+2025-03-26 02:08:14,958 - training - INFO - Epoch: 108/200000, Batch: 15/45, Loss: 5.0739, Throughput: 78.59 samples/sec
+2025-03-26 02:08:25,389 - training - INFO - Memory: GPU 0: 3185.3MB allocated, 8670.0MB reserved
+2025-03-26 02:08:25,389 - training - INFO - Epoch: 108/200000, Batch: 30/45, Loss: 5.0669, Throughput: 79.52 samples/sec
+2025-03-26 02:08:35,241 - training - INFO - Epoch 108 completed in 31.68s. Average loss: 5.0690
+2025-03-26 02:08:35,245 - training - INFO - Starting epoch 109/200000
+2025-03-26 02:08:35,950 - training - INFO - Memory: GPU 0: 3185.3MB allocated, 8790.0MB reserved
+2025-03-26 02:08:35,950 - training - INFO - Epoch: 109/200000, Batch: 0/45, Loss: 4.8366, Throughput: 79.56 samples/sec
+2025-03-26 02:08:46,777 - training - INFO - Memory: GPU 0: 3189.8MB allocated, 8672.0MB reserved
+2025-03-26 02:08:46,778 - training - INFO - Epoch: 109/200000, Batch: 15/45, Loss: 4.9640, Throughput: 77.71 samples/sec
+2025-03-26 02:08:57,468 - training - INFO - Memory: GPU 0: 3189.8MB allocated, 8674.0MB reserved
+2025-03-26 02:08:57,468 - training - INFO - Epoch: 109/200000, Batch: 30/45, Loss: 5.0529, Throughput: 78.12 samples/sec
+2025-03-26 02:09:07,459 - training - INFO - Epoch 109 completed in 32.21s. Average loss: 5.0611
+2025-03-26 02:09:07,463 - training - INFO - Starting epoch 110/200000
+2025-03-26 02:09:08,157 - training - INFO - Memory: GPU 0: 3189.8MB allocated, 8794.0MB reserved
+2025-03-26 02:09:08,157 - training - INFO - Epoch: 110/200000, Batch: 0/45, Loss: 5.0060, Throughput: 80.86 samples/sec
+2025-03-26 02:09:19,045 - training - INFO - Memory: GPU 0: 3186.4MB allocated, 8670.0MB reserved
+2025-03-26 02:09:19,045 - training - INFO - Epoch: 110/200000, Batch: 15/45, Loss: 5.0333, Throughput: 77.37 samples/sec
+2025-03-26 02:09:29,601 - training - INFO - Memory: GPU 0: 3186.4MB allocated, 8672.0MB reserved
+2025-03-26 02:09:29,601 - training - INFO - Epoch: 110/200000, Batch: 30/45, Loss: 5.0379, Throughput: 78.42 samples/sec
+2025-03-26 02:09:39,512 - training - INFO - Epoch 110 completed in 32.05s. Average loss: 5.0605
+2025-03-26 02:09:39,515 - training - INFO - Starting validation...
+2025-03-26 02:09:39,814 - training - INFO - Validation Loss: 6.5019
+2025-03-26 02:09:39,815 - training - INFO - Validation loss did not improve. Counter: 9/10
+2025-03-26 02:09:40,106 - training - INFO - Starting epoch 111/200000
+2025-03-26 02:09:40,814 - training - INFO - Memory: GPU 0: 3196.5MB allocated, 7940.0MB reserved
+2025-03-26 02:09:40,814 - training - INFO - Epoch: 111/200000, Batch: 0/45, Loss: 5.1212, Throughput: 79.21 samples/sec
+2025-03-26 02:09:51,461 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 02:09:51,461 - training - INFO - Epoch: 111/200000, Batch: 15/45, Loss: 5.1157, Throughput: 78.92 samples/sec
+2025-03-26 02:10:02,113 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8648.0MB reserved
+2025-03-26 02:10:02,114 - training - INFO - Epoch: 111/200000, Batch: 30/45, Loss: 5.0978, Throughput: 78.89 samples/sec
+2025-03-26 02:10:12,019 - training - INFO - Epoch 111 completed in 31.91s. Average loss: 5.0420
+2025-03-26 02:10:12,022 - training - INFO - Starting epoch 112/200000
+2025-03-26 02:10:12,719 - training - INFO - Memory: GPU 0: 3188.0MB allocated, 8768.0MB reserved
+2025-03-26 02:10:12,719 - training - INFO - Epoch: 112/200000, Batch: 0/45, Loss: 4.9275, Throughput: 80.58 samples/sec
+2025-03-26 02:10:23,430 - training - INFO - Memory: GPU 0: 3188.9MB allocated, 8656.0MB reserved
+2025-03-26 02:10:23,431 - training - INFO - Epoch: 112/200000, Batch: 15/45, Loss: 5.0447, Throughput: 78.56 samples/sec
+2025-03-26 02:10:33,922 - training - INFO - Memory: GPU 0: 3188.9MB allocated, 8656.0MB reserved
+2025-03-26 02:10:33,922 - training - INFO - Epoch: 112/200000, Batch: 30/45, Loss: 5.0167, Throughput: 79.28 samples/sec
+2025-03-26 02:10:43,878 - training - INFO - Epoch 112 completed in 31.86s. Average loss: 5.0437
+2025-03-26 02:10:43,881 - training - INFO - Starting epoch 113/200000
+2025-03-26 02:10:44,570 - training - INFO - Memory: GPU 0: 3188.9MB allocated, 8778.0MB reserved
+2025-03-26 02:10:44,571 - training - INFO - Epoch: 113/200000, Batch: 0/45, Loss: 5.0957, Throughput: 81.45 samples/sec
+2025-03-26 02:10:55,453 - training - INFO - Memory: GPU 0: 3189.5MB allocated, 8672.0MB reserved
+2025-03-26 02:10:55,453 - training - INFO - Epoch: 113/200000, Batch: 15/45, Loss: 4.9997, Throughput: 77.44 samples/sec
