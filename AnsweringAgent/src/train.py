@@ -320,7 +320,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             prev_best_model = os.path.join(checkpoint_dir, f'best_model_epoch_{last_best_epoch}.pt')
                             if os.path.exists(prev_best_model):
                                 try:
-                                    os.remove(prev_best_model)
+                                    #os.remove(prev_best_model)
                                     logger.info(f"Removed previous best model from epoch {last_best_epoch}")
                                 except Exception as e:
                                     logger.warning(f"Failed to remove previous best model: {str(e)}")
@@ -330,14 +330,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                         # Save model
                         model_to_save = model.module if hasattr(model, 'module') else model
-                        torch.save({
-                            'model_state_dict': model_to_save.state_dict(),
-                            'epoch': epoch + 1,
-                            'val_loss': val_loss,
-                            'optimizer_state_dict': optimizer.state_dict(),
-                            'scheduler_state_dict': scheduler.state_dict(),
-                        }, os.path.join(checkpoint_dir, f'best_model_epoch_{epoch + 1}.pt'))
-                        logger.info(f'New best model saved at epoch {epoch + 1} (val_loss: {val_loss:.4f})')
+                        #torch.save({
+                        #    'model_state_dict': model_to_save.state_dict(),
+                        #    'val_loss': val_loss,
+                        #    'scheduler_state_dict': scheduler.state_dict(),
+                        #}, os.path.join(checkpoint_dir, f'best_model_epoch_{epoch + 1}.pt'))
+                        #logger.info(f'New best model saved at epoch {epoch + 1} (val_loss: {val_loss:.4f})')
 
                 # Save periodic checkpoint
                 if (epoch + 1) % save_frequency == 0 and rank == 0:
