@@ -31,7 +31,7 @@ class TrainingConfig:
     gradient_clip: float = 0.5
     warmup_steps: int = 1000
     log_freq: int = 2
-    eval_freq: int = 10  #(validate every ~66 minutes)
+    eval_freq: int = 100  #(validate every ~66 minutes)
     num_workers: int = 4
     pin_memory: bool = True
     mixed_precision: bool = True
@@ -45,7 +45,7 @@ class TrainingConfig:
     # Early stopping parameters
     early_stopping: bool = True
     early_stopping_patience: int = 10
-    early_stopping_min_delta: float = 0.005
+    early_stopping_min_delta: float = 0.001
 
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""

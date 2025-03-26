@@ -402,18 +402,18 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         last_best_epoch = epoch + 1
 
                         # Save model with EMA weights
-                        #ema.apply_shadow()  # Apply EMA weights for saving
+                        ema.apply_shadow()  # Apply EMA weights for saving
                         model_to_save = model.module if hasattr(model, 'module') else model
-                        #torch.save({
-                            #'model_state_dict': model_to_save.state_dict(),
-                            #'epoch': epoch + 1,
-                            #'val_loss': val_loss,
-                            #'optimizer_state_dict': optimizer.state_dict(),
-                            #'scheduler_state_dict': scheduler.state_dict(),
-                            #'ema': ema.state_dict()
-                        #}, os.path.join(checkpoint_dir, f'best_model_epoch_{epoch + 1}.pt'))
-                        #ema.restore()  # Restore original weights for training
-                        #logger.info(f'New best model saved at epoch {epoch + 1} (val_loss: {val_loss:.4f})')
+                        torch.save({
+                            'model_state_dict': model_to_save.state_dict(),
+                            'epoch': epoch + 1,
+                            'val_loss': val_loss,
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'scheduler_state_dict': scheduler.state_dict(),
+                            'ema': ema.state_dict()
+                        }, os.path.join(checkpoint_dir, f'best_model_epoch_{epoch + 1}.pt'))
+                        ema.restore()  # Restore original weights for training
+                        logger.info(f'New best model saved at epoch {epoch + 1} (val_loss: {val_loss:.4f})')
 
                 # Update previous validation loss for next comparison
                 prev_val_loss = val_loss
