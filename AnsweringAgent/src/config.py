@@ -14,7 +14,7 @@ class ModelConfig:
     hidden_size: int = 768
     dropout: float = 0.2
     feat_dropout: float = 0.4
-    num_decoder_layers: int = 6
+    num_decoder_layers: int = 4
     num_attention_heads: int = 8
     feedforward_dim: int = 3072  # 4 * hidden_size
     max_answer_length: int = 128
@@ -27,8 +27,8 @@ class TrainingConfig:
     per_gpu_batch_size: int = 7
     num_epochs: int = 200000
     learning_rate: float = 5e-5
-    weight_decay: float = 0.01
-    gradient_clip: float = 1.0
+    weight_decay: float = 0.02
+    gradient_clip: float = 0.5
     warmup_steps: int = 1000
     log_freq: int = 2
     eval_freq: int = 100  #(validate every ~66 minutes)

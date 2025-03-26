@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from typing import Dict
 from transformers import BertTokenizerFast, BertModel, BertTokenizer
 from utils.logger import setup_logger
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau, LambdaLR
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
@@ -29,6 +29,7 @@ import argparse
 import threading
 import torch.multiprocessing as mp
 import json
+import math  # Add math import for cosine decay function
 
 # Enable Python fault handler for segfaults
 faulthandler.enable()
@@ -207,6 +208,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Optimizer step with scaling
                         scaler.step(optimizer)
                         scaler.update()
+                        # Step the scheduler after each update
+                        scheduler.step()
                         optimizer.zero_grad(set_to_none=True)
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
@@ -308,7 +311,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 logger.info(f"Early stopping triggered! No improvement for {config.training.early_stopping_patience} epochs.")
                                 early_stopping_triggered = True
                     
-                    scheduler.step(val_loss)
+                    scheduler.step()
 
                     # Save best model
                     if val_loss < best_val_loss:
@@ -626,21 +629,40 @@ def main():
             if rank == 0:
                 logger.info(f"Resuming training from epoch {start_epoch}")
 
+        # Create warmup then decay scheduler
+        def get_lr_schedule(optimizer, warmup_steps, total_steps):
+            def lr_lambda(current_step):
+                if current_step < warmup_steps:
+                    # Linear warmup
+                    return float(current_step) / float(max(1, warmup_steps))
+                else:
+                    # Cosine decay after warmup
+                    progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+                    return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+                    
+            return LambdaLR(optimizer, lr_lambda)
+        
         # Optimizer, loss, and scheduler
         optimizer = optim.AdamW(
             model.parameters(),
             lr=config.training.learning_rate,
             weight_decay=config.training.weight_decay
         )
-        criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
-        scheduler = ReduceLROnPlateau(
-            optimizer,
-            mode='min',
-            factor=config.training.scheduler_factor,
-            patience=config.training.scheduler_patience,
-            verbose=config.training.scheduler_verbose if rank == 0 else False
+        criterion = nn.CrossEntropyLoss(
+            ignore_index=tokenizer.pad_token_id,
+            label_smoothing=0.1
         )
-
+        
+        # Calculate total steps
+        total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+        
+        # Create scheduler with warmup
+        scheduler = get_lr_schedule(
+            optimizer, 
+            warmup_steps=config.training.warmup_steps,
+            total_steps=total_steps
+        )
+        
         # Load dataset
         try:
             dataset = AnsweringDataset(config=config)

@@ -116,7 +116,7 @@ class AnsweringAgent(nn.Module):
         
         # Initialize BERT and tokenizer
         self.bert = BertModel.from_pretrained(config.model.bert_model_name)
-        self.bert_dropout = nn.Dropout(config.model.dropout)
+        self.bert_dropout = nn.Dropout(0.3)
 
         # Verify hidden sizes match
         assert config.model.hidden_size == self.bert.config.hidden_size, \
@@ -132,15 +132,19 @@ class AnsweringAgent(nn.Module):
         self.feature_fusion = nn.Sequential(
             nn.Linear(config.model.hidden_size * 2, config.model.hidden_size),
             nn.ReLU(),
-            nn.Dropout(config.model.dropout),
-            nn.Linear(config.model.hidden_size, config.model.hidden_size)
+            nn.Dropout(0.5),
+            nn.Linear(config.model.hidden_size, config.model.hidden_size),
+            nn.Dropout(0.3)
         )
+        
+        # Add Layer Normalization for better regularization
+        self.feature_norm = nn.LayerNorm(config.model.hidden_size)
 
         # Initialize feature attention
         self.feature_attention = MultiModalAttention(
             hidden_size=config.model.hidden_size,
             num_heads=config.model.num_attention_heads,
-            dropout=config.model.dropout
+            dropout=0.4
         )
 
         # Initialize decoder
@@ -148,7 +152,7 @@ class AnsweringAgent(nn.Module):
             d_model=config.model.hidden_size,
             nhead=config.model.num_attention_heads,
             dim_feedforward=config.model.feedforward_dim,
-            dropout=config.model.dropout,
+            dropout=0.4,
             activation='relu'
         )
 
@@ -246,6 +250,9 @@ class AnsweringAgent(nn.Module):
         
         # Transpose back to [batch_size, seq_len, hidden_size]
         combined_features = text_with_visual_context.transpose(0, 1)
+        
+        # Apply layer normalization for better regularization
+        combined_features = self.feature_norm(combined_features)
         
         # Create target mask to prevent attention to future tokens
         target_mask = self.generate_square_subsequent_mask(seq_len, input_ids.device)
