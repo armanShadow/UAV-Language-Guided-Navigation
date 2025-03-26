@@ -628,40 +628,6 @@ def main():
             best_val_loss = checkpoint.get('val_loss', float('inf'))
             if rank == 0:
                 logger.info(f"Resuming training from epoch {start_epoch}")
-
-        # Create warmup then decay scheduler
-        def get_lr_schedule(optimizer, warmup_steps, total_steps):
-            def lr_lambda(current_step):
-                if current_step < warmup_steps:
-                    # Linear warmup
-                    return float(current_step) / float(max(1, warmup_steps))
-                else:
-                    # Cosine decay after warmup
-                    progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
-                    return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
-                    
-            return LambdaLR(optimizer, lr_lambda)
-        
-        # Optimizer, loss, and scheduler
-        optimizer = optim.AdamW(
-            model.parameters(),
-            lr=config.training.learning_rate,
-            weight_decay=config.training.weight_decay
-        )
-        criterion = nn.CrossEntropyLoss(
-            ignore_index=tokenizer.pad_token_id,
-            label_smoothing=0.1
-        )
-        
-        # Calculate total steps
-        total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
-        
-        # Create scheduler with warmup
-        scheduler = get_lr_schedule(
-            optimizer, 
-            warmup_steps=config.training.warmup_steps,
-            total_steps=total_steps
-        )
         
         # Load dataset
         try:
@@ -733,6 +699,40 @@ def main():
             num_workers=config.training.num_workers,
             pin_memory=config.training.pin_memory,
             persistent_workers=(config.training.num_workers > 0)
+        )
+
+        # Create warmup then decay scheduler
+        def get_lr_schedule(optimizer, warmup_steps, total_steps):
+            def lr_lambda(current_step):
+                if current_step < warmup_steps:
+                    # Linear warmup
+                    return float(current_step) / float(max(1, warmup_steps))
+                else:
+                    # Cosine decay after warmup
+                    progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+                    return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+                    
+            return LambdaLR(optimizer, lr_lambda)
+        
+        # Optimizer, loss, and scheduler
+        optimizer = optim.AdamW(
+            model.parameters(),
+            lr=config.training.learning_rate,
+            weight_decay=config.training.weight_decay
+        )
+        criterion = nn.CrossEntropyLoss(
+            ignore_index=tokenizer.pad_token_id,
+            label_smoothing=0.1
+        )
+        
+        # Calculate total steps
+        total_steps = len(train_loader) * config.training.num_epochs // config.training.gradient_accumulation_steps
+        
+        # Create scheduler with warmup
+        scheduler = get_lr_schedule(
+            optimizer, 
+            warmup_steps=config.training.warmup_steps,
+            total_steps=total_steps
         )
 
         # Training
