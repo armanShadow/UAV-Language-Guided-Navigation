@@ -2,7 +2,6 @@
 /.venv
 /AnsweringAgent/outputs/logs/test_indices.pt
 /AnsweringAgent/outputs/checkpoints
-/.idea
-__pycache__/
-AnsweringAgent/.DS_Store
-critical_issues_and_solutions.md
+**/.idea
+**/__pycache__
+documents/
