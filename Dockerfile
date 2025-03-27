@@ -4,9 +4,6 @@
 # Use PyTorch 1.11.0 with CUDA 11.3
 FROM pytorch/pytorch:1.11.0-cuda11.3-cudnn8-runtime
 
-# Set the CUDA_VISIBLE_DEVICES environment variable
-ENV CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-
 # Set working directory
 WORKDIR /app
 
@@ -25,7 +22,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Set environment variables
 ENV PYTHONPATH=/app
-ENV CUDA_VISIBLE_DEVICES=0
+ENV CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 # Create project directory
 RUN mkdir -p UAV-Language-Guided-Navigation
