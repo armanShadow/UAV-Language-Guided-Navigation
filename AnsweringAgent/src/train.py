@@ -714,8 +714,7 @@ def main():
                 dist.barrier()
 
             datasets = AnsweringDataset.create_datasets(config, logger=logger, splits=['train', 'val_seen'])
-            train_dataset = datasets['train']
-            val_dataset = datasets['val_seen']        
+
         except Exception as e:
             logger.error(f"Critical error loading dataset: {str(e)}")
             logger.error(traceback.format_exc())
@@ -725,13 +724,13 @@ def main():
         
         
         if rank == 0:
-            logger.info(f"Dataset split: {len(datasets['train'])} training, {len(datasets['val_seen'])} validation, {len(datasets['val_unseen'])} test samples")
+            logger.info(f"Dataset split: {len(datasets['train'])} training, {len(datasets['val_seen'])} validation")
         
 
         # Use DistributedSampler for distributed training
         if is_distributed:
             train_sampler = DistributedSampler(datasets['train'], num_replicas=world_size, rank=rank)
-            val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank)
+            val_sampler = DistributedSampler(datasets['val_seen'], num_replicas=world_size, rank=rank)
             shuffle = False
         else:
             train_sampler = None

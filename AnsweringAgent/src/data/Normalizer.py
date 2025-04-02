@@ -21,13 +21,15 @@ class AnsweringAgentNormalizer:
         'lon': {'min': -180, 'max': 180}
     }
 
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, config):
         """Initialize the normalizer."""
         # Add image cache to avoid repeated disk reads
         self.image_cache = {}
         # Maximum cache size (adjust based on available memory)
         self.max_cache_size = 100
         self.tokenizer = tokenizer
+        self.config = config
+        
     def load_image(self, file_path: str) -> np.ndarray:
         """Load an image from file and ensure RGB format.
         

@@ -65,7 +65,7 @@ class AnsweringDataset(Dataset):
             logger.info(f"Loading {split} JSON data from {json_path}...")
         
         # Initialize normalizer
-        normalizer = AnsweringAgentNormalizer(tokenizer)
+        normalizer = AnsweringAgentNormalizer(tokenizer, config)
         
         # Use preprocess_all_data method to process all items efficiently
         if logger:
