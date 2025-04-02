@@ -259,6 +259,11 @@ class AnsweringDataset(Dataset):
                 logger.info(f"Preprocessing {split} dataset...")
                 AnsweringDataset.preprocess_and_save(config, split=split, logger=logger)
                 logger.info(f"{split} dataset preprocessing complete.")
+            
+            # Ensure other ranks wait for rank 0 to finish preprocessing
+            if dist.is_initialized():
+                dist.barrier()
+                
             datasets[split] = AnsweringDataset(config, tokenizer, split=split)
         
         return datasets
