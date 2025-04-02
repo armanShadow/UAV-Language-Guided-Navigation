@@ -50,7 +50,7 @@ class TrainingConfig:
     early_stopping_patience: int = 10
     early_stopping_min_delta: float = 0.001
     use_augmentation: bool = False
-
+    train_chunk_size: int = 1000
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""
         if not torch.cuda.is_available():
@@ -62,7 +62,7 @@ class TrainingConfig:
 @dataclass
 class DataConfig:
     """Configuration for data loading and preprocessing."""
-    train_processed_path: str = str(DATASET_ROOT / "train_processed_dataset.pkl")
+    train_processed_path_dir: str = str(DATASET_ROOT / "train/")
     val_seen_processed_path: str = str(DATASET_ROOT / "val_seen_processed_dataset.pkl")
     val_unseen_processed_path: str = str(DATASET_ROOT / "val_unseen_processed_dataset.pkl")
     train_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/processed_data/train_data.json")

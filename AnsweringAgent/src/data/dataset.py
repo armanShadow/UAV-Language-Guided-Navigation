@@ -6,6 +6,8 @@ from typing import Dict, Any, List, Optional
 from data.Normalizer import AnsweringAgentNormalizer
 from config import Config
 import pickle
+import math
+import traceback
 
 # Set tokenizer parallelism environment variable
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -18,6 +20,29 @@ class AnsweringDataset(Dataset):
     - Device transfer is handled by the DataLoader with pin_memory=True
     - This is optimal for multi-GPU training as it allows efficient data loading
     """
+
+    @staticmethod
+    def save_in_chunks(data, chunk_size, output_dir):
+        """
+        Save data in chunks to disk.
+        """
+        for i in range(0, len(data), chunk_size):
+            chunk = data[i:i+chunk_size]
+            with open(os.path.join(output_dir, f"chunk_{i}.pkl"), "wb") as f:
+                pickle.dump(chunk, f)
+
+    @staticmethod
+    def load_train_chunks(preprocessed_path):
+        """
+        Load train data from multiple chunks.
+        """
+        data = []
+        for file in os.listdir(preprocessed_path):
+            if file.endswith('.pkl'):
+                with open(os.path.join(preprocessed_path, file), 'rb') as f:
+                    data.extend(pickle.load(f))
+        return data 
+
     @staticmethod
     def preprocess_and_save(config: Config, tokenizer, split='train', logger=None):
         """
@@ -38,7 +63,7 @@ class AnsweringDataset(Dataset):
         # Determine data paths based on split
         if split == 'train':
             json_path = config.data.train_json_path
-            processed_data_path = config.data.train_processed_path
+            processed_data_path = config.data.train_processed_path_dir
         elif split == 'val_seen':
             json_path = config.data.val_seen_json_path
             processed_data_path = config.data.val_seen_processed_path
@@ -81,25 +106,31 @@ class AnsweringDataset(Dataset):
             apply_augmentation=apply_augmentation
         )
         
-        # Save the processed data to disk
-        with open(processed_data_path, 'wb') as f:
-            if logger:
-                logger.info(f"Saving preprocessed {split} data to {processed_data_path}")
-            pickle.dump(processed_items, f)
+        if split == 'train':
+            AnsweringDataset.save_in_chunks(processed_items, config.training.train_chunk_size, processed_data_path)
+        else:
+            # Save the processed data to disk
+            with open(processed_data_path, 'wb') as f:
+                if logger:
+                    logger.info(f"Saving preprocessed {split} data to {processed_data_path}")
+                pickle.dump(processed_items, f)
+            
         
         if logger:
             logger.info(f"{split} preprocessing complete. {len(processed_items)} items saved to {processed_data_path}")
         
         return processed_data_path
     
-    def __init__(self, config: Config, split='train'):
+    def __init__(self, config: Config, split='train', rank=0, world_size=1):
         """
         Initialize the dataset - loads preprocessed data.
+        Supports chunked loading for train split and distributes chunks in multi-GPU settings.
         
         Args:
             config: Configuration object
-            tokenizer: Text tokenizer to use (T5, BERT, etc.)
             split: Dataset split ('train', 'val_seen', 'val_unseen')
+            rank: Process rank for distributed training
+            world_size: Total number of processes
         """
         self.config = config
         self.max_prev_views = config.data.max_previous_views
@@ -107,7 +138,7 @@ class AnsweringDataset(Dataset):
         
         # Determine which processed file to load based on split
         if split == 'train':
-            preprocessed_path = config.data.train_processed_path
+            preprocessed_path = config.data.train_processed_path_dir
         elif split == 'val_seen':
             preprocessed_path = config.data.val_seen_processed_path
         elif split == 'val_unseen':
@@ -117,15 +148,19 @@ class AnsweringDataset(Dataset):
 
         # Load the preprocessed data
         try:
-            with open(preprocessed_path, 'rb') as f:
-                print(f"Loading {split} data from {preprocessed_path}")
-                self.preprocessed_data = pickle.load(f)
-            print(f"Loaded {len(self.preprocessed_data)} preprocessed items for {split}")
+            if split == 'train':
+                self.preprocessed_data = AnsweringDataset.load_train_chunks(preprocessed_path)
+            else:
+                with open(preprocessed_path, 'rb') as f:
+                    print(f"Loading {split} data from {preprocessed_path}")
+                    self.preprocessed_data = pickle.load(f)
+                print(f"Loaded {len(self.preprocessed_data)} preprocessed items for {split}")
             
             # Convert dict to list for easier indexing
             self.data_items = list(self.preprocessed_data.values())
         except Exception as e:
             print(f"Error loading preprocessed data: {str(e)}")
+            traceback.print_exc()
             raise
     
     def __len__(self) -> int:
@@ -133,7 +168,7 @@ class AnsweringDataset(Dataset):
     
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """
-        Get a data item
+        Get a data item using pre-tokenized data from the normalizer.
         
         Args:
             idx (int): Index of the item to get
@@ -144,20 +179,21 @@ class AnsweringDataset(Dataset):
                 - current_view_image: Current view image tensor
                 - previous_views_image: Previous views image tensor (if available)
                 - text_label: Tokenized answer label
-                - destination_image: Destination image tensor (if available)
-                - raw_question: Raw question string
-                - raw_answer: Raw answer string
-                - first_instruction: First instruction string
-                - dialog_history: Dialog history list
         """
         # Get the preprocessed data item
         item = self.data_items[idx]
         
         # Get pre-tokenized text data
         tokenized_text = item['tokenized_input']
-        tokenized_answer = item['tokenized_answer']
+        tokenized_answer = item['tokenized_answer']['input_ids'].squeeze(0)
         
-        # Get image data
+        # Get text fields for reference (not used for model input)
+        question = item.get('question', '')
+        first_instruction = item.get('first_instruction', '')
+        dialog_history = item.get('dialog_history', [])
+        answer = item.get('answer', '')
+        
+        # Get image data - already tensors from normalizer
         current_view = item['current_view_image']
         
         # Process previous views
@@ -175,10 +211,10 @@ class AnsweringDataset(Dataset):
                 'text_label': tokenized_answer,
                 'current_view_image': current_view,
                 'previous_views_image': default_views,
-                'raw_question': item['question'],
-                'raw_answer': item['answer'],
-                'first_instruction': item['first_instruction'],
-                'dialog_history': item['dialog_history']
+                'raw_question': question,
+                'raw_answer': answer,
+                'first_instruction': first_instruction,
+                'dialog_history': dialog_history
             }
             
         # Pad or truncate to max_previous_views
@@ -199,10 +235,10 @@ class AnsweringDataset(Dataset):
             'text_label': tokenized_answer,
             'current_view_image': current_view,
             'previous_views_image': previous_views,
-            'raw_question': item['question'],
-            'raw_answer': item['answer'],
-            'first_instruction': item['first_instruction'],
-            'dialog_history': item['dialog_history']
+            'raw_question': question,
+            'raw_answer': answer,
+            'first_instruction': first_instruction,
+            'dialog_history': dialog_history
         }
         
         # Add destination if available (important for curriculum learning)
