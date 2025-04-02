@@ -745,7 +745,7 @@ def main():
             logger.info(batch_str)
 
         train_loader = DataLoader(
-            train_dataset,
+            datasets['train'],
             batch_size=config.training.per_gpu_batch_size,
             sampler=train_sampler,
             shuffle=shuffle,  # Only shuffle if not using sampler
@@ -755,7 +755,7 @@ def main():
         )
 
         val_loader = DataLoader(
-            val_dataset,
+            datasets['val_seen'],
             batch_size=config.training.per_gpu_batch_size,
             sampler=val_sampler,
             shuffle=False,
