@@ -240,7 +240,7 @@ class AnsweringDataset(Dataset):
         return result
     
     @staticmethod
-    def create_datasets(config: Config, tokenizer, logger=None, splits=['train', 'val_seen', 'val_unseen'], rank=None):
+    def create_datasets(config: Config, tokenizer, logger=None, splits=['train', 'val_seen', 'val_unseen']):
         """
         Create all three datasets (train, val_seen, val_unseen) at once.
         
@@ -255,15 +255,6 @@ class AnsweringDataset(Dataset):
         # Preprocess all splits
         datasets = {}
         for split in splits:
-            if rank == 0:   
-                logger.info(f"Preprocessing {split} dataset...")
-                AnsweringDataset.preprocess_and_save(config, split=split, logger=logger)
-                logger.info(f"{split} dataset preprocessing complete.")
-            
-            # Ensure other ranks wait for rank 0 to finish preprocessing
-            if dist.is_initialized():
-                dist.barrier()
-                
             datasets[split] = AnsweringDataset(config, tokenizer, split=split)
-        
+
         return datasets
