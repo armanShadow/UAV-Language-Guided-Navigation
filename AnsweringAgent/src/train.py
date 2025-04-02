@@ -705,16 +705,16 @@ def main():
         
         # Load dataset
         try:
-            dataset = AnsweringDataset(config=config)
+            datasets = AnsweringDataset.create_datasets(config, tokenizer, logger=logger, splits=['train', 'val_seen', 'val_unseen'], rank=rank)
+            train_dataset = datasets['train']
+            val_dataset = datasets['val_seen']        
         except Exception as e:
             logger.error(f"Critical error loading dataset: {str(e)}")
             logger.error(traceback.format_exc())
             TRAINING_FAILED = True
             raise e
         
-        datasets = AnsweringDataset.create_datasets(config, tokenizer, logger=logger, splits=['train', 'val_seen', 'val_unseen'], rank=rank)
-        train_dataset = datasets['train']
-        val_dataset = datasets['val_seen']
+        
         
         if rank == 0:
             logger.info(f"Dataset split: {len(datasets['train'])} training, {len(datasets['val_seen'])} validation, {len(datasets['val_unseen'])} test samples")
