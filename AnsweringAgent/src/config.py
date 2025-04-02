@@ -46,6 +46,7 @@ class TrainingConfig:
     early_stopping: bool = True
     early_stopping_patience: int = 10
     early_stopping_min_delta: float = 0.001
+    use_augmentation: bool = False
 
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""
@@ -58,8 +59,12 @@ class TrainingConfig:
 @dataclass
 class DataConfig:
     """Configuration for data loading and preprocessing."""
-    train_data_path: str = str(DATASET_ROOT / "processed_dataset.pkl")
-    train_csv_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/train_data.csv")
+    train_processed_path: str = str(DATASET_ROOT / "train_processed_dataset.pkl")
+    val_seen_processed_path: str = str(DATASET_ROOT / "val_seen_processed_dataset.pkl")
+    val_unseen_processed_path: str = str(DATASET_ROOT / "val_unseen_processed_dataset.pkl")
+    train_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/processed_data/train_data.json")
+    val_seen_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/processed_data/val_seen_data.json")
+    val_unseen_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/processed_data/val_unseen_data.json")
     avdn_image_dir: str = str(DATASET_ROOT / "AVDN/train_images")
     darknet_config_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/yolo_v3.cfg")
     darknet_weights_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/best.pt")

@@ -75,6 +75,28 @@ def load_data(path, output_dir="processed_data", augment=True, max_augmented_per
                 current_observation = data_array[i+j-1]["gt_path_corners"][-1]
                 all_observations.append(current_observation)
                 
+                # Convert pre_dialogs to T5 format
+                t5_dialog_history = []
+                for dialog in current_data["pre_dialogs"]:
+                    # Find [INS] marker in pre_dialogs
+                    ins_start = dialog.find("[INS]")
+                    
+                    if ins_start != -1:
+                        que_start = dialog.find("[QUE]")
+                        
+                        # Handle first instruction case (no [QUE] marker)
+                        if que_start == -1:
+                            # This is a first instruction without a question
+                            a_text = dialog[ins_start + 5:].strip()  # Remove [INS] prefix
+                            t5_dialog = f"<s> First Instruction: {a_text} </s>"
+                            t5_dialog_history.append(t5_dialog)
+                        else:
+                            # Normal Q&A case
+                            q_text = dialog[que_start + 5:ins_start].strip()  # Remove [QUE] prefix
+                            a_text = dialog[ins_start + 5:].strip()  # Remove [INS] prefix
+                            t5_dialog = f"<s> Question: {q_text} Answer: {a_text} </s>"
+                            t5_dialog_history.append(t5_dialog)
+                
                 dialog_turn = {
                     "turn_id": j,
                     "question": question,
@@ -82,7 +104,7 @@ def load_data(path, output_dir="processed_data", augment=True, max_augmented_per
                     "observation": {
                         "view_area_coords": current_observation
                     },
-                    "dialog_history": current_data["pre_dialogs"],
+                    "dialog_history": t5_dialog_history,
                     "previous_observations": all_observations[:-1]  # All observations except the current one
                 }
             
@@ -229,11 +251,17 @@ def create_optimized_sub_trajectories(original_episode, all_dialog_turns, max_au
             for prev_pattern_idx in range(len(pattern)):
                 if pattern[prev_pattern_idx] < orig_idx:  # Only include turns that come before this one
                     prev_orig_idx = pattern[prev_pattern_idx]
-                    if prev_orig_idx > 0:  # Skip turn 0 which has no Q&A
-                        prev_turn = all_dialog_turns[prev_orig_idx]
-                        if prev_turn["question"] and prev_turn["answer"]:
-                            dialog_entry = f"Q: {prev_turn['question']} A: {prev_turn['answer']}"
-                            new_dialog_history.append(dialog_entry)
+                    prev_turn = all_dialog_turns[prev_orig_idx]
+                    
+                    if prev_orig_idx == 0:
+                        # Include the first instruction (which has no question)
+                        first_ins = original_episode["first_instruction"]
+                        dialog_entry = f"<s> First Instruction: {first_ins} </s>"
+                        new_dialog_history.append(dialog_entry)
+                    elif prev_turn["question"] and prev_turn["answer"]:
+                        # Normal Q&A case
+                        dialog_entry = f"<s> Question: {prev_turn['question']} Answer: {prev_turn['answer']} </s>"
+                        new_dialog_history.append(dialog_entry)
             
             turn["dialog_history"] = new_dialog_history
             aug_episode["dialogs"].append(turn)

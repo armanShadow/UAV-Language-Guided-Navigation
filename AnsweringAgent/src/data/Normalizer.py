@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import json
 import os
-from typing import List, Tuple, Dict, Any
-from transformers import BertTokenizerFast
+import random
+from typing import List, Tuple, Dict, Any, Union, Optional
 
 
 class AnsweringAgentNormalizer:
@@ -21,10 +21,8 @@ class AnsweringAgentNormalizer:
         'lon': {'min': -180, 'max': 180}
     }
 
-    def __init__(self, tokenizer):
-        """Initialize the normalizer with BERT tokenizer."""
-        #TODO: #4 BertTokenizerFast vs BertTokenizer. is it confusing the model?
-        self.tokenizer = tokenizer
+    def __init__(self):
+        """Initialize the normalizer."""
         # Add image cache to avoid repeated disk reads
         self.image_cache = {}
         # Maximum cache size (adjust based on available memory)
@@ -57,7 +55,7 @@ class AnsweringAgentNormalizer:
             image (np.ndarray): Input image in (H, W, C) format
             
         Returns:
-            np.ndarray: Normalized image in (H, W, C) format
+            np.ndarray: Normalized image in (C, H, W) format
         """
         # Transpose image to match AVDN's format (C, H, W)
         image = image.transpose(2, 0, 1)
@@ -65,56 +63,47 @@ class AnsweringAgentNormalizer:
         # Apply normalization
         image = (image - self.RGB_MEAN) / self.RGB_STD
         
-        
         return image
 
-    def normalize_text(self, data: Dict[str, Any], max_length: int = 512) -> Dict[str, torch.Tensor]:
-        """Normalize text using BERT tokenizer and return tokenized output.
+    def apply_visual_augmentation(self, image: np.ndarray, 
+                                  augment_prob: float = 0.5,
+                                  brightness_range: Tuple[float, float] = (0.8, 1.2),
+                                  contrast_range: Tuple[float, float] = (0.8, 1.2),
+                                  noise_level: float = 0.02) -> np.ndarray:
+        """Apply visual augmentations to the image.
         
         Args:
-            data (Dict[str, Any]): Dictionary containing all text fields
-            max_length (int): Maximum sequence length
+            image: Input image (C, H, W) format after normalize_pixel_values
+            augment_prob: Probability of applying each augmentation
+            brightness_range: Range for brightness adjustment
+            contrast_range: Range for contrast adjustment
+            noise_level: Standard deviation for Gaussian noise
             
         Returns:
-            Dict[str, torch.Tensor]: Dictionary containing:
-                - input_ids: Tokenized input IDs
-                - attention_mask: Attention mask for padding
-                - token_type_ids: Token type IDs for BERT
+            Augmented image
         """
-        # Get text inputs
-        question = data['question'].strip()
-        first_instruction = data['first_instruction'].strip()
-        history = data['history'].strip()
-        
-        # Concatenate with special tokens for each input type and [SEP] between contexts
-        concatenated_text = f"[ASKED QUE] {question} [SEP] [FIRST INS] {first_instruction} [SEP] [HIST] {history}"
-        
-        # Tokenize text
-        tokenized_text = self.tokenizer(
-            concatenated_text,
-            padding='max_length',
-            truncation=True,
-            max_length=max_length,
-            return_tensors='pt'
-        )
-        
-        # Get label text
-        label_text = data['answer'].strip()
-        
-        # Tokenize label
-        tokenized_label = self.tokenizer(
-            label_text,
-            padding='max_length',
-            truncation=True,
-            max_length=128,
-            return_tensors='pt'
-        )
-        
-        # Remove the batch dimension from label if it's 1
-        if tokenized_label['input_ids'].size(0) == 1:
-            tokenized_label = {k: v.squeeze(0) for k, v in tokenized_label.items()}
-        
-        return tokenized_text, tokenized_label
+        # Skip augmentation with some probability
+        if random.random() > augment_prob:
+            return image
+            
+        # Brightness adjustment
+        if random.random() > 0.5:
+            factor = random.uniform(brightness_range[0], brightness_range[1])
+            # Apply to each channel
+            image = image * factor
+            
+        # Contrast adjustment
+        if random.random() > 0.5:
+            factor = random.uniform(contrast_range[0], contrast_range[1])
+            mean = np.mean(image, axis=(1, 2), keepdims=True)
+            image = (image - mean) * factor + mean
+            
+        # Add Gaussian noise
+        if random.random() > 0.5:
+            noise = np.random.normal(0, noise_level, image.shape).astype(np.float32)
+            image = image + noise
+            
+        return image
 
     def normalize_position(self, lat: float, lon: float) -> Tuple[float, float]:
         """Normalize GPS positions to a [0,1] scale.
@@ -185,7 +174,8 @@ class AnsweringAgentNormalizer:
 
     def normalize_view_area(self, view_area: List[List[float]], gps_botm_left: np.ndarray, 
                           gps_top_right: np.ndarray, lat_ratio: float, lng_ratio: float,
-                          image: np.ndarray, output_size: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
+                          image: np.ndarray, output_size: Tuple[int, int],
+                          apply_augmentation: bool = False) -> Tuple[np.ndarray, np.ndarray]:
         """Normalize a single view area by converting GPS coordinates to image coordinates and applying perspective transform.
         
         Args:
@@ -196,6 +186,7 @@ class AnsweringAgentNormalizer:
             lng_ratio: Longitude ratio for scaling
             image: Original image to transform
             output_size: Output image size (width, height)
+            apply_augmentation: Whether to apply visual augmentations
             
         Returns:
             Tuple[np.ndarray, np.ndarray]: 
@@ -223,149 +214,236 @@ class AnsweringAgentNormalizer:
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_REPLICATE
         )
-        
-        # Normalize image
+
         transformed_image = self.normalize_pixel_values(transformed_image)
         
-        return transformed_image, img_coord_corners
+        # Apply visual augmentation if requested
+        if apply_augmentation:
+            transformed_image = self.apply_visual_augmentation(transformed_image)
+        
+        return transformed_image
 
-    def process_data(self, data: Dict[str, Any], image_dir: str, output_size: Tuple[int, int] = (224, 224), max_seq_length: int = 512) -> Dict[str, Any]:
-        """Process image, GPS coordinates, and normalize view areas using AVDN transformations.
+    def process_coordinates_to_image(self, coords: List[List[float]], 
+                                  map_name: str, 
+                                  image_dir: str,
+                                  gps_botm_left: np.ndarray,
+                                  gps_top_right: np.ndarray,
+                                  lat_ratio: float, 
+                                  lng_ratio: float,
+                                  output_size: Tuple[int, int] = (224, 224),
+                                  apply_augmentation: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+        """Process coordinates to get the corresponding view area image.
         
         Args:
-            data: Dictionary containing observation data
-            image_dir: Directory containing satellite images
-            output_size: Size of the output image (width, height)
+            coords: Coordinates defining the view area
+            map_name: Name of the map
+            image_dir: Directory containing map images
+            gps_botm_left: Bottom left GPS coordinates
+            gps_top_right: Top right GPS coordinates
+            lat_ratio: Latitude ratio
+            lng_ratio: Longitude ratio
+            output_size: Output image size
+            apply_augmentation: Whether to apply augmentation
             
         Returns:
-            Dict[str, Any]: Processed data with normalized coordinates and transformed images
+            Tuple[np.ndarray, np.ndarray]: Transformed image and image coordinates
         """
-        processed_data = data.copy()
+        # Ensure map_name is properly formatted
+        map_image_name = f"{map_name}.tif" if not map_name.endswith(".tif") else map_name
         
-        # Process text data
-        tokenized_input_text, tokenized_label = self.normalize_text(data, max_length=max_seq_length)
-        processed_data['text_input'] = tokenized_input_text
-        processed_data['text_label'] = tokenized_label
-        
-        # Convert string coordinates to numpy arrays if they are strings
-        gps_botm_left = np.array(json.loads(data['gps_botm_left']))
-        gps_top_right = np.array(json.loads(data['gps_top_right']))
-
-        lat_ratio = float(data['lat_ratio'])
-        lng_ratio = float(data['lng_ratio'])
-        
-        # Cache and reuse loaded images
-        map_name = str(data['map_name']) + '.tif'
-        
-        if map_name not in self.image_cache:
-            # Load image only if not in cache
-            image_path = os.path.join(image_dir, map_name)
+        # Load and cache map image
+        if map_image_name not in self.image_cache:
+            image_path = os.path.join(image_dir, map_image_name)
             img = self.load_image(image_path)
+
+            # Manage cache size
             if len(self.image_cache) >= self.max_cache_size:
-                # Clear oldest image if cache is full
                 oldest_key = next(iter(self.image_cache))
                 del self.image_cache[oldest_key]
-            self.image_cache[map_name] = img
+                
+            self.image_cache[map_image_name] = img
         else:
-            img = self.image_cache[map_name]
+            img = self.image_cache[map_image_name]
+
+        # Convert coordinates to view area image
+        transformed_image = self.normalize_view_area(
+            coords, gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
+            img, output_size, apply_augmentation=apply_augmentation
+        )
         
-        # Process current view coordinates
-        if 'current_view_coord' in data:
-            # Convert string coordinates to numpy array
-            current_view_coord = np.array(json.loads(data['current_view_coord']))
-            processed_data['current_view_coord_normalized'] = self.normalize_coordinates(
-                current_view_coord, gps_botm_left, gps_top_right, lat_ratio, lng_ratio
-            )
-            
-            # Transform current view to standard size using cached image
-            transformed_image, img_coord_corners = self.normalize_view_area(
-                current_view_coord.tolist(), gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
-                img, output_size
-            )
-            processed_data['current_view_image'] = torch.from_numpy(transformed_image)
-            processed_data['current_view_coord_pixel'] = torch.from_numpy(img_coord_corners)
+        return transformed_image
+
+    def process_turn(self, data: Dict[str, Any], image_dir: str, 
+                   output_size: Tuple[int, int] = (224, 224),
+                   apply_augmentation: bool = False) -> Dict[str, Any]:
+        """Process a single dialog turn from the new JSON format.
         
-        # Process previous views coordinates
-        if 'previous_views_coord' in data:
-            # Convert string coordinates to numpy arrays
-            previous_views_coord = [np.array(view_coords) for view_coords in json.loads(data['previous_views_coord'])]
-            processed_data['previous_views_coord_normalized'] = [
-                self.normalize_coordinates(view_coords, gps_botm_left, gps_top_right, lat_ratio, lng_ratio)
-                for view_coords in previous_views_coord
-            ]
+        Args:
+            data: Dictionary containing a single dialog turn data
+            image_dir: Directory containing satellite images
+            output_size: Size of the output image (width, height)
+            apply_augmentation: Whether to apply visual augmentations
             
-            # Transform previous views to standard size
+        Returns:
+            Dict[str, Any]: Processed turn data with images but raw text
+        """
+        processed_data = {}
+        
+        # Extract all needed fields
+        question = data.get('question')
+        answer = data.get('answer')
+        first_instruction = data.get('first_instruction', '')
+        dialog_history = data.get('dialog_history', [])
+        current_view_coords = data.get('current_view_coords')
+        previous_observations = data.get('previous_observations', [])
+        map_name = data.get('map_name')
+        
+        # Extract GPS information
+        gps_botm_left = data.get('gps_data', {}).get('gps_botm_left')
+        gps_top_right = data.get('gps_data', {}).get('gps_top_right')
+        lat_ratio = data.get('gps_data', {}).get('lat_ratio')
+        lng_ratio = data.get('gps_data', {}).get('lng_ratio')
+        
+        # Handle potential string formats for GPS data
+        if isinstance(gps_botm_left, str):
+            gps_botm_left = json.loads(gps_botm_left)
+        if isinstance(gps_top_right, str):
+            gps_top_right = json.loads(gps_top_right)
+        if isinstance(current_view_coords, str):
+            current_view_coords = json.loads(current_view_coords)
+        
+        # Store raw text data - no tokenization
+        processed_data['question'] = question
+        processed_data['answer'] = answer
+        processed_data['first_instruction'] = first_instruction
+        processed_data['dialog_history'] = dialog_history
+        
+        # Process current view coordinates to image
+        if current_view_coords:
+            transformed_image = self.process_coordinates_to_image(
+                current_view_coords, map_name, image_dir,
+                gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
+                output_size, apply_augmentation=apply_augmentation
+            )
+            processed_data['current_view_image'] = transformed_image
+        
+        # Process previous view coordinates to images
+        if previous_observations:
             processed_data['previous_views_image'] = []
-            processed_data['previous_views_coord_pixel'] = []
-            for view_coords in previous_views_coord:
-                transformed_image, img_coord_corners = self.normalize_view_area(
-                    view_coords.tolist(), gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
-                    img, output_size
+            
+            for prev_coords in previous_observations:
+                # Handle potential string format
+                if isinstance(prev_coords, str):
+                    prev_coords = json.loads(prev_coords)
+                    
+                transformed_image = self.process_coordinates_to_image(
+                    prev_coords, map_name, image_dir,
+                    gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
+                    output_size, apply_augmentation=apply_augmentation
                 )
-                processed_data['previous_views_image'].append(torch.from_numpy(transformed_image))
-                processed_data['previous_views_coord_pixel'].append(torch.from_numpy(img_coord_corners))
+                processed_data['previous_views_image'].append(transformed_image)
+        
+        # Process destination coordinates if available
+        destination = data.get('destination')
+        if destination:
+            # Check if destination is a set of coordinates or a single point
+            if isinstance(destination, list) and len(destination) > 0:
+                # Get the destination image from coordinates
+                dest_image = self.process_coordinates_to_image(
+                    destination, map_name, image_dir,
+                    gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
+                    output_size, apply_augmentation=False  # No augmentation for destination
+                )
+                processed_data['destination_image'] = dest_image
         
         return processed_data
 
-    def preprocess_all_data(self, data_df, image_dir, output_size=(224, 224), max_seq_length=512):
+    def preprocess_all_data(self, data_path: str, image_dir: str, 
+                           output_size: Tuple[int, int] = (224, 224), 
+                           apply_augmentation: bool = False):
         """
-        Preprocess all data in the dataframe at once to avoid repeated processing during training.
-        Uses the existing process_data function for each item, which already handles image caching.
+        Preprocess all data in the JSON file at once.
         
         Args:
-            data_df: Pandas DataFrame containing the dataset
+            data_path: Path to the JSON dataset file
             image_dir: Directory containing satellite images
             output_size: Size of the output image (width, height)
-            max_seq_length: Maximum sequence length for text
+            apply_augmentation: Whether to apply visual augmentations
             
         Returns:
             Dict: Dictionary where keys are indices and values are processed data items
         """
-        print(f"Pre-processing {len(data_df)} items...")
+        print(f"Pre-processing data from {data_path}...")
+        
+        # Load the JSON file
+        with open(data_path, 'r') as f:
+            episodes = json.load(f)
+        
+        # Create flattened list of turns for processing
+        flattened_turns = []
+        for episode in episodes:
+            for dialog in episode["dialogs"]:
+                # Skip first turn with no Q&A for most purposes
+                if dialog["turn_id"] > 0:
+                    flattened_turns.append({
+                        "episode_id": episode["episode_id"],
+                        "map_name": episode["map_name"],
+                        "turn_id": dialog["turn_id"],
+                        "question": dialog["question"],
+                        "answer": dialog["answer"],
+                        "first_instruction": episode["first_instruction"],
+                        "current_view_coords": dialog["observation"]["view_area_coords"],
+                        "previous_observations": dialog["previous_observations"],
+                        "dialog_history": dialog["dialog_history"],
+                        "destination": episode.get("destination"),
+                        "gps_data": {
+                            "gps_botm_left": episode["gps_botm_left"],
+                            "gps_top_right": episode["gps_top_right"],
+                            "lng_ratio": episode["lng_ratio"],
+                            "lat_ratio": episode["lat_ratio"]
+                        }
+                    })
+        
         processed_dataset = {}
+        total_items = len(flattened_turns)
+        print(f"Processing {total_items} dialog turns...")
         
-        # Track progress
-        total_items = len(data_df)
-        
-        # Simply iterate through all rows
-        for idx, data in data_df.iterrows():
+        # Process each turn
+        for idx, turn in enumerate(flattened_turns):
             try:
-                # Process this item using the existing process_data function
-                processed_data = self.process_data(
-                    data, 
+                processed_data = self.process_turn(
+                    turn,
                     image_dir,
                     output_size=output_size,
-                    max_seq_length=max_seq_length
+                    apply_augmentation=apply_augmentation
                 )
-                # Store the processed data with original dataframe index
+                
+                # Store with a unique ID based on episode and turn
                 processed_dataset[idx] = processed_data
                 
                 # Log progress
-                if len(processed_dataset) % 100 == 0:
-                    print(f"Progress: {len(processed_dataset)}/{total_items} items processed ({len(processed_dataset)/total_items*100:.1f}%)")
+                if (idx + 1) % 100 == 0 or idx == total_items - 1:
+                    print(f"Progress: {idx + 1}/{total_items} turns processed ({(idx + 1)/total_items*100:.1f}%)")
                     
             except Exception as e:
-                print(f"Error processing item {idx}: {str(e)}")
+                print(f"Error processing turn {idx} (episode: {turn['episode_id']}, turn: {turn['turn_id']}): {str(e)}")
+                raise e
         
-        print(f"Pre-processing complete. {len(processed_dataset)} items processed.")
+        print(f"Pre-processing complete. {len(processed_dataset)} turns processed.")
         return processed_dataset
 
 
 # Example usage
 if __name__ == '__main__':
-    train_df = pd.read_csv('train_data.csv')
-    result = train_df[train_df['map_name'] == 2128].iloc[1]
-    image_dir = "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images"
-    
     # Initialize normalizer
     normalizer = AnsweringAgentNormalizer()
     
-    # Use the normalizer
-    result = normalizer.process_data(
-        result, image_dir
-    )
+    # Example JSON file path and image directory
+    json_file = "processed_data/train_data.json"
+    image_dir = "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images"
     
-    # Display result
-    cv2.imshow("Normalized View Area", result['current_view_image'])
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # Process data
+    processed_data = normalizer.preprocess_all_data(json_file, image_dir, apply_augmentation=True)
+
+
+    print(f"Processed {len(processed_data)} items.")
