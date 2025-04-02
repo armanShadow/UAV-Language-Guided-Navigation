@@ -30,8 +30,8 @@ class AnsweringDataset(Dataset):
         for i in range(0, len(items), chunk_size):
             chunk = dict(items[i:i+chunk_size])
             os.makedirs(output_dir, exist_ok=True)
-            with open(os.path.join(output_dir, f"chunk_{i}.pkl"), "wb") as f:
-                print(f"Saving chunk {i} to {os.path.join(output_dir, f'chunk_{i}.pkl')}")
+            with open(os.path.join(output_dir, f"chunk_{i//chunk_size}.pkl"), "wb") as f:
+                print(f"Saving chunk {i//chunk_size} to {os.path.join(output_dir, f'chunk_{i//chunk_size}.pkl')}")
                 pickle.dump(chunk, f)
 
     @staticmethod
