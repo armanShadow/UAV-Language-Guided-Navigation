@@ -77,7 +77,7 @@ class AnsweringDataset(Dataset):
         processed_items = normalizer.preprocess_all_data(
             json_path,
             config.data.avdn_image_dir,
-            output_size=(config.data.image_size, config.data.image_size),
+            output_size=(config.model.img_size, config.model.img_size),
             apply_augmentation=apply_augmentation
         )
         
