@@ -29,6 +29,7 @@ class AnsweringDataset(Dataset):
         items = list(data.items())
         for i in range(0, len(items), chunk_size):
             chunk = dict(items[i:i+chunk_size])
+            os.makedirs(output_dir, exist_ok=True)
             with open(os.path.join(output_dir, f"chunk_{i}.pkl"), "wb") as f:
                 pickle.dump(chunk, f)
 
