@@ -31,6 +31,7 @@ class AnsweringDataset(Dataset):
             chunk = dict(items[i:i+chunk_size])
             os.makedirs(output_dir, exist_ok=True)
             with open(os.path.join(output_dir, f"chunk_{i}.pkl"), "wb") as f:
+                print(f"Saving chunk {i} to {os.path.join(output_dir, f'chunk_{i}.pkl')}")
                 pickle.dump(chunk, f)
 
     @staticmethod
@@ -38,11 +39,12 @@ class AnsweringDataset(Dataset):
         """
         Load train data from multiple chunks.
         """
-        data = []
+        data = {}
         for file in os.listdir(preprocessed_path):
             if file.endswith('.pkl'):
                 with open(os.path.join(preprocessed_path, file), 'rb') as f:
-                    data.extend(pickle.load(f))
+                    print(f"Loading chunk {file} from {os.path.join(preprocessed_path, file)}")
+                    data.update(pickle.load(f))
         return data 
 
     @staticmethod
