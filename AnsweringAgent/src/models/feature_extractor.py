@@ -99,6 +99,24 @@ class FeatureExtractor(nn.Module):
         output = self.flatten(features)  # [batch_size, 384]
         
         return output
+        
+    def extract_single_view_features(self, view: torch.Tensor) -> torch.Tensor:
+        """
+        Extract features from a single view without temporal aggregation.
+        
+        Args:
+            view: Single view tensor [batch_size, channels, height, width]
+            
+        Returns:
+            torch.Tensor: Extracted features [batch_size, hidden_size]
+        """
+        # Extract AVDN features
+        features = self._extract_features(view)  # [batch_size, 384]
+        
+        # Project to model hidden size
+        projected_features = self.projection(features)  # [batch_size, hidden_size]
+        
+        return projected_features
 
     def forward(self, current_view: torch.Tensor, previous_views: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
@@ -107,10 +125,15 @@ class FeatureExtractor(nn.Module):
         Args:
             current_view: Current view tensor [batch_size, channels, height, width]
             previous_views: Previous views tensor [batch_size, num_views, channels, height, width]
+                           (Can be None for backward compatibility)
             
         Returns:
             torch.Tensor: Aggregated visual features [batch_size, hidden_size]
         """
+        # For backward compatibility, just extract features from current view if no previous views
+        if previous_views is None or previous_views.size(1) == 0:
+            return self.extract_single_view_features(current_view)
+            
         batch_size = current_view.size(0)
         
         # Extract features from current view (in AVDN dimension)

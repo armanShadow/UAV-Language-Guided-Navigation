@@ -10,16 +10,19 @@ DATASET_ROOT = Path("/app/datasets")
 @dataclass
 class ModelConfig:
     """Configuration for the AnsweringAgent model."""
-    bert_model_name: str = 'bert-base-uncased'
-    hidden_size: int = 768
+    bert_model_name: str = 'bert-base-uncased'  # Legacy setting
+    t5_model_name: str = 't5-base'  # New setting for T5
+    hidden_size: int = 768  # Match T5-base hidden size (d_model)
     dropout: float = 0.2
     feat_dropout: float = 0.4
-    num_decoder_layers: int = 4
-    num_attention_heads: int = 4
-    feedforward_dim: int = 3072
+    num_decoder_layers: int = 4  # Not used when using pretrained T5 decoder
+    num_attention_heads: int = 8  # Match T5-base (8 heads)
+    feedforward_dim: int = 2048  # Match T5-base feed forward dimension
     max_answer_length: int = 128
-    vocab_size: int = 30522  # BERT vocabulary size for bert-base-uncased
+    vocab_size: int = 32128  # T5 vocabulary size for t5-base
     img_size: int = 224  # Image size for Darknet/YOLO model
+    use_t5: bool = True  # Flag to control which model type to use
+    use_pretrained_decoder: bool = True  # Use T5's pretrained decoder instead of custom
 
 @dataclass
 class TrainingConfig:

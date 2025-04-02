@@ -23,13 +23,10 @@ import datetime
 import logging
 import faulthandler
 import tempfile
-from torch.profiler import profile, ProfilerActivity
 import numpy as np
-import argparse
 import threading
-import torch.multiprocessing as mp
-import json
 import math  # Add math import for cosine decay function
+from transformers import T5Tokenizer
 
 # Enable Python fault handler for segfaults
 faulthandler.enable()
@@ -231,24 +228,21 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast():
                         outputs = model(text_input, current_view, previous_views)
+                        logits = outputs["logits"]
+                        feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
 
                         # Get batch and sequence dimensions
-                        batch_size, seq_len, vocab_size = outputs.size()
+                        batch_size, seq_len, vocab_size = logits.size()
 
                         # Reshape outputs and labels consistently
-                        outputs_reshaped = outputs.contiguous().view(batch_size * seq_len, vocab_size)
+                        logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
                         labels_reshaped = labels.contiguous().view(batch_size * seq_len)
 
-                        loss = criterion(outputs_reshaped, labels_reshaped)
-                        
-                        # Add L2 regularization loss on feature representations
-                        if hasattr(model, 'module'):
-                            feat_norm = model.module.feature_reg_norm
-                        else:
-                            feat_norm = model.feature_reg_norm
+                        # Calculate loss in the training loop
+                        loss = criterion(logits_reshaped, labels_reshaped)
                         
                         # Add feature regularization with weight 0.005
-                        reg_loss = 0.005 * feat_norm
+                        reg_loss = 0.005 * feature_norm
                         loss = loss + reg_loss
                         
                         # Scale loss by gradient accumulation steps
@@ -341,10 +335,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                             with torch.cuda.amp.autocast():
                                 outputs = model(text_input, current_view, previous_views)
-                                batch_size, seq_len, vocab_size = outputs.size()
-                                outputs_reshaped = outputs.contiguous().view(batch_size * seq_len, vocab_size)
+                                logits = outputs["logits"]
+                                batch_size, seq_len, vocab_size = logits.size()
+                                logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
                                 labels_reshaped = labels.contiguous().view(batch_size * seq_len)
-                                loss = criterion(outputs_reshaped, labels_reshaped)
+                                loss = criterion(logits_reshaped, labels_reshaped)
                             val_loss += loss.item()
 
                         except Exception as e:
@@ -653,17 +648,10 @@ def main():
 
     try:
         # Initialize tokenizer
-        tokenizer = BertTokenizer.from_pretrained(config.model.bert_model_name)
+        tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name)
         
         if rank == 0:
             logger.info(f"Training on {max(1, num_gpus)} GPUs, distributed mode: {is_distributed}")
-            
-            # Preprocess dataset on rank 0 only
-            logger.info("Starting dataset preprocessing on rank 0...")
-            start_time = time.time()
-            AnsweringDataset.preprocess_and_save(config, tokenizer, logger)
-            preprocess_time = time.time() - start_time
-            logger.info(f"Dataset preprocessing complete. Took {preprocess_time:.2f} seconds.")
         
         # Wait for rank 0 to finish preprocessing
         if is_distributed:
@@ -724,35 +712,17 @@ def main():
             TRAINING_FAILED = True
             raise e
         
-        generator = torch.Generator().manual_seed(config.training.seed)
-        
-        # Create a 3-way split: 90% train, 5% validation, 5% test
-        train_size = int(config.data.train_val_split * len(dataset))
-        remaining_size = len(dataset) - train_size
-        val_size = int(config.data.val_test_split * remaining_size)
-        test_size = remaining_size - val_size
-        
-        # Create splits
-        train_dataset, val_test_dataset = torch.utils.data.random_split(
-            dataset, [train_size, remaining_size], generator=generator
-        )
-        
-        val_dataset, test_dataset = torch.utils.data.random_split(
-            val_test_dataset, [val_size, test_size], generator=generator
-        )
+        datasets = AnsweringDataset.create_datasets(config, tokenizer, logger=logger, splits=['train', 'val_seen', 'val_unseen'], rank=rank)
+        train_dataset = datasets['train']
+        val_dataset = datasets['val_seen']
         
         if rank == 0:
-            logger.info(f"Dataset split: {train_size} training, {val_size} validation, {test_size} test samples")
-            
-            # Save test dataset indices for later evaluation
-            test_indices = test_dataset.indices
-            test_save_path = os.path.join(config.log_dir, "test_indices.pt")
-            torch.save(test_indices, test_save_path)
-            logger.info(f"Test dataset indices saved to {test_save_path}")
+            logger.info(f"Dataset split: {len(datasets['train'])} training, {len(datasets['val_seen'])} validation, {len(datasets['val_unseen'])} test samples")
+        
 
         # Use DistributedSampler for distributed training
         if is_distributed:
-            train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
+            train_sampler = DistributedSampler(datasets['train'], num_replicas=world_size, rank=rank)
             val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank)
             shuffle = False
         else:

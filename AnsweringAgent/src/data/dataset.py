@@ -240,7 +240,7 @@ class AnsweringDataset(Dataset):
         return result
     
     @staticmethod
-    def create_all_datasets(config: Config, tokenizer, logger=None):
+    def create_datasets(config: Config, tokenizer, logger=None, splits=['train', 'val_seen', 'val_unseen'], rank=None):
         """
         Create all three datasets (train, val_seen, val_unseen) at once.
         
@@ -248,21 +248,17 @@ class AnsweringDataset(Dataset):
             config: Configuration object
             tokenizer: Text tokenizer to use
             logger: Logger for output messages
-            
+            splits: List of splits to create
         Returns:
             Dict[str, Dataset]: Dictionary of datasets
         """
         # Preprocess all splits
-        for split in ['train', 'val_seen', 'val_unseen']:
-            AnsweringDataset.preprocess_and_save(config, split=split, logger=logger)
+        datasets = {}
+        for split in splits:
+            if rank == 0:   
+                logger.info(f"Preprocessing {split} dataset...")
+                AnsweringDataset.preprocess_and_save(config, split=split, logger=logger)
+                logger.info(f"{split} dataset preprocessing complete.")
+            datasets[split] = AnsweringDataset(config, tokenizer, split=split)
         
-        # Create datasets for each split
-        train_dataset = AnsweringDataset(config, tokenizer, split='train')
-        val_seen_dataset = AnsweringDataset(config, tokenizer, split='val_seen')
-        val_unseen_dataset = AnsweringDataset(config, tokenizer, split='val_unseen')
-        
-        return {
-            'train': train_dataset,
-            'val_seen': val_seen_dataset,
-            'val_unseen': val_unseen_dataset
-        }
+        return datasets
