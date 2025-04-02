@@ -78,7 +78,7 @@ class DataConfig:
 
     def __post_init__(self):
         """Verify paths exist."""
-        paths = [self.train_csv_path, self.avdn_image_dir,
+        paths = [self.train_json_path, self.avdn_image_dir,
                 self.darknet_config_path, self.darknet_weights_path]
         for path in paths:
             if not os.path.exists(path):
