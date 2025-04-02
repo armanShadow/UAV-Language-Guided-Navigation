@@ -21,13 +21,13 @@ class AnsweringAgentNormalizer:
         'lon': {'min': -180, 'max': 180}
     }
 
-    def __init__(self):
+    def __init__(self, tokenizer):
         """Initialize the normalizer."""
         # Add image cache to avoid repeated disk reads
         self.image_cache = {}
         # Maximum cache size (adjust based on available memory)
         self.max_cache_size = 100
-
+        self.tokenizer = tokenizer
     def load_image(self, file_path: str) -> np.ndarray:
         """Load an image from file and ensure RGB format.
         
@@ -325,7 +325,7 @@ class AnsweringAgentNormalizer:
                 gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
                 output_size, apply_augmentation=apply_augmentation
             )
-            processed_data['current_view_image'] = transformed_image
+            processed_data['current_view_image'] = torch.from_numpy(transformed_image).float()
         
         # Process previous view coordinates to images
         if previous_observations:
@@ -341,7 +341,7 @@ class AnsweringAgentNormalizer:
                     gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
                     output_size, apply_augmentation=apply_augmentation
                 )
-                processed_data['previous_views_image'].append(transformed_image)
+                processed_data['previous_views_image'].append(torch.from_numpy(transformed_image).float())
         
         # Process destination coordinates if available
         destination = data.get('destination')
@@ -354,8 +354,25 @@ class AnsweringAgentNormalizer:
                     gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
                     output_size, apply_augmentation=False  # No augmentation for destination
                 )
-                processed_data['destination_image'] = dest_image
-        
+                processed_data['destination_image'] = torch.from_numpy(dest_image).float()
+
+        # Tokenize text
+        combined_text = f"<s> Question: {question} </s> <s> First Instruction: {first_instruction} </s> <s> History: {' '.join(dialog_history)} </s>"
+        processed_data['tokenized_input'] = self.tokenizer(
+            combined_text,
+            padding='max_length',
+            truncation=True,
+            max_length=self.config.data.max_seq_length,
+            return_tensors='pt'
+        )
+
+        processed_data['tokenized_answer'] = self.tokenizer(
+            f"<s> {answer} </s>",
+            padding='max_length',
+            truncation=True,
+            max_length=self.config.data.max_answer_length,
+            return_tensors='pt'
+        )
         return processed_data
 
     def preprocess_all_data(self, data_path: str, image_dir: str, 

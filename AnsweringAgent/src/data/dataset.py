@@ -19,7 +19,7 @@ class AnsweringDataset(Dataset):
     - This is optimal for multi-GPU training as it allows efficient data loading
     """
     @staticmethod
-    def preprocess_and_save(config: Config, split='train', logger=None):
+    def preprocess_and_save(config: Config, tokenizer, split='train', logger=None):
         """
         Static method to preprocess the dataset once and save to disk.
         This should be called only on rank 0 before initializing datasets.
@@ -65,7 +65,7 @@ class AnsweringDataset(Dataset):
             logger.info(f"Loading {split} JSON data from {json_path}...")
         
         # Initialize normalizer
-        normalizer = AnsweringAgentNormalizer()
+        normalizer = AnsweringAgentNormalizer(tokenizer)
         
         # Use preprocess_all_data method to process all items efficiently
         if logger:
@@ -92,7 +92,7 @@ class AnsweringDataset(Dataset):
         
         return processed_data_path
     
-    def __init__(self, config: Config, tokenizer, split='train'):
+    def __init__(self, config: Config, split='train'):
         """
         Initialize the dataset - loads preprocessed data.
         
@@ -102,7 +102,6 @@ class AnsweringDataset(Dataset):
             split: Dataset split ('train', 'val_seen', 'val_unseen')
         """
         self.config = config
-        self.tokenizer = tokenizer
         self.max_prev_views = config.data.max_previous_views
         self.split = split
         
@@ -134,7 +133,7 @@ class AnsweringDataset(Dataset):
     
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """
-        Get a data item with on-the-fly text tokenization.
+        Get a data item
         
         Args:
             idx (int): Index of the item to get
@@ -145,54 +144,27 @@ class AnsweringDataset(Dataset):
                 - current_view_image: Current view image tensor
                 - previous_views_image: Previous views image tensor (if available)
                 - text_label: Tokenized answer label
+                - destination_image: Destination image tensor (if available)
+                - raw_question: Raw question string
+                - raw_answer: Raw answer string
+                - first_instruction: First instruction string
+                - dialog_history: Dialog history list
         """
         # Get the preprocessed data item
         item = self.data_items[idx]
         
-        # Get text fields
-        question = item.get('question', '')
-        first_instruction = item.get('first_instruction', '')
-        dialog_history = item.get('dialog_history', [])
-        answer = item.get('answer', '')
+        # Get pre-tokenized text data
+        tokenized_text = item['tokenized_input']
+        tokenized_answer = item['tokenized_answer']
         
-        # Create combined text input using T5-style special tokens
-        # T5 uses </s> for sequence separation and <s> for sequence start
-        combined_text = f"<s> Question: {question} </s> <s> First Instruction: {first_instruction} </s> <s> History: {' '.join(dialog_history)} </s>"
-        
-        # Tokenize text using provided tokenizer
-        tokenized_text = self.tokenizer(
-            combined_text,
-            padding='max_length',
-            truncation=True,
-            max_length=self.config.data.max_seq_length,
-            return_tensors='pt'
-        )
-        
-        # Remove batch dimension
-        tokenized_text = {k: v.squeeze(0) for k, v in tokenized_text.items()}
-        
-        # Tokenize answer with T5-style formatting
-        answer_text = f"<s> {answer} </s>"
-        tokenized_answer = self.tokenizer(
-            answer_text,
-            padding='max_length',
-            truncation=True,
-            max_length=self.config.data.max_answer_length,
-            return_tensors='pt'
-        )
-        
-        # Remove batch dimension
-        tokenized_answer = tokenized_answer['input_ids'].squeeze(0)
-        
-        # Get image data - already preprocessed
-        current_view = item['current_view_image'].float()
-        current_view = torch.from_numpy(current_view)
+        # Get image data
+        current_view = item['current_view_image']
         
         # Process previous views
         previous_views = []
         if 'previous_views_image' in item and len(item['previous_views_image']) > 0:
             for img in item['previous_views_image']:
-                previous_views.append(torch.from_numpy(img.float()))
+                previous_views.append(img)
         
         # Handle case where previous_views is empty
         if len(previous_views) == 0:
@@ -203,10 +175,10 @@ class AnsweringDataset(Dataset):
                 'text_label': tokenized_answer,
                 'current_view_image': current_view,
                 'previous_views_image': default_views,
-                'raw_question': question,
-                'raw_answer': answer,
-                'first_instruction': first_instruction,
-                'dialog_history': dialog_history
+                'raw_question': item['question'],
+                'raw_answer': item['answer'],
+                'first_instruction': item['first_instruction'],
+                'dialog_history': item['dialog_history']
             }
             
         # Pad or truncate to max_previous_views
@@ -227,26 +199,25 @@ class AnsweringDataset(Dataset):
             'text_label': tokenized_answer,
             'current_view_image': current_view,
             'previous_views_image': previous_views,
-            'raw_question': question,
-            'raw_answer': answer,
-            'first_instruction': first_instruction,
-            'dialog_history': dialog_history
+            'raw_question': item['question'],
+            'raw_answer': item['answer'],
+            'first_instruction': item['first_instruction'],
+            'dialog_history': item['dialog_history']
         }
         
         # Add destination if available (important for curriculum learning)
         if 'destination_image' in item:
-            result['destination_image'] = torch.from_numpy(item['destination_image'].float())
+            result['destination_image'] = item['destination_image']
             
         return result
     
     @staticmethod
-    def create_datasets(config: Config, tokenizer, logger=None, splits=['train', 'val_seen', 'val_unseen']):
+    def create_datasets(config: Config, logger=None, splits=['train', 'val_seen', 'val_unseen']):
         """
         Create all three datasets (train, val_seen, val_unseen) at once.
         
         Args:
             config: Configuration object
-            tokenizer: Text tokenizer to use
             logger: Logger for output messages
             splits: List of splits to create
         Returns:
@@ -255,6 +226,6 @@ class AnsweringDataset(Dataset):
         # Preprocess all splits
         datasets = {}
         for split in splits:
-            datasets[split] = AnsweringDataset(config, tokenizer, split=split)
+            datasets[split] = AnsweringDataset(config, split=split)
 
         return datasets

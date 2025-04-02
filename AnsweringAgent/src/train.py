@@ -708,12 +708,12 @@ def main():
             if rank == 0:
                 logger.info("Creating datasets...")
                 for split in ['train', 'val_seen', 'val_unseen']:
-                    AnsweringDataset.preprocess_and_save(config, split=split, logger=logger)
+                    AnsweringDataset.preprocess_and_save(config, tokenizer, split=split, logger=logger)
 
             if dist.is_initialized():
                 dist.barrier()
 
-            datasets = AnsweringDataset.create_datasets(config, tokenizer, logger=logger, splits=['train', 'val_seen'])
+            datasets = AnsweringDataset.create_datasets(config, logger=logger, splits=['train', 'val_seen'])
             train_dataset = datasets['train']
             val_dataset = datasets['val_seen']        
         except Exception as e:
