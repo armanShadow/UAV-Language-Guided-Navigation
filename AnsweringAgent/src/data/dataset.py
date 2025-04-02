@@ -27,7 +27,7 @@ class AnsweringDataset(Dataset):
         Save data in chunks to disk.
         """
         for i in range(0, len(data), chunk_size):
-            chunk = data[i:i+chunk_size]
+            chunk = data[slice(i, i+chunk_size)]
             with open(os.path.join(output_dir, f"chunk_{i}.pkl"), "wb") as f:
                 pickle.dump(chunk, f)
 
