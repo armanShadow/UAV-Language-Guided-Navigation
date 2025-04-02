@@ -29,7 +29,7 @@ class AnsweringAgentNormalizer:
         self.max_cache_size = 100
         self.tokenizer = tokenizer
         self.config = config
-        
+
     def load_image(self, file_path: str) -> np.ndarray:
         """Load an image from file and ensure RGB format.
         
@@ -372,7 +372,7 @@ class AnsweringAgentNormalizer:
             f"<s> {answer} </s>",
             padding='max_length',
             truncation=True,
-            max_length=self.config.data.max_answer_length,
+            max_length=self.config.model.max_answer_length,
             return_tensors='pt'
         )
         return processed_data
