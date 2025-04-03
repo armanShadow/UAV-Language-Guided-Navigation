@@ -7,6 +7,10 @@ import os
 import random
 from typing import List, Tuple, Dict, Any, Union, Optional
 
+from transformers import T5Tokenizer
+
+from AnsweringAgent.src.config import Config
+
 
 class AnsweringAgentNormalizer:
     """A comprehensive normalization module for Aerial Vision and Dialog Navigation (AVDN) data."""
@@ -21,14 +25,21 @@ class AnsweringAgentNormalizer:
         'lon': {'min': -180, 'max': 180}
     }
 
-    def __init__(self, tokenizer, config):
+    def __init__(self, tokenizer=None, config=None):
         """Initialize the normalizer."""
         # Add image cache to avoid repeated disk reads
         self.image_cache = {}
         # Maximum cache size (adjust based on available memory)
         self.max_cache_size = 100
         self.tokenizer = tokenizer
+
         self.config = config
+
+        if config is None:
+            self.config = Config()
+
+        if tokenizer is None:
+            self.tokenizer = T5Tokenizer.from_pretrained('t5-base')
 
     def load_image(self, file_path: str) -> np.ndarray:
         """Load an image from file and ensure RGB format.
@@ -359,7 +370,7 @@ class AnsweringAgentNormalizer:
                 processed_data['destination_image'] = torch.from_numpy(dest_image).float()
 
         # Tokenize text
-        combined_text = f"<s> Question: {question} </s> <s> First Instruction: {first_instruction} </s> <s> History: {' '.join(dialog_history)} </s>"
+        combined_text = f"Question: {question} <extra_id_0> First Instruction: {first_instruction} <extra_id_1> History: {' '.join(dialog_history)}"
         processed_data['tokenized_input'] = self.tokenizer(
             combined_text,
             padding='max_length',
@@ -369,7 +380,7 @@ class AnsweringAgentNormalizer:
         )
 
         processed_data['tokenized_answer'] = self.tokenizer(
-            f"<s> {answer} </s>",
+            f"Answer: {answer}",
             padding='max_length',
             truncation=True,
             max_length=self.config.model.max_answer_length,

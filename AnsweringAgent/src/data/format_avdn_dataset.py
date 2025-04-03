@@ -88,13 +88,13 @@ def load_data(path, output_dir="processed_data", augment=True, max_augmented_per
                         if que_start == -1:
                             # This is a first instruction without a question
                             a_text = dialog[ins_start + 5:].strip()  # Remove [INS] prefix
-                            t5_dialog = f"<s> First Instruction: {a_text} </s>"
+                            t5_dialog = f"First Instruction: {a_text}"
                             t5_dialog_history.append(t5_dialog)
                         else:
                             # Normal Q&A case
                             q_text = dialog[que_start + 5:ins_start].strip()  # Remove [QUE] prefix
                             a_text = dialog[ins_start + 5:].strip()  # Remove [INS] prefix
-                            t5_dialog = f"<s> Question: {q_text} Answer: {a_text} </s>"
+                            t5_dialog = f"Question: {q_text} Answer: {a_text}"
                             t5_dialog_history.append(t5_dialog)
                 
                 dialog_turn = {
@@ -256,11 +256,11 @@ def create_optimized_sub_trajectories(original_episode, all_dialog_turns, max_au
                     if prev_orig_idx == 0:
                         # Include the first instruction (which has no question)
                         first_ins = original_episode["first_instruction"]
-                        dialog_entry = f"<s> First Instruction: {first_ins} </s>"
+                        dialog_entry = f"First Instruction: {first_ins}"
                         new_dialog_history.append(dialog_entry)
                     elif prev_turn["question"] and prev_turn["answer"]:
                         # Normal Q&A case
-                        dialog_entry = f"<s> Question: {prev_turn['question']} Answer: {prev_turn['answer']} </s>"
+                        dialog_entry = f"Question: {prev_turn['question']} Answer: {prev_turn['answer']}"
                         new_dialog_history.append(dialog_entry)
             
             turn["dialog_history"] = new_dialog_history

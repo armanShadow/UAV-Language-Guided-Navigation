@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import os
 import torch
@@ -54,7 +54,7 @@ class TrainingConfig:
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""
         if not torch.cuda.is_available():
-            raise RuntimeError("CUDA is not available. Please ensure a compatible GPU is installed and drivers are set up correctly.")
+            print("CUDA is not available. Please ensure a compatible GPU is installed and drivers are set up correctly.")
 
         self.num_gpus = torch.cuda.device_count()
         self.device = 'cuda'
@@ -82,7 +82,7 @@ class DataConfig:
                 self.darknet_config_path, self.darknet_weights_path]
         for path in paths:
             if not os.path.exists(path):
-                raise RuntimeError(f"Error: Path does not exist: {path}")
+                print(f"Error: Path does not exist: {path}")
 
 @dataclass
 class Config:
@@ -90,9 +90,9 @@ class Config:
     checkpoint_dir: str = str(PROJECT_ROOT/ 'AnsweringAgent/outputs/checkpoints')
     log_dir: str = str(PROJECT_ROOT/ 'AnsweringAgent/outputs/logs')
 
-    model: ModelConfig = ModelConfig()
-    training: TrainingConfig = TrainingConfig()
-    data: DataConfig = DataConfig()
+    model: ModelConfig = field(default_factory=ModelConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
+    data: DataConfig = field(default_factory=DataConfig)
 
     def __post_init__(self):
         """Create necessary directories."""

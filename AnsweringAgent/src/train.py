@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from typing import Dict
-from transformers import BertTokenizerFast, BertModel, BertTokenizer
 from utils.logger import setup_logger
 from torch.optim.lr_scheduler import ReduceLROnPlateau, LambdaLR
 import torch.distributed as dist
@@ -648,7 +647,7 @@ def main():
 
     try:
         # Initialize tokenizer
-        tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name, model_max_length=config.data.max_seq_length)
+        tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name, model_max_length=config.data.max_seq_length, add_special_tokens=True)
         
         if rank == 0:
             logger.info(f"Training on {max(1, num_gpus)} GPUs, distributed mode: {is_distributed}")
@@ -713,7 +712,7 @@ def main():
             if dist.is_initialized():
                 dist.barrier()
 
-            datasets = AnsweringDataset.create_datasets(config, logger=logger, splits=['train', 'val_seen'], exhuastive_loading=True, tokenizer=tokenizer)
+            datasets = AnsweringDataset.create_datasets(config, logger=logger, splits=['train', 'val_seen'], tokenizer=tokenizer, exhuastive_loading=True)
 
         except Exception as e:
             logger.error(f"Critical error loading dataset: {str(e)}")
