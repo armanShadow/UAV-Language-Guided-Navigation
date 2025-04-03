@@ -67,10 +67,20 @@ class TemporalObservationEncoder(nn.Module):
         attn_output = attn_output.squeeze(1)
         
         # Residual connection and normalization
+        if torch.isnan(attn_output).any() or torch.isnan(current_features).any():
+            print("NaN detected before norm1 in TemporalObservationEncoder!")
+            attn_output = torch.nan_to_num(attn_output, nan=0.0)
+            current_features = torch.nan_to_num(current_features, nan=0.0)
+            
         features = self.norm1(current_features + attn_output)
         
         # Feed-forward network
         ff_output = self.ff_network(features)
+        
+        # Check for NaNs in ff_output
+        if torch.isnan(ff_output).any():
+            print("NaN detected in ff_output in TemporalObservationEncoder!")
+            ff_output = torch.nan_to_num(ff_output, nan=0.0)
         
         # Final residual connection and normalization
         output = self.norm2(features + ff_output)
@@ -155,12 +165,25 @@ class CrossModalFusion(nn.Module):
         )
         
         # Normalize attended features
+        if torch.isnan(attended_text).any():
+            print("NaN detected in attended_text in CrossModalFusion!")
+            attended_text = torch.nan_to_num(attended_text, nan=0.0)
+            
+        if torch.isnan(attended_visual).any():
+            print("NaN detected in attended_visual in CrossModalFusion!")
+            attended_visual = torch.nan_to_num(attended_visual, nan=0.0)
+            
         attended_text = self.norm1(attended_text)
         attended_visual = self.norm2(attended_visual)
         
         # Compute fusion gate
         # Determine how much of each modality to use at each position
         gate = self.fusion_gate(torch.cat([attended_text, attended_visual], dim=-1))
+        
+        # Check for NaNs in gate
+        if torch.isnan(gate).any():
+            print("NaN detected in fusion gate in CrossModalFusion!")
+            gate = torch.nan_to_num(gate, nan=0.5)  # Default to equal weighting
         
         # Weighted combination of the two streams
         fused_features = gate * attended_visual + (1 - gate) * attended_text
@@ -327,20 +350,33 @@ class AnsweringAgent(nn.Module):
         # Apply the adapter to bridge the gap between our features and what T5 expects
         adapted_features = self.t5_adapter(fused_features)
         
+        # Check for NaNs in adapted features
+        if torch.isnan(adapted_features).any():
+            print(f"NaN detected in adapted_features - mean: {fused_features.mean().item()}, std: {fused_features.std().item()}")
+            # Replace NaNs with zeros for stability
+            adapted_features = torch.nan_to_num(adapted_features, nan=0.0)
+        
         # Calculate feature norm for regularization (detach to prevent memory leak)
         feature_norm = adapted_features.norm(2).detach()
         
         # During training mode, return logits for loss calculation in training loop
         if self.training:
-            with torch.no_grad():  # Don't train the T5 model
-                # Get logits from T5 with our adapted features            
-                outputs = self.t5_model(
-                    input_ids=None,
-                    attention_mask=attention_mask,
-                    encoder_outputs=(adapted_features,),
-                    labels=labels,
-                    return_dict=True
-                )
+            # Note: Don't use torch.no_grad() here as we need gradients for backward
+            # T5 parameters are already frozen in _freeze_t5_parameters method
+            
+            # Check if labels contain NaN values
+            if labels is not None and torch.isnan(labels).any():
+                print("NaN detected in labels!")
+                # Replace NaNs with pad token id
+                labels = torch.nan_to_num(labels, nan=self.tokenizer.pad_token_id)
+                
+            outputs = self.t5_model(
+                input_ids=None,
+                attention_mask=attention_mask,
+                encoder_outputs=(adapted_features,),
+                labels=labels,
+                return_dict=True
+            )
                 
             # Return logits for external loss calculation
             return {

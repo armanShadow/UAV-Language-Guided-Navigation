@@ -110,12 +110,27 @@ class FeatureExtractor(nn.Module):
         Returns:
             torch.Tensor: Extracted features [batch_size, hidden_size]
         """
+        # Check for NaNs in input
+        if torch.isnan(view).any():
+            print(f"NaN detected in view input - shape: {view.shape}")
+            view = torch.nan_to_num(view, nan=0.0)
+            
         # Extract AVDN features
         features = self._extract_features(view)  # [batch_size, 384]
+        
+        # Check for NaNs in extracted features
+        if torch.isnan(features).any():
+            print(f"NaN detected in extracted features - shape: {features.shape}")
+            features = torch.nan_to_num(features, nan=0.0)
         
         # Project to model hidden size
         projected_features = self.projection(features)  # [batch_size, hidden_size]
         
+        # Final NaN check on projected features
+        if torch.isnan(projected_features).any():
+            print(f"NaN detected in projected features - shape: {projected_features.shape}")
+            projected_features = torch.nan_to_num(projected_features, nan=0.0)
+            
         return projected_features
 
     def forward(self, current_view: torch.Tensor, previous_views: Optional[torch.Tensor] = None) -> torch.Tensor:
