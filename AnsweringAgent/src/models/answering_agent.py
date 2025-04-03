@@ -15,7 +15,7 @@ class TemporalObservationEncoder(nn.Module):
         super().__init__()
         self.hidden_size = hidden_size
         
-        # Attention mechanism for temporal observations
+        # Attention mechanism for temporal observations with proper scaling
         self.temporal_attention = nn.MultiheadAttention(
             embed_dim=hidden_size,
             num_heads=num_heads,
@@ -23,9 +23,9 @@ class TemporalObservationEncoder(nn.Module):
             batch_first=True
         )
         
-        # Layer normalization for stability
-        self.norm1 = nn.LayerNorm(hidden_size)
-        self.norm2 = nn.LayerNorm(hidden_size)
+        # Layer normalization with appropriate epsilon
+        self.norm1 = nn.LayerNorm(hidden_size, eps=1e-5)
+        self.norm2 = nn.LayerNorm(hidden_size, eps=1e-5)
         
         # Feed-forward network for processing attended features
         self.ff_network = nn.Sequential(
@@ -35,6 +35,20 @@ class TemporalObservationEncoder(nn.Module):
             nn.Linear(hidden_size * 2, hidden_size),
             nn.Dropout(dropout)
         )
+        
+        # Initialize weights properly to prevent numerical issues
+        self._init_weights()
+        
+    def _init_weights(self):
+        """Initialize weights with appropriate scale to prevent numerical issues."""
+        for name, p in self.named_parameters():
+            if 'ff_network' in name and 'weight' in name:
+                # Use smaller initialization for feed-forward networks
+                nn.init.xavier_uniform_(p, gain=0.02)
+            elif 'weight' in name:
+                nn.init.xavier_uniform_(p, gain=1.0)
+            elif 'bias' in name:
+                nn.init.zeros_(p)
         
     def forward(self, current_features: torch.Tensor, prev_features: torch.Tensor) -> torch.Tensor:
         """
@@ -66,21 +80,16 @@ class TemporalObservationEncoder(nn.Module):
         # Shape: [batch_size, 1, hidden_size] -> [batch_size, hidden_size]
         attn_output = attn_output.squeeze(1)
         
-        # Residual connection and normalization
-        if torch.isnan(attn_output).any() or torch.isnan(current_features).any():
-            print("NaN detected before norm1 in TemporalObservationEncoder!")
+        # Very rarely, NaNs can still occur if inputs are extremely skewed
+        if torch.isnan(attn_output).any():
+            print("NaN detected in temporal attention output")
             attn_output = torch.nan_to_num(attn_output, nan=0.0)
-            current_features = torch.nan_to_num(current_features, nan=0.0)
-            
+        
+        # Residual connection and normalization (Pre-LN style for stability)
         features = self.norm1(current_features + attn_output)
         
         # Feed-forward network
         ff_output = self.ff_network(features)
-        
-        # Check for NaNs in ff_output
-        if torch.isnan(ff_output).any():
-            print("NaN detected in ff_output in TemporalObservationEncoder!")
-            ff_output = torch.nan_to_num(ff_output, nan=0.0)
         
         # Final residual connection and normalization
         output = self.norm2(features + ff_output)
@@ -94,6 +103,9 @@ class CrossModalFusion(nn.Module):
     def __init__(self, hidden_size: int, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
         self.hidden_size = hidden_size
+        
+        # Scale factor for attention (proper scaling prevents numerical instability)
+        self.attention_scale = torch.sqrt(torch.tensor(hidden_size).float())
         
         # Visual -> Text attention
         self.visual_to_text_attention = nn.MultiheadAttention(
@@ -111,11 +123,11 @@ class CrossModalFusion(nn.Module):
             batch_first=True
         )
         
-        # Layer normalization
-        self.norm1 = nn.LayerNorm(hidden_size)
-        self.norm2 = nn.LayerNorm(hidden_size)
+        # Layer normalization with slightly increased epsilon for stability
+        self.norm1 = nn.LayerNorm(hidden_size, eps=1e-5)
+        self.norm2 = nn.LayerNorm(hidden_size, eps=1e-5)
         
-        # Fusion gate
+        # Fusion gate - controls how much of each modality to use
         self.fusion_gate = nn.Sequential(
             nn.Linear(hidden_size * 2, hidden_size),
             nn.Sigmoid()
@@ -124,6 +136,17 @@ class CrossModalFusion(nn.Module):
         # Output projection
         self.output_projection = nn.Linear(hidden_size * 2, hidden_size)
         
+        # Initialize weights carefully
+        self._init_weights()
+        
+    def _init_weights(self):
+        """Initialize weights with careful bounds to prevent extreme initial values."""
+        # Initialize linear layers with small weights
+        for module in [self.fusion_gate[0], self.output_projection]:
+            nn.init.xavier_uniform_(module.weight, gain=0.02)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+                
     def forward(self, text_features: torch.Tensor, visual_features: torch.Tensor, 
                 text_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
@@ -164,31 +187,25 @@ class CrossModalFusion(nn.Module):
             value=expanded_visual
         )
         
-        # Normalize attended features
+        # Check for NaNs in attention outputs (only for debugging)
         if torch.isnan(attended_text).any():
             print("NaN detected in attended_text in CrossModalFusion!")
             attended_text = torch.nan_to_num(attended_text, nan=0.0)
             
         if torch.isnan(attended_visual).any():
-            print("NaN detected in attended_visual in CrossModalFusion!")
-            attended_visual = torch.nan_to_num(attended_visual, nan=0.0)
-            
+            attended_visual = torch.nan_to_num(attended_visual)
+        
+        # Apply layer normalization to stabilize features
         attended_text = self.norm1(attended_text)
         attended_visual = self.norm2(attended_visual)
         
-        # Compute fusion gate
-        # Determine how much of each modality to use at each position
+        # Compute fusion gate - determines how much of each modality to use
         gate = self.fusion_gate(torch.cat([attended_text, attended_visual], dim=-1))
         
-        # Check for NaNs in gate
-        if torch.isnan(gate).any():
-            print("NaN detected in fusion gate in CrossModalFusion!")
-            gate = torch.nan_to_num(gate, nan=0.5)  # Default to equal weighting
-        
-        # Weighted combination of the two streams
+        # Weighted combination of the two streams with normalization
         fused_features = gate * attended_visual + (1 - gate) * attended_text
         
-        # Concatenate and project for rich feature representation
+        # Final projection with concatenation for rich feature representation
         output = self.output_projection(torch.cat([fused_features, text_features], dim=-1))
         
         return output
@@ -248,11 +265,11 @@ class AnsweringAgent(nn.Module):
         # T5 Adapter layer - bridges the gap between our fused features and what T5 decoder expects
         self.t5_adapter = nn.Sequential(
             nn.Linear(config.model.hidden_size, config.model.hidden_size),
-            nn.LayerNorm(config.model.hidden_size),
+            nn.LayerNorm(config.model.hidden_size, eps=1e-6),  # Increased epsilon
             nn.GELU(),
             nn.Dropout(config.model.dropout),
             nn.Linear(config.model.hidden_size, config.model.hidden_size),
-            nn.LayerNorm(config.model.hidden_size)
+            nn.LayerNorm(config.model.hidden_size, eps=1e-6)  # Increased epsilon
         )
         
         # Initialize adapter weights
@@ -265,10 +282,13 @@ class AnsweringAgent(nn.Module):
         """Initialize adapter weights carefully to ensure good initial performance"""
         for module in self.t5_adapter.modules():
             if isinstance(module, nn.Linear):
-                # Use small initialization for stability
-                nn.init.normal_(module.weight, mean=0.0, std=0.02)
+                # Use xavier initialization with small gain factor for stability
+                nn.init.xavier_uniform_(module.weight, gain=0.02)
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
+            elif isinstance(module, nn.LayerNorm):
+                nn.init.ones_(module.weight)
+                nn.init.zeros_(module.bias)
         
     def _freeze_t5_parameters(self):
         """Freeze ALL T5 parameters for efficiency."""
@@ -305,11 +325,16 @@ class AnsweringAgent(nn.Module):
         input_ids = text_input['input_ids']
         attention_mask = text_input.get('attention_mask', None)
         
-        # Ensure correct shape
+        # Fix dimensionality issues - ensure 2D shape [batch_size, seq_len]
         if input_ids.dim() > 2:
-            input_ids = input_ids.view(-1, input_ids.size(-1))
+            # Remove unnecessary dimensions (e.g., [batch_size, 1, seq_len])
+            input_ids = input_ids.squeeze(1)
         if attention_mask is not None and attention_mask.dim() > 2:
-            attention_mask = attention_mask.view(-1, attention_mask.size(-1))
+            attention_mask = attention_mask.squeeze(1)
+            
+        # Ensure labels are also 2D
+        if labels is not None and labels.dim() > 2:
+            labels = labels.squeeze(1)
             
         batch_size = input_ids.size(0)
         

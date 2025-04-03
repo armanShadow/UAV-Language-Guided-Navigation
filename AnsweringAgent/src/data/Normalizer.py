@@ -370,21 +370,33 @@ class AnsweringAgentNormalizer:
 
         # Tokenize text
         combined_text = f"Question: {question} <extra_id_0> First Instruction: {first_instruction} <extra_id_1> History: {' '.join(dialog_history)}"
-        processed_data['tokenized_input'] = self.tokenizer(
+        
+        # Tokenize without adding return_tensors='pt' here - we'll convert to tensor with proper dimensions later
+        tokenized_input = self.tokenizer(
             combined_text,
             padding='max_length',
             truncation=True,
             max_length=self.config.data.max_seq_length,
-            return_tensors='pt'
+            return_attention_mask=True
         )
+        
+        # Convert to tensors with correct dimensions [batch_size, seq_len]
+        processed_data['tokenized_input'] = {
+            'input_ids': torch.tensor(tokenized_input['input_ids'], dtype=torch.long),
+            'attention_mask': torch.tensor(tokenized_input['attention_mask'], dtype=torch.long)
+        }
 
-        processed_data['tokenized_answer'] = self.tokenizer(
+        # Tokenize answer the same way
+        tokenized_answer = self.tokenizer(
             f"Answer: {answer}",
             padding='max_length',
             truncation=True,
-            max_length=self.config.model.max_answer_length,
-            return_tensors='pt'
+            max_length=self.config.model.max_answer_length
         )
+        
+        # Store as [seq_len] tensor without extra batch dimension
+        processed_data['tokenized_answer'] = torch.tensor(tokenized_answer['input_ids'], dtype=torch.long)
+        
         return processed_data
 
     def preprocess_all_data(self, data_path: str, image_dir: str, 
