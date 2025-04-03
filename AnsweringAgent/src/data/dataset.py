@@ -125,7 +125,7 @@ class AnsweringDataset(Dataset):
         
         return processed_data_path
     
-    def __init__(self, config: Config, split='train', exhuastive_loading=False):
+    def __init__(self, config: Config, split='train', exhuastive_loading=False, tokenizer=None):
         """
         Initialize the dataset - loads preprocessed data.
         Supports chunked loading for train split and distributes chunks in multi-GPU settings.
@@ -161,11 +161,12 @@ class AnsweringDataset(Dataset):
                 output_size=(config.model.img_size, config.model.img_size),
                 apply_augmentation=config.training.use_augmentation
             )
+            self.data_items = list(self.preprocessed_data.values())
         else:
             # Load the preprocessed data
             try:
                 if split == 'train':
-                self.preprocessed_data = AnsweringDataset.load_train_chunks(preprocessed_path)
+                    self.preprocessed_data = AnsweringDataset.load_train_chunks(preprocessed_path)
             else:
                 with open(preprocessed_path, 'rb') as f:
                     print(f"Loading {split} data from {preprocessed_path}")
@@ -264,7 +265,7 @@ class AnsweringDataset(Dataset):
         return result
     
     @staticmethod
-    def create_datasets(config: Config, logger=None, splits=['train', 'val_seen', 'val_unseen'], exhuastive_loading=False):
+    def create_datasets(config: Config, logger=None, splits=['train', 'val_seen', 'val_unseen'], exhuastive_loading=False, tokenizer=None):
         """
         Create all three datasets (train, val_seen, val_unseen) at once.
         
@@ -278,6 +279,6 @@ class AnsweringDataset(Dataset):
         # Preprocess all splits
         datasets = {}
         for split in splits:
-            datasets[split] = AnsweringDataset(config, split=split, exhuastive_loading=exhuastive_loading)
+            datasets[split] = AnsweringDataset(config, split=split, exhuastive_loading=exhuastive_loading, tokenizer=tokenizer)
 
         return datasets

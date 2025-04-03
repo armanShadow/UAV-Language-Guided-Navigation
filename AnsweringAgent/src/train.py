@@ -713,7 +713,7 @@ def main():
             if dist.is_initialized():
                 dist.barrier()
 
-            datasets = AnsweringDataset.create_datasets(config, logger=logger, splits=['train', 'val_seen'], exhuastive_loading=True)
+            datasets = AnsweringDataset.create_datasets(config, logger=logger, splits=['train', 'val_seen'], exhuastive_loading=True, tokenizer=tokenizer)
 
         except Exception as e:
             logger.error(f"Critical error loading dataset: {str(e)}")
