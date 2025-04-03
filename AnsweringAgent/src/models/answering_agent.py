@@ -305,16 +305,11 @@ class AnsweringAgent(nn.Module):
         input_ids = text_input['input_ids']
         attention_mask = text_input.get('attention_mask', None)
         
-        # Ensure correct shape
-        if input_ids.dim() > 2:
-            input_ids = input_ids.view(-1, input_ids.size(-1))
-        if attention_mask is not None and attention_mask.dim() > 2:
-            attention_mask = attention_mask.view(-1, attention_mask.size(-1))
-            
-        batch_size = input_ids.size(0)
-        
         # Extract current view features using the dedicated method
         current_features = self.feature_extractor.extract_single_view_features(current_view)
+        if torch.isnan(current_features).any():
+            print(f"NaN detected in current_features! - shape: {current_features.shape} - mean: {current_features.mean().item()} - std: {current_features.std().item()}")
+            current_features = torch.nan_to_num(current_features, nan=0.0)
         
         # Extract previous view features
         prev_features = []
@@ -328,9 +323,17 @@ class AnsweringAgent(nn.Module):
         
         # Stack previous features [batch_size, num_prev, hidden_size]
         prev_features = torch.stack(prev_features, dim=1)
+
+        if torch.isnan(prev_features).any():
+            print(f"NaN detected in prev_features! - shape: {prev_features.shape} - mean: {prev_features.mean().item()} - std: {prev_features.std().item()}")
+            prev_features = torch.nan_to_num(prev_features, nan=0.0)
         
         # Now apply our specialized temporal observation encoder
         visual_context = self.temporal_encoder(current_features, prev_features)
+
+        if torch.isnan(visual_context).any():
+            print(f"NaN detected in visual_context! - shape: {visual_context.shape} - mean: {visual_context.mean().item()} - std: {visual_context.std().item()}")
+            visual_context = torch.nan_to_num(visual_context, nan=0.0)
         
         # Encode text with T5 encoder
         encoder_outputs = self.t5_model.encoder(
@@ -346,6 +349,10 @@ class AnsweringAgent(nn.Module):
             visual_features=visual_context,
             text_mask=attention_mask
         )
+
+        if torch.isnan(fused_features).any():
+            print(f"NaN detected in fused_features! - shape: {fused_features.shape} - mean: {fused_features.mean().item()} - std: {fused_features.std().item()}")
+            fused_features = torch.nan_to_num(fused_features, nan=0.0)
         
         # Apply the adapter to bridge the gap between our features and what T5 expects
         adapted_features = self.t5_adapter(fused_features)

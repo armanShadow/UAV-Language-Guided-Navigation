@@ -201,15 +201,16 @@ class AnsweringDataset(Dataset):
         item = self.data_items[idx]
         
         # Get pre-tokenized text data
-        tokenized_text = item['tokenized_input']
+        tokenized_text = {
+            'input_ids': item['tokenized_input']['input_ids'].squeeze(0),
+            'attention_mask': item['tokenized_input']['attention_mask'].squeeze(0)
+        }
         tokenized_answer = item['tokenized_answer']['input_ids'].squeeze(0)
         
-        # Get text fields for reference (not used for model input)
-        question = item.get('question', '')
-        first_instruction = item.get('first_instruction', '')
-        dialog_history = item.get('dialog_history', [])
-        answer = item.get('answer', '')
         
+        # Get text fields for reference (not used for model input)
+        first_instruction = item.get('first_instruction', '')
+
         # Get image data - already tensors from normalizer
         current_view = item['current_view_image']
         

@@ -7,10 +7,6 @@ import os
 import random
 from typing import List, Tuple, Dict, Any, Union, Optional
 
-from transformers import T5Tokenizer
-
-from config import Config
-
 
 class AnsweringAgentNormalizer:
     """A comprehensive normalization module for Aerial Vision and Dialog Navigation (AVDN) data."""
