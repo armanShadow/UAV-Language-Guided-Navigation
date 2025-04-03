@@ -54,6 +54,8 @@ class FeatureExtractor(nn.Module):
         
         # Verify output dimensions
         self._verify_output_dimensions()
+
+        self.norm = nn.LayerNorm(self.hidden_size)
     
     def _init_weights(self):
         """Initialize weights with AVDN's initialization scheme."""
@@ -131,7 +133,7 @@ class FeatureExtractor(nn.Module):
             print(f"NaN detected in projected features - shape: {projected_features.shape}")
             projected_features = torch.nan_to_num(projected_features, nan=0.0)
             
-        return projected_features
+        return self.norm(projected_features)
 
     def forward(self, current_view: torch.Tensor, previous_views: Optional[torch.Tensor] = None) -> torch.Tensor:
         """

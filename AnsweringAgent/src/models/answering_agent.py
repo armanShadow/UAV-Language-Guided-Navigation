@@ -142,11 +142,14 @@ class CrossModalFusion(nn.Module):
         # Expand visual features to sequence length
         # [batch_size, hidden_size] -> [batch_size, seq_len, hidden_size]
         expanded_visual = visual_features.unsqueeze(1).expand(-1, seq_len, -1)
+        print(expanded_visual.shape, visual_features.shape)
         
         # Create attention mask from padding mask if provided
         attn_mask = None
         if text_mask is not None:
             # Convert from [batch_size, seq_len] to attention mask
+            if (text_mask.sum(dim=1) == 0).any():
+                print("Warning: A sample in the batch has all tokens masked!")
             attn_mask = ~text_mask.bool()
         
         # Visual conditioning on text

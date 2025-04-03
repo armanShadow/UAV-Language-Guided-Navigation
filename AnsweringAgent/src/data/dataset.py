@@ -201,6 +201,7 @@ class AnsweringDataset(Dataset):
         item = self.data_items[idx]
         
         # Get pre-tokenized text data
+        #TODO: Move this to the normalizer
         tokenized_text = {
             'input_ids': item['tokenized_input']['input_ids'].squeeze(0),
             'attention_mask': item['tokenized_input']['attention_mask'].squeeze(0)
@@ -220,7 +221,8 @@ class AnsweringDataset(Dataset):
             for img in item['previous_views_image']:
                 previous_views.append(img)
         
-        # Handle case where previous_views is empty
+        # Handle case where previous_views is empty 
+        #TODO: Move this to the normalizer
         if len(previous_views) == 0:
             # Instead of zeros, replicate the current view for all previous views
             default_views = torch.stack([current_view] * self.max_prev_views, dim=0)
