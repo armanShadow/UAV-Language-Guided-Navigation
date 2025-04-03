@@ -239,6 +239,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                         # Calculate loss in the training loop
                         loss = criterion(logits_reshaped, labels_reshaped)
+
+                        if torch.isnan(loss):
+                            logger.error(f"[NaN Detected] NaN in loss before backward on rank {rank}, epoch {epoch}, batch {batch_idx}")
+                            logger.error(f"Loss value: {loss.item()}")
+                            continue
                         
                         # Add feature regularization with weight 0.005
                         reg_loss = 0.005 * feature_norm
@@ -259,6 +264,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                         # Unscale gradients for clipping
                         scaler.unscale_(optimizer)
+
+                        for name, param in model.named_parameters():
+                            if param.grad is not None and torch.isnan(param.grad).any():
+                                logger.error(f"[NaN Gradient] NaN detected in gradient for {name} on rank {rank}, batch {batch_idx}")
+                                 break
                         # Clip gradients
                         torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.gradient_clip)
                         # Optimizer step with scaling
