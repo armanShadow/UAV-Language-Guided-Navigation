@@ -125,7 +125,7 @@ class AnsweringDataset(Dataset):
         
         return processed_data_path
     
-    def __init__(self, config: Config, split='train', rank=0, world_size=1):
+    def __init__(self, config: Config, split='train', exhuastive_loading=False):
         """
         Initialize the dataset - loads preprocessed data.
         Supports chunked loading for train split and distributes chunks in multi-GPU settings.
@@ -143,16 +143,28 @@ class AnsweringDataset(Dataset):
         # Determine which processed file to load based on split
         if split == 'train':
             preprocessed_path = config.data.train_processed_path_dir
+            json_path = config.data.train_json_path
         elif split == 'val_seen':
             preprocessed_path = config.data.val_seen_processed_path
+            json_path = config.data.val_seen_json_path
         elif split == 'val_unseen':
             preprocessed_path = config.data.val_unseen_processed_path
+            json_path = config.data.val_unseen_json_path
         else:
             raise ValueError(f"Unknown split: {split}. Must be one of ['train', 'val_seen', 'val_unseen']")
 
-        # Load the preprocessed data
-        try:
-            if split == 'train':
+        if exhuastive_loading:
+            normalizer = AnsweringAgentNormalizer(tokenizer, config)
+            self.preprocessed_data = normalizer.preprocess_all_data(
+                json_path,
+                config.data.avdn_image_dir,
+                output_size=(config.model.img_size, config.model.img_size),
+                apply_augmentation=config.training.use_augmentation
+            )
+        else:
+            # Load the preprocessed data
+            try:
+                if split == 'train':
                 self.preprocessed_data = AnsweringDataset.load_train_chunks(preprocessed_path)
             else:
                 with open(preprocessed_path, 'rb') as f:
@@ -252,7 +264,7 @@ class AnsweringDataset(Dataset):
         return result
     
     @staticmethod
-    def create_datasets(config: Config, logger=None, splits=['train', 'val_seen', 'val_unseen']):
+    def create_datasets(config: Config, logger=None, splits=['train', 'val_seen', 'val_unseen'], exhuastive_loading=False):
         """
         Create all three datasets (train, val_seen, val_unseen) at once.
         
@@ -266,6 +278,6 @@ class AnsweringDataset(Dataset):
         # Preprocess all splits
         datasets = {}
         for split in splits:
-            datasets[split] = AnsweringDataset(config, split=split)
+            datasets[split] = AnsweringDataset(config, split=split, exhuastive_loading=exhuastive_loading)
 
         return datasets
