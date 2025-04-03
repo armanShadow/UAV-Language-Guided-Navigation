@@ -240,17 +240,17 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Get batch and sequence dimensions
                         batch_size, seq_len, vocab_size = logits.size()
 
+                        if torch.isnan(logits).any():
+                            logger.error(f"[NaN Logits] NaN detected in logits on rank {rank}, batch {batch_idx}")
+                            logger.error(f"Logits stats — min: {logits.min().item()}, max: {logits.max().item()}, mean: {logits.mean().item()}")
+                            continue
+
                         # Reshape outputs and labels consistently
                         logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
                         labels_reshaped = labels.contiguous().view(batch_size * seq_len)
 
                         # Calculate loss in the training loop
                         loss = criterion(logits_reshaped, labels_reshaped)
-
-                        if torch.isnan(logits).any():
-                            logger.error(f"[NaN Logits] NaN detected in logits on rank {rank}, batch {batch_idx}")
-                            logger.error(f"Logits stats — min: {logits.min().item()}, max: {logits.max().item()}, mean: {logits.mean().item()}")
-                            continue
 
                         if torch.isnan(loss):
                             logger.error(f"[NaN Detected] NaN in loss before backward on rank {rank}, epoch {epoch}, batch {batch_idx}")
