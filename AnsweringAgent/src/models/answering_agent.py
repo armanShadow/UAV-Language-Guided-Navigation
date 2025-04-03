@@ -327,8 +327,8 @@ class AnsweringAgent(nn.Module):
         # Apply the adapter to bridge the gap between our features and what T5 expects
         adapted_features = self.t5_adapter(fused_features)
         
-        # Calculate feature norm for regularization
-        feature_norm = adapted_features.norm(2)
+        # Calculate feature norm for regularization (detach to prevent memory leak)
+        feature_norm = adapted_features.norm(2).detach()
         
         # During training mode, return logits for loss calculation in training loop
         if self.training:

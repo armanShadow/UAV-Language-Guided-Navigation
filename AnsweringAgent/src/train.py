@@ -157,6 +157,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     # Enable cuDNN benchmarking for faster convolutions
     torch.backends.cudnn.benchmark = True
     
+    # Add memory tracking for debugging
+    if torch.cuda.is_available() and rank == 0:
+        logger.info(f"Initial GPU memory: {log_gpu_memory()}")
+    
     # Initialize Exponential Moving Average
     ema = EMA(model, decay=0.999)
     
@@ -226,10 +230,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     labels = batch['text_label'].to(device, non_blocking=True)
 
                     logger.warning(f"[Debug] Batch {batch_idx}, Epoch {epoch}, Rank {rank}")
-                    logger.warning(f"Input IDs: {text_input['input_ids'][0].tolist()}")
-                    logger.warning(f"Labels: {labels[0].tolist()}")
-                    logger.warning(f"View Image stats: mean={current_view.mean().item()}, std={current_view.std().item()}")
-                    logger.warning(f"Previous Views stats: mean={previous_views.mean().item()}, std={previous_views.std().item()}")
+                    # Log only a few elements instead of full tensors
+                    logger.warning(f"Input IDs shape: {text_input['input_ids'].shape}")
+                    logger.warning(f"Labels shape: {labels.shape}")
+                    logger.warning(f"View Image stats: mean={current_view.detach().mean().item():.4f}, std={current_view.detach().std().item():.4f}")
+                    logger.warning(f"Previous Views stats: mean={previous_views.detach().mean().item():.4f}, std={previous_views.detach().std().item():.4f}")
 
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast():
@@ -242,7 +247,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                         if torch.isnan(logits).any():
                             logger.error(f"[NaN Logits] NaN detected in logits on rank {rank}, batch {batch_idx}")
-                            logger.error(f"Logits stats — min: {logits.min().item()}, max: {logits.max().item()}, mean: {logits.mean().item()}")
+                            logger.error(f"Logits shape: {logits.shape}, stats: min={logits.detach().min().item():.4f}, max={logits.detach().max().item():.4f}")
+                            # Don't store logits.mean() as it could cause OOM
+                            optimizer.zero_grad(set_to_none=True)
                             continue
 
                         # Reshape outputs and labels consistently
@@ -341,8 +348,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     # Free variables but don't empty cache every iteration - too expensive
                     del text_input, current_view, previous_views, outputs, logits_reshaped, labels_reshaped
-                    # Only clear cache occasionally to reduce overhead
-                    if batch_idx % 50 == 0 and torch.cuda.is_available():
+                    # Force garbage collection after every batch for debugging
+                    gc.collect()
+                    
+                    # Clear CUDA cache more frequently when debugging memory issues
+                    if batch_idx % 5 == 0 and torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     
                 except Exception as e:
