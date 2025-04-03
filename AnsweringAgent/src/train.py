@@ -761,8 +761,7 @@ def main():
             shuffle=False,
             num_workers=config.training.num_workers,
             pin_memory=config.training.pin_memory,
-            persistent_workers=(config.training.num_workers > 0),
-            collate_fn=custom_collate_fn  # Add our custom collate function
+            persistent_workers=(config.training.num_workers > 0)
         )
 
         # Create warmup then decay scheduler
