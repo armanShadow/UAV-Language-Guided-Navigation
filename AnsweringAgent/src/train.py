@@ -648,7 +648,7 @@ def main():
 
     try:
         # Initialize tokenizer
-        tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name)
+        tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name, model_max_length=config.data.max_seq_length)
         
         if rank == 0:
             logger.info(f"Training on {max(1, num_gpus)} GPUs, distributed mode: {is_distributed}")
@@ -761,7 +761,8 @@ def main():
             shuffle=False,
             num_workers=config.training.num_workers,
             pin_memory=config.training.pin_memory,
-            persistent_workers=(config.training.num_workers > 0)
+            persistent_workers=(config.training.num_workers > 0),
+            collate_fn=custom_collate_fn  # Add our custom collate function
         )
 
         # Create warmup then decay scheduler

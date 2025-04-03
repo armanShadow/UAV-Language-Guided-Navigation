@@ -199,7 +199,7 @@ class AnsweringAgent(nn.Module):
         if tokenizer is not None:
             self.tokenizer = tokenizer
         else:
-            self.tokenizer = T5Tokenizer.from_pretrained(self.model_name)
+            self.tokenizer = T5Tokenizer.from_pretrained(self.model_name, model_max_length=self.config.data.max_seq_length)
         
         # Load T5 base model (encoder-decoder)
         self.t5_model = T5ForConditionalGeneration.from_pretrained(self.model_name)
