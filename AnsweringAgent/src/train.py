@@ -229,6 +229,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     previous_views = batch['previous_views_image'].to(device, non_blocking=True)
                     labels = batch['text_label'].to(device, non_blocking=True)
 
+                    logger.warning(f"[Debug] Batch {batch_idx}, Epoch {epoch}, Rank {rank}")
+                    logger.warning(f"Input IDs: {text_input['input_ids'][0].tolist()}")
+                    logger.warning(f"Labels: {labels[0].tolist()}")
+                    logger.warning(f"View Image stats: mean={current_view.mean().item()}, std={current_view.std().item()}")
+                    logger.warning(f"Previous Views stats: mean={previous_views.mean().item()}, std={previous_views.std().item()}")
+
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast():
                         outputs = model(text_input, current_view, previous_views, labels)
