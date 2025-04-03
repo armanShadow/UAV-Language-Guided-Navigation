@@ -281,27 +281,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             logger.error(f"[NaN Gradient] NaN detected in gradient for {name} on rank {rank}, batch {batch_idx}")
                             nan_in_grads = True
                             break
-                            
-                    # Skip optimizer step if NaNs detected
-                    if nan_in_grads:
-                        logger.error(f"[NaN Recovery] Skipping optimizer step due to NaN gradients at batch {batch_idx}")
-                        optimizer.zero_grad(set_to_none=True)
-                        
-                        # Increment NaN counter and use recovery if needed
-                        nan_counter += 1
-                        if nan_counter >= consecutive_nan_limit:
-                            # Reduce learning rate as recovery strategy
-                            for param_group in optimizer.param_groups:
-                                param_group['lr'] *= nan_recovery_lr_factor
-                            logger.warning(f"[NaN Recovery] Reducing learning rate to {optimizer.param_groups[0]['lr']} after {nan_counter} NaN gradients")
-                            nan_counter = 0  # Reset counter after recovery
-                            
-                            # Clear CUDA cache to release any corrupted memory
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                        
-                        continue
-
+        
                     # Update weights if we've accumulated enough gradients
                     if (batch_idx + 1) % config.training.gradient_accumulation_steps == 0:
                         # Synchronize gradients across processes in distributed mode
