@@ -9,7 +9,7 @@ from typing import List, Tuple, Dict, Any, Union, Optional
 
 from transformers import T5Tokenizer
 
-from AnsweringAgent.src.config import Config
+from config import Config
 
 
 class AnsweringAgentNormalizer:
