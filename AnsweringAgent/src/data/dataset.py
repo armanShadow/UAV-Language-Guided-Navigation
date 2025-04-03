@@ -223,17 +223,20 @@ class AnsweringDataset(Dataset):
         if len(previous_views) == 0:
             # Instead of zeros, replicate the current view for all previous views
             default_views = torch.stack([current_view] * self.max_prev_views, dim=0)
-            return {
+
+            result = {
                 'text_input': tokenized_text,
                 'text_label': tokenized_answer,
                 'current_view_image': current_view,
                 'previous_views_image': default_views,
-                'raw_question': question,
-                'raw_answer': answer,
                 'first_instruction': first_instruction,
-                'dialog_history': dialog_history
             }
             
+            if 'destination_image' in item:
+                result['destination_image'] = item['destination_image']
+
+            return result   
+        
         # Pad or truncate to max_previous_views
         if len(previous_views) > self.max_prev_views:
             previous_views = previous_views[:self.max_prev_views]
@@ -252,10 +255,7 @@ class AnsweringDataset(Dataset):
             'text_label': tokenized_answer,
             'current_view_image': current_view,
             'previous_views_image': previous_views,
-            'raw_question': question,
-            'raw_answer': answer,
             'first_instruction': first_instruction,
-            'dialog_history': dialog_history
         }
         
         # Add destination if available (important for curriculum learning)

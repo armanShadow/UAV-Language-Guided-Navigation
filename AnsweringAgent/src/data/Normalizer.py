@@ -32,7 +32,6 @@ class AnsweringAgentNormalizer:
         # Maximum cache size (adjust based on available memory)
         self.max_cache_size = 100
         self.tokenizer = tokenizer
-
         self.config = config
 
         if config is None:
@@ -465,8 +464,16 @@ class AnsweringAgentNormalizer:
 
 # Example usage
 if __name__ == '__main__':
+    # Import needed dependencies for standalone execution
+    from transformers import T5Tokenizer
+    from config import Config
+    
+    # Initialize tokenizer and config
+    config = Config()
+    tokenizer = T5Tokenizer.from_pretrained('t5-base', model_max_length=config.data.max_seq_length)
+    
     # Initialize normalizer
-    normalizer = AnsweringAgentNormalizer()
+    normalizer = AnsweringAgentNormalizer(tokenizer, config)
     
     # Example JSON file path and image directory
     json_file = "processed_data/train_data.json"
@@ -474,6 +481,5 @@ if __name__ == '__main__':
     
     # Process data
     processed_data = normalizer.preprocess_all_data(json_file, image_dir, apply_augmentation=True)
-
-
+    
     print(f"Processed {len(processed_data)} items.")
