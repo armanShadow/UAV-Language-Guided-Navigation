@@ -226,7 +226,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast():
-                        outputs = model(text_input, current_view, previous_views)
+                        outputs = model(text_input, current_view, previous_views, labels)
                         logits = outputs["logits"]
                         feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
 
@@ -333,7 +333,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             labels = batch['text_label'].to(device, non_blocking=True)
 
                             with torch.cuda.amp.autocast():
-                                outputs = model(text_input, current_view, previous_views)
+                                outputs = model(text_input, current_view, previous_views, labels)
                                 logits = outputs["logits"]
                                 batch_size, seq_len, vocab_size = logits.size()
                                 logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)

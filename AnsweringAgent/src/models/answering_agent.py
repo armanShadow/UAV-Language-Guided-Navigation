@@ -265,7 +265,7 @@ class AnsweringAgent(nn.Module):
         print(f"Total trainable parameters: {trainable_params:,}")
     
     def forward(self, text_input: dict, current_view: torch.Tensor, 
-                previous_views: torch.Tensor) -> Dict:
+                previous_views: torch.Tensor, labels: torch.Tensor = None) -> Dict:
         """
         Forward pass of the answering agent.
         
@@ -273,6 +273,7 @@ class AnsweringAgent(nn.Module):
             text_input: Dictionary with input_ids and attention_mask
             current_view: Current visual input [batch_size, channels, height, width]
             previous_views: Previous visual inputs [batch_size, num_prev, channels, height, width]
+            labels: Target token IDs for training [batch_size, seq_len]
             
         Returns:
             Dictionary with logits and feature_norm for training or sequences for inference
@@ -332,11 +333,12 @@ class AnsweringAgent(nn.Module):
         # During training mode, return logits for loss calculation in training loop
         if self.training:
             with torch.no_grad():  # Don't train the T5 model
-                # Get logits from T5 with our adapted features
+                # Get logits from T5 with our adapted features            
                 outputs = self.t5_model(
                     input_ids=None,
                     attention_mask=attention_mask,
                     encoder_outputs=(adapted_features,),
+                    labels=labels,
                     return_dict=True
                 )
                 
