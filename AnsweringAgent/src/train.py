@@ -290,7 +290,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                    f'Loss: {avg_loss:.4f}, Throughput: {throughput:.2f} samples/sec')
 
                     # Free variables but don't empty cache every iteration - too expensive
-                    del text_input, current_view, previous_views, outputs, outputs_reshaped, labels_reshaped
+                    del text_input, current_view, previous_views, outputs, logits_reshaped, labels_reshaped
                     # Only clear cache occasionally to reduce overhead
                     if batch_idx % 50 == 0 and torch.cuda.is_available():
                         torch.cuda.empty_cache()
