@@ -310,6 +310,8 @@ class AnsweringAgent(nn.Module):
         # Extract needed inputs
         input_ids = text_input['input_ids']
         attention_mask = text_input.get('attention_mask', None)
+
+        batch_size = current_view.size(0)
         
         # Extract current view features using the dedicated method
         current_features = self.feature_extractor.extract_single_view_features(current_view)
