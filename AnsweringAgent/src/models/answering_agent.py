@@ -341,7 +341,7 @@ class AnsweringAgent(nn.Module):
             print(f"NaN detected in visual_context! - shape: {visual_context.shape} - mean: {visual_context.mean().item()} - std: {visual_context.std().item()}")
             visual_context = torch.nan_to_num(visual_context, nan=0.0)
 
-        visual_context = self.visual_context_projection(visual_context)
+        visual_context = self.visual_context_projection(visual_context).unsqueeze(1)
 
         if torch.isnan(visual_context).any():
             print(f"NaN detected in visual_context! - shape: {visual_context.shape} - mean: {visual_context.mean().item()} - std: {visual_context.std().item()}")
