@@ -114,12 +114,15 @@ class CrossModalFusion(nn.Module):
         # Layer normalization
         self.norm1 = nn.LayerNorm(hidden_size)
         self.norm2 = nn.LayerNorm(hidden_size)
+        self.norm3 = nn.LayerNorm(hidden_size)
         
         # Fusion gate
         self.fusion_gate = nn.Sequential(
             nn.Linear(hidden_size * 2, hidden_size),
             nn.Sigmoid()
         )
+
+        self.dropout = nn.Dropout(self.config.model.dropout)
         
         # Output projection
         self.output_projection = nn.Linear(hidden_size * 2, hidden_size)
@@ -149,7 +152,7 @@ class CrossModalFusion(nn.Module):
         
         # Visual conditioning on text
         attended_text, _ = self.text_to_visual_attention(
-            query=expanded_visual,
+            query=visual_features,
             key=text_features,
             value=text_features,
             key_padding_mask=attn_mask
@@ -158,8 +161,8 @@ class CrossModalFusion(nn.Module):
         # Text conditioning on visual
         attended_visual, _ = self.visual_to_text_attention(
             query=text_features,
-            key=expanded_visual,
-            value=expanded_visual
+            key=visual_features,
+            value=visual_features
         )
         
         # Normalize attended features
@@ -185,9 +188,11 @@ class CrossModalFusion(nn.Module):
         
         # Weighted combination of the two streams
         fused_features = gate * attended_visual + (1 - gate) * attended_text
+
+        fused_features = self.norm3(fused_features)
         
         # Concatenate and project for rich feature representation
-        output = self.output_projection(torch.cat([fused_features, text_features], dim=-1))
+        output = text_features + self.output_projection(torch.cat([fused_features, text_features], dim=-1))
         
         return output
 
