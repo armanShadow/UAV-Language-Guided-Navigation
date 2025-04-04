@@ -462,7 +462,7 @@ class AnsweringAgentNormalizer:
 if __name__ == '__main__':
     # Import needed dependencies for standalone execution
     from transformers import T5Tokenizer
-    from config import Config
+    from AnsweringAgent.src.config import Config
     
     # Initialize tokenizer and config
     config = Config()
@@ -477,5 +477,21 @@ if __name__ == '__main__':
     
     # Process data
     processed_data = normalizer.preprocess_all_data(json_file, image_dir, apply_augmentation=True)
+
+    max_length = 0
+    max_length_answer = 0
+    for key, value in processed_data.items():
+        input_ids = value['tokenized_input']['input_ids'][0]
+        eos_index = np.where(input_ids == 1)[0][0]
+        if eos_index > max_length:
+            max_length = eos_index
+
+        answer_ids = value['tokenized_answer']['input_ids'][0]
+        eos_index_answer = np.where(answer_ids == 1)[0][0]
+        if eos_index_answer > max_length_answer:
+            max_length_answer = eos_index_answer
+
+    print(f"Max length: {max_length}")
+    print(f"Max length answer: {max_length_answer}")
     
     print(f"Processed {len(processed_data)} items.")

@@ -139,11 +139,6 @@ class CrossModalFusion(nn.Module):
         """
         batch_size, seq_len, _ = text_features.size()
         
-        # Expand visual features to sequence length
-        # [batch_size, hidden_size] -> [batch_size, seq_len, hidden_size]
-        expanded_visual = visual_features.unsqueeze(1).expand(-1, seq_len, -1)
-        print(expanded_visual.shape, visual_features.shape)
-        
         # Create attention mask from padding mask if provided
         attn_mask = None
         if text_mask is not None:
@@ -240,6 +235,9 @@ class AnsweringAgent(nn.Module):
             num_heads=config.model.num_attention_heads,
             dropout=config.model.dropout
         )
+
+        # Project visual context to 32 times the hidden size
+        self.visual_context_projection = nn.Linear(config.model.hidden_size, 32 * config.model.hidden_size)
         
         # Cross-modal fusion for text and visual features
         self.fusion_module = CrossModalFusion(
@@ -333,6 +331,12 @@ class AnsweringAgent(nn.Module):
         
         # Now apply our specialized temporal observation encoder
         visual_context = self.temporal_encoder(current_features, prev_features)
+
+        if torch.isnan(visual_context).any():
+            print(f"NaN detected in visual_context! - shape: {visual_context.shape} - mean: {visual_context.mean().item()} - std: {visual_context.std().item()}")
+            visual_context = torch.nan_to_num(visual_context, nan=0.0)
+
+        visual_context = self.visual_context_projection(visual_context)
 
         if torch.isnan(visual_context).any():
             print(f"NaN detected in visual_context! - shape: {visual_context.shape} - mean: {visual_context.mean().item()} - std: {visual_context.std().item()}")
