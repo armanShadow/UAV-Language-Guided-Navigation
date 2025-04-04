@@ -291,10 +291,10 @@ class AnsweringAgent(nn.Module):
             text_input: Dictionary with input_ids and attention_mask
             current_view: Current visual input [batch_size, channels, height, width]
             previous_views: Previous visual inputs [batch_size, num_prev, channels, height, width]
-            labels: Target token IDs for training [batch_size, seq_len]
+            labels: Target token IDs for training/validation [batch_size, seq_len]
             
         Returns:
-            Dictionary with logits and feature_norm for training or sequences for inference
+            Dictionary with logits and feature_norm for training or validation
         """
         # Extract needed inputs
         input_ids = text_input['input_ids']
@@ -450,55 +450,32 @@ class AnsweringAgent(nn.Module):
         # Calculate feature norm for regularization (detach to prevent memory leak)
         feature_norm = adapted_features.norm(2).detach()
         
-        # During training mode, return logits for loss calculation in training loop
-        if self.training:
-            # Note: Don't use torch.no_grad() here as we need gradients for backward
-            # T5 parameters are already frozen in _freeze_t5_parameters method
+        # Check if labels contain NaN values
+        if labels is not None and torch.isnan(labels).any():
+            self.logger.warning("NaN detected in labels!")
+            # NaN in labels is invalid - must replace with a valid token ID
+            # Use pad token for missing values as it's semantically appropriate
+            labels = torch.nan_to_num(labels, nan=self.tokenizer.pad_token_id)
             
-            # Check if labels contain NaN values
-            if labels is not None and torch.isnan(labels).any():
-                self.logger.warning("NaN detected in labels!")
-                # NaN in labels is invalid - must replace with a valid token ID
-                # Use pad token for missing values as it's semantically appropriate
-                labels = torch.nan_to_num(labels, nan=self.tokenizer.pad_token_id)
-                
-            outputs = self.t5_model(
-                input_ids=None,
-                attention_mask=attention_mask,
-                encoder_outputs=(adapted_features,),
-                labels=labels,
-                return_dict=True
-            )
-                
-            # Return logits for external loss calculation
-            return {
-                "logits": outputs.logits,
-                "feature_norm": feature_norm
-            }
-        
-        # Inference mode
-        else:
-            # Generate output sequence
-            with torch.no_grad():  # Don't train the T5 model during generation
-                outputs = self.t5_model.generate(
-                    encoder_outputs=BaseModelOutput(
-                        last_hidden_state=adapted_features,
-                    ),
-                    attention_mask=attention_mask,
-                    max_length=self.config.model.max_answer_length,
-                    num_beams=4,  # Use beam search for better quality
-                    early_stopping=True,
-                    return_dict_in_generate=True,
-                    output_scores=False
-                )
+        outputs = self.t5_model(
+            input_ids=None,
+            attention_mask=attention_mask,
+            encoder_outputs=BaseModelOutput(
+                last_hidden_state=adapted_features,
+            ),
+            labels=labels,
+            return_dict=True
+        )
             
-            return {
-                "sequences": outputs.sequences,
-            }
+        # Return logits for external loss calculation
+        return {
+            "logits": outputs.logits,
+            "loss": outputs.loss,
+            "feature_norm": feature_norm
+        }
     
-            
     def generate_answer(self, text_input: dict, current_view: torch.Tensor, 
-                       previous_views: torch.Tensor, max_length: int = 128) -> torch.Tensor:
+                       previous_views: torch.Tensor, max_length: int = None) -> torch.Tensor:
         """
         Generate answer text.
         
@@ -511,8 +488,68 @@ class AnsweringAgent(nn.Module):
         Returns:
             Generated token IDs [batch_size, seq_len]
         """
-        # Forward pass in evaluation mode
+        # If max_length is not provided, use the config value
+        if max_length is None:
+            max_length = self.config.model.max_answer_length
+
+        # Extract needed inputs
+        input_ids = text_input['input_ids']
+        attention_mask = text_input.get('attention_mask', None)
+
+        # Forward pass in evaluation mode to get encoder outputs
         with torch.no_grad():
-            outputs = self.forward(text_input, current_view, previous_views)
+            # Process the input to get adapted features (similar to forward method)
+            # This duplicates some code from forward, but allows for cleaner separation
+            current_features = self.feature_extractor.extract_single_view_features(current_view)
             
-        return outputs["sequences"]
+            prev_features = []
+            prev_views_count = previous_views.size(1)
+            
+            for i in range(prev_views_count):
+                prev_view = previous_views[:, i]
+                prev_feat = self.feature_extractor.extract_single_view_features(prev_view)
+                prev_features.append(prev_feat)
+            
+            prev_features = torch.stack(prev_features, dim=1)
+            
+            visual_context = self.temporal_encoder(current_features, prev_features)
+            
+            batch_size = current_view.size(0)
+            visual_context = self.visual_context_projection(visual_context)
+            visual_context = visual_context.view(batch_size, self.config.model.num_visual_tokens, self.config.model.hidden_size)
+            
+            encoder_outputs = self.t5_model.encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                return_dict=True
+            )
+            
+            text_features = encoder_outputs.last_hidden_state
+            
+            fused_features = self.fusion_module(
+                text_features=text_features,
+                visual_features=visual_context,
+                text_mask=attention_mask
+            )
+            
+            adapted_features = self.t5_adapter(fused_features)
+            
+            # Ensure no NaNs in adapted_features before generation
+            if torch.isnan(adapted_features).any():
+                mask = torch.isnan(adapted_features)
+                adapted_features[mask] = 0.0
+            
+            # Generate output sequence using a smaller beam size to save memory
+            outputs = self.t5_model.generate(
+                encoder_outputs=BaseModelOutput(
+                    last_hidden_state=adapted_features,
+                ),
+                attention_mask=attention_mask,
+                max_length=max_length,
+                num_beams=2,  # Reduced beam width to save memory
+                early_stopping=True,
+                return_dict_in_generate=True,
+                output_scores=False  # Don't need scores to save memory
+            )
+            
+        return outputs.sequences
