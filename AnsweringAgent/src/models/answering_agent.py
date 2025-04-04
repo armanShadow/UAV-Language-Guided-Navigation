@@ -65,12 +65,6 @@ class TemporalObservationEncoder(nn.Module):
         
         # Shape: [batch_size, 1, hidden_size] -> [batch_size, hidden_size]
         attn_output = attn_output.squeeze(1)
-        
-        # Residual connection and normalization
-        if torch.isnan(attn_output).any() or torch.isnan(current_features).any():
-            print("NaN detected before norm1 in TemporalObservationEncoder!")
-            attn_output = torch.nan_to_num(attn_output, nan=0.0)
-            current_features = torch.nan_to_num(current_features, nan=0.0)
             
         features = self.norm1(current_features + attn_output)
         
@@ -150,13 +144,6 @@ class CrossModalFusion(nn.Module):
                 print("Warning: A sample in the batch has all tokens masked!")
             attn_mask = ~text_mask.bool()
         
-        if torch.isnan(text_features).any():
-            print("NaNs in `text_features` before attention!")
-        if torch.isnan(visual_features).any():
-            print("NaNs in `visual_features` before attention!")
-        if torch.isnan(attn_mask).any():
-            print("NaNs in `attn_mask` before attention!")
-        
         # Visual conditioning on text
         attended_text, _ = self.text_to_visual_attention(
             query=visual_features,
@@ -171,15 +158,7 @@ class CrossModalFusion(nn.Module):
             key=visual_features,
             value=visual_features
         )
-        
-        # Normalize attended features
-        if torch.isnan(attended_text).any():
-            print("NaN detected in attended_text in CrossModalFusion!")
-            attended_text = torch.nan_to_num(attended_text, nan=0.0)
-            
-        if torch.isnan(attended_visual).any():
-            print("NaN detected in attended_visual in CrossModalFusion!")
-            attended_visual = torch.nan_to_num(attended_visual, nan=0.0)
+
 
         # Interpolate attended_text to the sequence length
         attended_text = F.interpolate(attended_text.transpose(1, 2), size=seq_len, mode='linear', align_corners=False).transpose(1, 2)
@@ -361,15 +340,13 @@ class AnsweringAgent(nn.Module):
             visual_context = torch.nan_to_num(visual_context, nan=0.0)
         
         # Encode text with T5 encoder
-        print(f"DEBUG - Before T5 encoder call - input_ids.shape: {input_ids.shape}")
-        print(f"DEBUG - Before T5 encoder call - token range: min={input_ids.min().item()}, max={input_ids.max().item()}")
-        print(f"DEBUG - Before T5 encoder call - attention_mask.shape: {attention_mask.shape}")
-        print(f"DEBUG - Before T5 encoder call - attention_mask has zeros: {(attention_mask == 0).any().item()}")
-        
+        print(f"[T5 DEBUG] Input IDs shape: {input_ids.shape}, Token ID range: [{input_ids.min().item()} - {input_ids.max().item()}]")
+        print(f"[T5 DEBUG] Attention mask shape: {attention_mask.shape}, Has zero-padding: {(attention_mask == 0).any().item()}")
+
         # Check if any sequence has all masks set to 0 (completely masked)
         if attention_mask is not None and (attention_mask.sum(dim=1) == 0).any():
             print("WARNING: Some sequences have all positions masked!")
-            
+
         try:
             encoder_outputs = self.t5_model.encoder(
                 input_ids=input_ids,
@@ -377,16 +354,17 @@ class AnsweringAgent(nn.Module):
                 return_dict=True
             )
             text_features = encoder_outputs.last_hidden_state
-            
+
             print(f"DEBUG - T5 encoder call successful")
         except Exception as e:
             print(f"ERROR in T5 encoder call: {str(e)}")
             import traceback
             traceback.print_exc()
             raise
-            
+
         # DEBUG: Check T5 encoder outputs for NaNs
         print(f"DEBUG - T5 encoder output has NaNs: {torch.isnan(text_features).any().item()}")
+        print(f"[T5 DEBUG] T5 encoder output shape: {text_features.shape}, NaN count: {torch.isnan(text_features).sum().item()}")
         if torch.isnan(text_features).any():
             print(f"DEBUG - T5 NaN stats: count={torch.isnan(text_features).sum().item()}, total elements={text_features.numel()}")
             print(f"DEBUG - Input IDs shape: {input_ids.shape}, Attn mask shape: {attention_mask.shape}")
