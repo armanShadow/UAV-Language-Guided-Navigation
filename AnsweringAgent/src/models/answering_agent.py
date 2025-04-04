@@ -378,7 +378,7 @@ class AnsweringAgent(nn.Module):
                 if torch.isnan(text_features[i]).any():
                     nan_per_batch.append(i)
             print(f"DEBUG - Batches with NaNs: {nan_per_batch}")
-            
+
             # For the first batch with NaNs, check if NaNs are in specific positions
             if len(nan_per_batch) > 0:
                 first_bad_batch = nan_per_batch[0]
@@ -389,6 +389,8 @@ class AnsweringAgent(nn.Module):
                     if torch.isnan(text_features[first_bad_batch, i]).any():
                         nan_seq_positions.append(i)
                 print(f"DEBUG - In batch {first_bad_batch}, sequence positions with NaNs: {nan_seq_positions}")
+                print(self.tokenizer.convert_ids_to_tokens(input_ids[first_bad_batch]))
+
                 
                 # Check attention mask for these positions
                 if attention_mask is not None:
