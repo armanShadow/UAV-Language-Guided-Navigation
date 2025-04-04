@@ -369,8 +369,7 @@ class AnsweringAgent(nn.Module):
             print(f"DEBUG - T5 NaN stats: count={torch.isnan(text_features).sum().item()}, total elements={text_features.numel()}")
             print(f"DEBUG - Input IDs shape: {input_ids.shape}, Attn mask shape: {attention_mask.shape}")
             print(f"DEBUG - Checking input IDs for unusual values: min={input_ids.min().item()}, max={input_ids.max().item()}")
-            print(self.tokenizer.convert_ids_to_tokens(input_ids[0]))
-            
+
             # Check which specific positions have NaNs
             nan_positions = torch.isnan(text_features)
             # First find which batches contain any NaNs by checking each batch

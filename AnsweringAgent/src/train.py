@@ -229,13 +229,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     previous_views = batch['previous_views_image'].to(device, non_blocking=True)
                     labels = batch['text_label'].to(device, non_blocking=True)
 
-                    logger.warning(f"[Debug] Batch {batch_idx}, Epoch {epoch}, Rank {rank}")
-                    # Log only a few elements instead of full tensors
-                    logger.warning(f"Input IDs shape: {text_input['input_ids'].shape}")
-                    logger.warning(f"Labels shape: {labels.shape}")
-                    logger.warning(f"View Image stats: mean={current_view.detach().mean().item():.4f}, std={current_view.detach().std().item():.4f}")
-                    logger.warning(f"Previous Views stats: mean={previous_views.detach().mean().item():.4f}, std={previous_views.detach().std().item():.4f}")
-
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast():
                         outputs = model(text_input, current_view, previous_views, labels)
