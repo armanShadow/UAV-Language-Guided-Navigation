@@ -145,19 +145,10 @@ class CrossModalFusion(nn.Module):
         # Create attention mask from padding mask if provided
         attn_mask = None
         if text_mask is not None:
-            print(text_mask.shape)
             # Convert from [batch_size, seq_len] to attention mask
             if (text_mask.sum(dim=1) == 0).any():
                 print("Warning: A sample in the batch has all tokens masked!")
             attn_mask = ~text_mask.bool()
-
-        if attn_mask is not None:
-            if torch.isnan(attn_mask.float()).any():
-                print("🚨 NaN in key_padding_mask!")
-            if attn_mask.shape[-1] != text_features.shape[1]:
-                print(f"⚠️ Mismatch: key_padding_mask shape {attn_mask.shape}, key shape {text_features.shape}")
-            if attn_mask.all(dim=1).any():
-                print("🚨 Some samples have all tokens masked out!")
         
         if torch.isnan(text_features).any():
             print("NaNs in `text_features` before attention!")
@@ -370,19 +361,52 @@ class AnsweringAgent(nn.Module):
             visual_context = torch.nan_to_num(visual_context, nan=0.0)
         
         # Encode text with T5 encoder
-        encoder_outputs = self.t5_model.encoder(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            return_dict=True
-        )
-        text_features = encoder_outputs.last_hidden_state
+        print(f"DEBUG - Before T5 encoder call - input_ids.shape: {input_ids.shape}")
+        print(f"DEBUG - Before T5 encoder call - token range: min={input_ids.min().item()}, max={input_ids.max().item()}")
+        print(f"DEBUG - Before T5 encoder call - attention_mask.shape: {attention_mask.shape}")
+        print(f"DEBUG - Before T5 encoder call - attention_mask has zeros: {(attention_mask == 0).any().item()}")
         
+        # Check if any sequence has all masks set to 0 (completely masked)
+        if attention_mask is not None and (attention_mask.sum(dim=1) == 0).any():
+            print("WARNING: Some sequences have all positions masked!")
+            
+        try:
+            encoder_outputs = self.t5_model.encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                return_dict=True
+            )
+            text_features = encoder_outputs.last_hidden_state
+            
+            print(f"DEBUG - T5 encoder call successful")
+        except Exception as e:
+            print(f"ERROR in T5 encoder call: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+            
         # DEBUG: Check T5 encoder outputs for NaNs
         print(f"DEBUG - T5 encoder output has NaNs: {torch.isnan(text_features).any().item()}")
         if torch.isnan(text_features).any():
             print(f"DEBUG - T5 NaN stats: count={torch.isnan(text_features).sum().item()}, total elements={text_features.numel()}")
             print(f"DEBUG - Input IDs shape: {input_ids.shape}, Attn mask shape: {attention_mask.shape}")
             print(f"DEBUG - Checking input IDs for unusual values: min={input_ids.min().item()}, max={input_ids.max().item()}")
+            
+            # Check which specific positions have NaNs
+            nan_positions = torch.isnan(text_features)
+            nan_batch_indices = torch.nonzero(nan_positions.any(dim=(1,2)), as_tuple=True)[0]
+            print(f"DEBUG - Batches with NaNs: {nan_batch_indices.tolist()}")
+            
+            # For the first batch with NaNs, check if NaNs are in specific positions
+            if len(nan_batch_indices) > 0:
+                first_bad_batch = nan_batch_indices[0].item()
+                nan_positions_in_batch = torch.isnan(text_features[first_bad_batch])
+                nan_seq_positions = torch.nonzero(nan_positions_in_batch.any(dim=1), as_tuple=True)[0]
+                print(f"DEBUG - In batch {first_bad_batch}, sequence positions with NaNs: {nan_seq_positions.tolist()}")
+                
+                # Check attention mask for these positions
+                if attention_mask is not None:
+                    print(f"DEBUG - Attention mask for these positions: {attention_mask[first_bad_batch, nan_seq_positions].tolist()}")
             
             # Replace NaNs before passing to fusion module
             text_features = torch.nan_to_num(text_features, nan=0.0)
