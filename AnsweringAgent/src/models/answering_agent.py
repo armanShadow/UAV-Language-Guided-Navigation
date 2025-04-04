@@ -546,7 +546,7 @@ class AnsweringAgent(nn.Module):
                 ),
                 attention_mask=attention_mask,
                 max_length=max_length,
-                num_beams=2,  # Reduced beam width to save memory
+                num_beams=4,
                 early_stopping=True,
                 return_dict_in_generate=True,
                 output_scores=False  # Don't need scores to save memory
