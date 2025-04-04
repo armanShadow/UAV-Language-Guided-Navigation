@@ -6,7 +6,7 @@ from typing import Dict, Tuple, Optional, List
 import math
 from config import Config
 import torch.nn.functional as F
-
+from transformers.models.t5.modeling_t5 import BaseModelOutput
 
 class TemporalObservationEncoder(nn.Module):
     """Encodes temporal observations with attention mechanism."""
