@@ -173,7 +173,10 @@ class CrossModalFusion(nn.Module):
         if torch.isnan(attended_visual).any():
             print("NaN detected in attended_visual in CrossModalFusion!")
             attended_visual = torch.nan_to_num(attended_visual, nan=0.0)
-            
+
+        # Interpolate attended_text to the sequence length
+        attended_text = F.interpolate(attended_text.transpose(1, 2), size=seq_len, mode='linear', align_corners=False).transpose(1, 2)
+        
         attended_text = self.norm1(attended_text)
         attended_visual = self.norm2(attended_visual)
         
