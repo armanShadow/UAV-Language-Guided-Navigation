@@ -71,11 +71,6 @@ class TemporalObservationEncoder(nn.Module):
         # Feed-forward network
         ff_output = self.ff_network(features)
         
-        # Check for NaNs in ff_output
-        if torch.isnan(ff_output).any():
-            print("NaN detected in ff_output in TemporalObservationEncoder!")
-            ff_output = torch.nan_to_num(ff_output, nan=0.0)
-        
         # Final residual connection and normalization
         output = self.norm2(features + ff_output)
         
@@ -141,7 +136,7 @@ class CrossModalFusion(nn.Module):
         if text_mask is not None:
             # Convert from [batch_size, seq_len] to attention mask
             if (text_mask.sum(dim=1) == 0).any():
-                print("Warning: A sample in the batch has all tokens masked!")
+                logger.warning("A sample in the batch has all tokens masked!")
             attn_mask = ~text_mask.bool()
         
         # Visual conditioning on text
@@ -172,8 +167,10 @@ class CrossModalFusion(nn.Module):
         
         # Check for NaNs in gate
         if torch.isnan(gate).any():
-            print("NaN detected in fusion gate in CrossModalFusion!")
-            gate = torch.nan_to_num(gate, nan=0.5)  # Default to equal weighting
+            logger.warning("NaN detected in fusion gate in CrossModalFusion!")
+            # For gates, 0.5 is a balanced choice between the two modalities
+            # We use the original inputs rather than potentially corrupted attended features
+            return text_features  # Return original text features as a fallback
         
         # Weighted combination of the two streams
         fused_features = gate * attended_visual + (1 - gate) * attended_text
@@ -203,9 +200,12 @@ class AnsweringAgent(nn.Module):
     - Fine-tuning only necessary parts of the pretrained model
     """
     
-    def __init__(self, config: Config, tokenizer=None):
+    def __init__(self, config: Config, tokenizer=None, logger=None):
         super().__init__()
         self.config = config
+        
+        # Set up logger for this instance
+        self.logger = logger
         
         # Store T5 model name for loading correct tokenizer
         self.model_name = config.model.t5_model_name
@@ -275,12 +275,12 @@ class AnsweringAgent(nn.Module):
             total_params += param.numel()
             param.requires_grad = False
                 
-        print(f"T5 model: 0.00% of parameters are trainable (all frozen)")
-        print(f"Total T5 parameters: {total_params:,}")
+        self.logger.info(f"T5 model: 0.00% of parameters are trainable (all frozen)")
+        self.logger.info(f"Total T5 parameters: {total_params:,}")
         
         # Count our trainable parameters
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        print(f"Total trainable parameters: {trainable_params:,}")
+        self.logger.info(f"Total trainable parameters: {trainable_params:,}")
     
     def forward(self, text_input: dict, current_view: torch.Tensor, 
                 previous_views: torch.Tensor, labels: torch.Tensor = None) -> Dict:
@@ -305,8 +305,28 @@ class AnsweringAgent(nn.Module):
         # Extract current view features using the dedicated method
         current_features = self.feature_extractor.extract_single_view_features(current_view)
         if torch.isnan(current_features).any():
-            print(f"NaN detected in current_features! - shape: {current_features.shape} - mean: {current_features.mean().item()} - std: {current_features.std().item()}")
-            current_features = torch.nan_to_num(current_features, nan=0.0)
+            nan_percentage = torch.isnan(current_features).float().mean().item() * 100
+            self.logger.warning(f"NaN detected in current_features! - {nan_percentage:.2f}% of values are NaN")
+            
+            # If more than 50% of values are NaN, this is a serious issue
+            if nan_percentage > 50:
+                self.logger.error("More than 50% of current_features are NaN - training may be unstable")
+            
+            # Instead of simply replacing with zeros, which can lead to gradient issues,
+            # we can use a small random value within the feature's existing range
+            # This might help prevent the network from getting stuck in bad local minima
+            with torch.no_grad():
+                # Calculate valid statistics
+                valid_features = current_features[~torch.isnan(current_features)]
+                if len(valid_features) > 0:
+                    mean_val = valid_features.mean().item()
+                    std_val = valid_features.std().item()
+                    # Replace NaNs with small random noise around the mean
+                    mask = torch.isnan(current_features)
+                    current_features[mask] = mean_val + torch.randn_like(current_features[mask]) * std_val * 0.1
+                else:
+                    # If all values are NaN, use a small random initialization
+                    current_features = torch.randn_like(current_features) * 0.01
         
         # Extract previous view features
         prev_features = []
@@ -322,86 +342,72 @@ class AnsweringAgent(nn.Module):
         prev_features = torch.stack(prev_features, dim=1)
 
         if torch.isnan(prev_features).any():
-            print(f"NaN detected in prev_features! - shape: {prev_features.shape} - mean: {prev_features.mean().item()} - std: {prev_features.std().item()}")
-            prev_features = torch.nan_to_num(prev_features, nan=0.0)
+            nan_percentage = torch.isnan(prev_features).float().mean().item() * 100
+            self.logger.warning(f"NaN detected in prev_features! - {nan_percentage:.2f}% of values are NaN")
+            
+            # Similar approach as with current_features
+            with torch.no_grad():
+                valid_features = prev_features[~torch.isnan(prev_features)]
+                if len(valid_features) > 0:
+                    mean_val = valid_features.mean().item()
+                    std_val = valid_features.std().item()
+                    mask = torch.isnan(prev_features)
+                    prev_features[mask] = mean_val + torch.randn_like(prev_features[mask]) * std_val * 0.1
+                else:
+                    prev_features = torch.randn_like(prev_features) * 0.01
         
         # Now apply our specialized temporal observation encoder
         visual_context = self.temporal_encoder(current_features, prev_features)
 
         if torch.isnan(visual_context).any():
-            print(f"NaN detected in visual_context! - shape: {visual_context.shape} - mean: {visual_context.mean().item()} - std: {visual_context.std().item()}")
-            visual_context = torch.nan_to_num(visual_context, nan=0.0)
+            nan_percentage = torch.isnan(visual_context).float().mean().item() * 100
+            self.logger.warning(f"NaN detected in visual_context! - {nan_percentage:.2f}% of values are NaN")
+            
+            # If NaNs appear after the temporal encoder, we should fall back to the input
+            # This maintains the computational graph while avoiding NaN propagation
+            if nan_percentage > 50:
+                self.logger.error("Severe NaN issue in visual_context - using current_features as fallback")
+                visual_context = current_features  # Use the input as fallback
+            else:
+                # Replace only the NaN values with corresponding values from current_features
+                mask = torch.isnan(visual_context)
+                visual_context[mask] = current_features[mask]
 
         visual_context = self.visual_context_projection(visual_context)
         visual_context = visual_context.view(batch_size, self.config.model.num_visual_tokens, self.config.model.hidden_size)
 
         if torch.isnan(visual_context).any():
-            print(f"NaN detected in visual_context! - shape: {visual_context.shape} - mean: {visual_context.mean().item()} - std: {visual_context.std().item()}")
-            visual_context = torch.nan_to_num(visual_context, nan=0.0)
+            self.logger.warning(f"NaN detected in projected visual_context!")
+            # After projection, we should handle NaNs carefully to maintain gradient flow
+            with torch.no_grad():
+                mask = torch.isnan(visual_context)
+                # Replace with small random values to maintain gradient flow
+                visual_context[mask] = torch.randn_like(visual_context[mask]) * 0.01
         
-        # Encode text with T5 encoder
-        print(f"[T5 DEBUG] Input IDs shape: {input_ids.shape}, Token ID range: [{input_ids.min().item()} - {input_ids.max().item()}]")
-        print(f"[T5 DEBUG] Attention mask shape: {attention_mask.shape}, Has zero-padding: {(attention_mask == 0).any().item()}")
-
         # Check if any sequence has all masks set to 0 (completely masked)
         if attention_mask is not None and (attention_mask.sum(dim=1) == 0).any():
-            print("WARNING: Some sequences have all positions masked!")
+            self.logger.warning("Some sequences have all positions masked!")
 
-        try:
-            encoder_outputs = self.t5_model.encoder(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                return_dict=True
-            )
-            text_features = encoder_outputs.last_hidden_state
+        encoder_outputs = self.t5_model.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            return_dict=True
+        )
 
-            print(f"DEBUG - T5 encoder call successful")
-        except Exception as e:
-            print(f"ERROR in T5 encoder call: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            raise
+        text_features = encoder_outputs.last_hidden_state
 
-        # DEBUG: Check T5 encoder outputs for NaNs
-        print(f"DEBUG - T5 encoder output has NaNs: {torch.isnan(text_features).any().item()}")
-        print(f"[T5 DEBUG] T5 encoder output shape: {text_features.shape}, NaN count: {torch.isnan(text_features).sum().item()}")
         if torch.isnan(text_features).any():
-            print(f"DEBUG - T5 NaN stats: count={torch.isnan(text_features).sum().item()}, total elements={text_features.numel()}")
-            print(f"DEBUG - Input IDs shape: {input_ids.shape}, Attn mask shape: {attention_mask.shape}")
-            print(f"DEBUG - Checking input IDs for unusual values: min={input_ids.min().item()}, max={input_ids.max().item()}")
-
-            # Check which specific positions have NaNs
-            nan_positions = torch.isnan(text_features)
-            # First find which batches contain any NaNs by checking each batch
-            nan_per_batch = []
-            for i in range(text_features.shape[0]):
-                if torch.isnan(text_features[i]).any():
-                    nan_per_batch.append(i)
-            print(f"DEBUG - Batches with NaNs: {nan_per_batch}")
-
-            # For the first batch with NaNs, check if NaNs are in specific positions
-            if len(nan_per_batch) > 0:
-                first_bad_batch = nan_per_batch[0]
-                nan_positions_in_batch = torch.isnan(text_features[first_bad_batch])
-                # Find which sequence positions have NaNs
-                nan_seq_positions = []
-                for i in range(text_features.shape[1]):
-                    if torch.isnan(text_features[first_bad_batch, i]).any():
-                        nan_seq_positions.append(i)
-                print(f"DEBUG - In batch {first_bad_batch}, sequence positions with NaNs: {nan_seq_positions}")
-                print(self.tokenizer.convert_ids_to_tokens(input_ids[first_bad_batch]))
-
-                
-                # Check attention mask for these positions
-                if attention_mask is not None:
-                    mask_values = []
-                    for pos in nan_seq_positions:
-                        mask_values.append(attention_mask[first_bad_batch, pos].item())
-                    print(f"DEBUG - Attention mask for these positions: {mask_values}")
+            nan_percentage = torch.isnan(text_features).float().mean().item() * 100
+            self.logger.warning(f"NaN detected in T5 text_features! - {nan_percentage:.2f}% of values are NaN")
             
-            # Replace NaNs before passing to fusion module
-            text_features = torch.nan_to_num(text_features, nan=0.0)
-            print(f"DEBUG - After nan_to_num, still has NaNs: {torch.isnan(text_features).any().item()}")
+            # T5 encoder outputs should not have NaNs; this indicates a serious issue
+            if nan_percentage > 10:
+                self.logger.error("Significant NaNs in T5 encoder output - model stability is compromised")
+                
+            # For T5 outputs, since we're not training the T5 model, we can safely replace with zeros
+            # without affecting the training dynamics of our trainable components
+            mask = torch.isnan(text_features)
+            text_features[mask] = 0.0
         
         # Apply cross-modal fusion
         fused_features = self.fusion_module(
@@ -411,17 +417,35 @@ class AnsweringAgent(nn.Module):
         )
 
         if torch.isnan(fused_features).any():
-            print(f"NaN detected in fused_features! - shape: {fused_features.shape} - mean: {fused_features.mean().item()} - std: {fused_features.std().item()}")
-            fused_features = torch.nan_to_num(fused_features, nan=0.0)
+            nan_percentage = torch.isnan(fused_features).float().mean().item() * 100
+            self.logger.warning(f"NaN detected in fused_features! - {nan_percentage:.2f}% of values are NaN")
+            
+            # If fusion fails, fall back to text features
+            if nan_percentage > 30:
+                self.logger.error("Severe NaN issue in fusion - using text_features as fallback")
+                fused_features = text_features  # Use text features as fallback
+            else:
+                # Replace NaN values with corresponding values from text_features
+                mask = torch.isnan(fused_features)
+                fused_features[mask] = text_features[mask]
         
         # Apply the adapter to bridge the gap between our features and what T5 expects
         adapted_features = self.t5_adapter(fused_features)
         
         # Check for NaNs in adapted features
         if torch.isnan(adapted_features).any():
-            print(f"NaN detected in adapted_features - mean: {fused_features.mean().item()}, std: {fused_features.std().item()}")
-            # Replace NaNs with zeros for stability
-            adapted_features = torch.nan_to_num(adapted_features, nan=0.0)
+            nan_percentage = torch.isnan(adapted_features).float().mean().item() * 100
+            self.logger.warning(f"NaN detected in adapted_features - {nan_percentage:.2f}% of values are NaN")
+            
+            # For the final output to T5, we need to ensure no NaNs
+            if nan_percentage > 20:
+                self.logger.error("Severe NaN issue in adapter output - using fused_features as fallback")
+                # Use fused features as fallback for stability
+                adapted_features = fused_features
+            else:
+                # Replace only NaN values
+                mask = torch.isnan(adapted_features)
+                adapted_features[mask] = fused_features[mask]
         
         # Calculate feature norm for regularization (detach to prevent memory leak)
         feature_norm = adapted_features.norm(2).detach()
@@ -433,8 +457,9 @@ class AnsweringAgent(nn.Module):
             
             # Check if labels contain NaN values
             if labels is not None and torch.isnan(labels).any():
-                print("NaN detected in labels!")
-                # Replace NaNs with pad token id
+                self.logger.warning("NaN detected in labels!")
+                # NaN in labels is invalid - must replace with a valid token ID
+                # Use pad token for missing values as it's semantically appropriate
                 labels = torch.nan_to_num(labels, nan=self.tokenizer.pad_token_id)
                 
             outputs = self.t5_model(
