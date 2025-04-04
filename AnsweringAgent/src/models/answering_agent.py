@@ -150,6 +150,14 @@ class CrossModalFusion(nn.Module):
             if (text_mask.sum(dim=1) == 0).any():
                 print("Warning: A sample in the batch has all tokens masked!")
             attn_mask = ~text_mask.bool()
+
+        if attn_mask is not None:
+            if torch.isnan(attn_mask.float()).any():
+                print("🚨 NaN in key_padding_mask!")
+            if attn_mask.shape[-1] != text_features.shape[1]:
+                print(f"⚠️ Mismatch: key_padding_mask shape {attn_mask.shape}, key shape {text_features.shape}")
+            if attn_mask.all(dim=1).any():
+                print("🚨 Some samples have all tokens masked out!")
         
         if torch.isnan(text_features).any():
             print("NaNs in `text_features` before attention!")
@@ -157,20 +165,31 @@ class CrossModalFusion(nn.Module):
             print("NaNs in `visual_features` before attention!")
         if torch.isnan(attn_mask).any():
             print("NaNs in `attn_mask` before attention!")
+        
+        # Add debug prints for shapes and stats
+        print(f"DEBUG - visual_features shape: {visual_features.shape}")
+        print(f"DEBUG - text_features shape: {text_features.shape}")
+        print(f"DEBUG - visual_features stats: min={visual_features.min().item():.4f}, max={visual_features.max().item():.4f}, mean={visual_features.mean().item():.4f}, std={visual_features.std().item():.4f}")
+        print(f"DEBUG - text_features stats: min={text_features.min().item():.4f}, max={text_features.max().item():.4f}, mean={text_features.mean().item():.4f}, std={text_features.std().item():.4f}")
+        
         # Visual conditioning on text
+        print(f"DEBUG - Before text_to_visual_attention")
         attended_text, _ = self.text_to_visual_attention(
             query=visual_features,
             key=text_features,
             value=text_features,
             key_padding_mask=attn_mask
         )
+        print(f"DEBUG - attended_text shape: {attended_text.shape}")
         
         # Text conditioning on visual
+        print(f"DEBUG - Before visual_to_text_attention")
         attended_visual, _ = self.visual_to_text_attention(
             query=text_features,
             key=visual_features,
             value=visual_features
         )
+        print(f"DEBUG - attended_visual shape: {attended_visual.shape}")
         
         # Normalize attended features
         if torch.isnan(attended_text).any():
