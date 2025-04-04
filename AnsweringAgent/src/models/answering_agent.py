@@ -489,12 +489,11 @@ class AnsweringAgent(nn.Module):
                     num_beams=4,  # Use beam search for better quality
                     early_stopping=True,
                     return_dict_in_generate=True,
-                    output_scores=True
+                    output_scores=False
                 )
             
             return {
                 "sequences": outputs.sequences,
-                "scores": outputs.scores if hasattr(outputs, "scores") else None
             }
     
             
