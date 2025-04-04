@@ -112,9 +112,9 @@ class CrossModalFusion(nn.Module):
         )
         
         # Layer normalization
-        self.norm1 = nn.LayerNorm(hidden_size)
-        self.norm2 = nn.LayerNorm(hidden_size)
-        self.norm3 = nn.LayerNorm(hidden_size)
+        self.norm1 = nn.LayerNorm(hidden_size, eps=1e-5)
+        self.norm2 = nn.LayerNorm(hidden_size, eps=1e-5)
+        self.norm3 = nn.LayerNorm(hidden_size, eps=1e-5)
         
         # Fusion gate
         self.fusion_gate = nn.Sequential(
@@ -145,11 +145,18 @@ class CrossModalFusion(nn.Module):
         # Create attention mask from padding mask if provided
         attn_mask = None
         if text_mask is not None:
+            print(text_mask.shape)
             # Convert from [batch_size, seq_len] to attention mask
             if (text_mask.sum(dim=1) == 0).any():
                 print("Warning: A sample in the batch has all tokens masked!")
             attn_mask = ~text_mask.bool()
         
+        if torch.isnan(text_features).any():
+            print("NaNs in `text_features` before attention!")
+        if torch.isnan(visual_features).any():
+            print("NaNs in `visual_features` before attention!")
+        if torch.isnan(attn_mask).any():
+            print("NaNs in `attn_mask` before attention!")
         # Visual conditioning on text
         attended_text, _ = self.text_to_visual_attention(
             query=visual_features,
@@ -176,7 +183,7 @@ class CrossModalFusion(nn.Module):
 
         # Interpolate attended_text to the sequence length
         attended_text = F.interpolate(attended_text.transpose(1, 2), size=seq_len, mode='linear', align_corners=False).transpose(1, 2)
-        
+
         attended_text = self.norm1(attended_text)
         attended_visual = self.norm2(attended_visual)
         
