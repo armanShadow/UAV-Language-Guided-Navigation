@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from transformers import T5EncoderModel, T5ForConditionalGeneration, T5Tokenizer
+from transformers import T5ForConditionalGeneration, T5Tokenizer
 from models.feature_extractor import FeatureExtractor
 from typing import Dict, Tuple, Optional, List
 import math
@@ -481,7 +481,9 @@ class AnsweringAgent(nn.Module):
             # Generate output sequence
             with torch.no_grad():  # Don't train the T5 model during generation
                 outputs = self.t5_model.generate(
-                    encoder_outputs={"last_hidden_state": adapted_features},
+                    encoder_outputs=BaseModelOutput(
+                        last_hidden_state=adapted_features,
+                    ),
                     attention_mask=attention_mask,
                     max_length=self.config.model.max_answer_length,
                     num_beams=4,  # Use beam search for better quality
