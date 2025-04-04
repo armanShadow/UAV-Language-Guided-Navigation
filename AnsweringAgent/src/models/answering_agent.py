@@ -391,22 +391,34 @@ class AnsweringAgent(nn.Module):
             print(f"DEBUG - T5 NaN stats: count={torch.isnan(text_features).sum().item()}, total elements={text_features.numel()}")
             print(f"DEBUG - Input IDs shape: {input_ids.shape}, Attn mask shape: {attention_mask.shape}")
             print(f"DEBUG - Checking input IDs for unusual values: min={input_ids.min().item()}, max={input_ids.max().item()}")
+            print(self.tokenizer.convert_ids_to_tokens(input_ids[0]))
             
             # Check which specific positions have NaNs
             nan_positions = torch.isnan(text_features)
-            nan_batch_indices = torch.nonzero(nan_positions.any(dim=(1,2)), as_tuple=True)[0]
-            print(f"DEBUG - Batches with NaNs: {nan_batch_indices.tolist()}")
+            # First find which batches contain any NaNs by checking each batch
+            nan_per_batch = []
+            for i in range(text_features.shape[0]):
+                if torch.isnan(text_features[i]).any():
+                    nan_per_batch.append(i)
+            print(f"DEBUG - Batches with NaNs: {nan_per_batch}")
             
             # For the first batch with NaNs, check if NaNs are in specific positions
-            if len(nan_batch_indices) > 0:
-                first_bad_batch = nan_batch_indices[0].item()
+            if len(nan_per_batch) > 0:
+                first_bad_batch = nan_per_batch[0]
                 nan_positions_in_batch = torch.isnan(text_features[first_bad_batch])
-                nan_seq_positions = torch.nonzero(nan_positions_in_batch.any(dim=1), as_tuple=True)[0]
-                print(f"DEBUG - In batch {first_bad_batch}, sequence positions with NaNs: {nan_seq_positions.tolist()}")
+                # Find which sequence positions have NaNs
+                nan_seq_positions = []
+                for i in range(text_features.shape[1]):
+                    if torch.isnan(text_features[first_bad_batch, i]).any():
+                        nan_seq_positions.append(i)
+                print(f"DEBUG - In batch {first_bad_batch}, sequence positions with NaNs: {nan_seq_positions}")
                 
                 # Check attention mask for these positions
                 if attention_mask is not None:
-                    print(f"DEBUG - Attention mask for these positions: {attention_mask[first_bad_batch, nan_seq_positions].tolist()}")
+                    mask_values = []
+                    for pos in nan_seq_positions:
+                        mask_values.append(attention_mask[first_bad_batch, pos].item())
+                    print(f"DEBUG - Attention mask for these positions: {mask_values}")
             
             # Replace NaNs before passing to fusion module
             text_features = torch.nan_to_num(text_features, nan=0.0)
