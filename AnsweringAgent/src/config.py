@@ -38,7 +38,7 @@ class TrainingConfig:
     eval_freq: int = 100  #(validate every ~66 minutes)
     num_workers: int = 4
     pin_memory: bool = True
-    mixed_precision: bool = True
+    mixed_precision: bool = False
     device: str = 'cuda'
     seed: int = 42
     checkpoint_frequency: int = 400

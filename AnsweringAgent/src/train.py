@@ -152,7 +152,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     log_frequency = max(10, len(train_loader) // 3)
 
     # Enable automatic mixed precision training
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.cuda.amp.GradScaler(enabled=config.training.mixed_precision)
+    use_amp = config.training.mixed_precision
+    
+    if rank == 0:
+        logger.info(f"Mixed precision training: {'enabled' if use_amp else 'disabled'}")
 
     # Enable cuDNN benchmarking for faster convolutions
     torch.backends.cudnn.benchmark = True
@@ -230,7 +234,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     labels = batch['text_label'].to(device, non_blocking=True)
 
                     # Forward pass with mixed precision
-                    with torch.cuda.amp.autocast():
+                    with torch.cuda.amp.autocast(enabled=use_amp):
                         outputs = model(text_input, current_view, previous_views, labels)
                         logits = outputs["logits"]
                         feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
@@ -365,7 +369,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             previous_views = batch['previous_views_image'].to(device, non_blocking=True)
                             labels = batch['text_label'].to(device, non_blocking=True)
 
-                            with torch.cuda.amp.autocast():
+                            with torch.cuda.amp.autocast(enabled=use_amp):
                                 outputs = model(text_input, current_view, previous_views, labels)
                                 logits = outputs["logits"]
                                 batch_size, seq_len, vocab_size = logits.size()
