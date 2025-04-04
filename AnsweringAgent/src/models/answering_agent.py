@@ -481,7 +481,7 @@ class AnsweringAgent(nn.Module):
             # Generate output sequence
             with torch.no_grad():  # Don't train the T5 model during generation
                 outputs = self.t5_model.generate(
-                    encoder_outputs=(adapted_features,),
+                    encoder_outputs={"last_hidden_state": adapted_features},
                     attention_mask=attention_mask,
                     max_length=self.config.model.max_answer_length,
                     num_beams=4,  # Use beam search for better quality
