@@ -122,7 +122,7 @@ class CrossModalFusion(nn.Module):
             nn.Sigmoid()
         )
 
-        self.dropout = nn.Dropout(self.config.model.dropout)
+        self.dropout = nn.Dropout(dropout)
         
         # Output projection
         self.output_projection = nn.Linear(hidden_size * 2, hidden_size)
