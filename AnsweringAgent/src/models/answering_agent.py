@@ -242,7 +242,7 @@ class AnsweringAgent(nn.Module):
         )
 
         # Project visual context to 32 times the hidden size
-        self.visual_context_projection = nn.Linear(config.model.hidden_size, 32 * config.model.hidden_size)
+        self.visual_context_projection = nn.Linear(config.model.hidden_size, config.model.num_visual_tokens * config.model.hidden_size)
         
         # Cross-modal fusion for text and visual features
         self.fusion_module = CrossModalFusion(
@@ -341,7 +341,8 @@ class AnsweringAgent(nn.Module):
             print(f"NaN detected in visual_context! - shape: {visual_context.shape} - mean: {visual_context.mean().item()} - std: {visual_context.std().item()}")
             visual_context = torch.nan_to_num(visual_context, nan=0.0)
 
-        visual_context = self.visual_context_projection(visual_context).unsqueeze(1)
+        visual_context = self.visual_context_projection(visual_context)
+        visual_context = visual_context.view(batch_size, self.config.model.num_visual_tokens, self.config.model.hidden_size)
 
         if torch.isnan(visual_context).any():
             print(f"NaN detected in visual_context! - shape: {visual_context.shape} - mean: {visual_context.mean().item()} - std: {visual_context.std().item()}")

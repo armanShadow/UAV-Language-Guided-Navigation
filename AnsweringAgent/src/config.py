@@ -17,6 +17,7 @@ class ModelConfig:
     feat_dropout: float = 0.4
     num_decoder_layers: int = 4  # Not used when using pretrained T5 decoder
     num_attention_heads: int = 8  # Match T5-base (8 heads)
+    num_visual_tokens: int = 32  # Number of visual tokens
     feedforward_dim: int = 2048  # Match T5-base feed forward dimension
     max_answer_length: int = 128
     vocab_size: int = 32128  # T5 vocabulary size for t5-base
