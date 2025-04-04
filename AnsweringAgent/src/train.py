@@ -698,7 +698,7 @@ def main():
             logger.info("Starting model initialization...")
             
         # Initialize model and move to correct GPU
-        model = AnsweringAgent(config, tokenizer)
+        model = AnsweringAgent(config, tokenizer, logger)
         if is_distributed:
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model.to(device)
