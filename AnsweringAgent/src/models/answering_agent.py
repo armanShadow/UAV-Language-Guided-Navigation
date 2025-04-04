@@ -283,7 +283,7 @@ class AnsweringAgent(nn.Module):
         self.logger.info(f"Total trainable parameters: {trainable_params:,}")
     
     def forward(self, text_input: dict, current_view: torch.Tensor, 
-                previous_views: torch.Tensor, labels: torch.Tensor = None) -> Dict:
+                previous_views: torch.Tensor, labels: torch.Tensor = None, generate: bool = False) -> Dict:
         """
         Forward pass of the answering agent.
         
@@ -291,10 +291,10 @@ class AnsweringAgent(nn.Module):
             text_input: Dictionary with input_ids and attention_mask
             current_view: Current visual input [batch_size, channels, height, width]
             previous_views: Previous visual inputs [batch_size, num_prev, channels, height, width]
-            labels: Target token IDs for training [batch_size, seq_len]
+            labels: Target token IDs for training/validation [batch_size, seq_len]
             
         Returns:
-            Dictionary with logits and feature_norm for training or sequences for inference
+            Dictionary with logits and feature_norm for training or validation
         """
         # Extract needed inputs
         input_ids = text_input['input_ids']
@@ -451,7 +451,7 @@ class AnsweringAgent(nn.Module):
         feature_norm = adapted_features.norm(2).detach()
         
         # During training mode, return logits for loss calculation in training loop
-        if self.training:
+        if not generate:
             # Note: Don't use torch.no_grad() here as we need gradients for backward
             # T5 parameters are already frozen in _freeze_t5_parameters method
             
@@ -489,11 +489,12 @@ class AnsweringAgent(nn.Module):
                     num_beams=4,  # Use beam search for better quality
                     early_stopping=True,
                     return_dict_in_generate=True,
-                    output_scores=False
+                    output_scores=True
                 )
             
             return {
                 "sequences": outputs.sequences,
+                "scores": outputs.scores if hasattr(outputs, "scores") else None
             }
     
             
