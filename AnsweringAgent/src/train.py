@@ -242,7 +242,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Set up destination view if available in batch and curriculum is active
                     destination_view = None
                     if 'destination_image' in batch and curriculum_ratio > 0:
-                        if rank == 0:
+                        if rank == 0 and batch_idx % log_frequency == 0:
                             logger.info(f"Curriculum ratio: {curriculum_ratio}: epoch {epoch}")
                         destination_view = batch['destination_image'].to(device, non_blocking=True)
 
@@ -421,8 +421,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             # Set up destination view if available in batch and curriculum is active
                             destination_view = None
                             if 'destination_image' in batch and curriculum_ratio > 0:
-                                if rank == 0:
-                                    logger.info(f"Curriculum ratio: {curriculum_ratio}: epoch {epoch}")
                                 destination_view = batch['destination_image'].to(device, non_blocking=True)
 
                             with torch.cuda.amp.autocast(enabled=use_amp):
