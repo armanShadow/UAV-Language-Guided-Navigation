@@ -261,8 +261,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             logger.error(f"Loss value: nan")
                             continue
                             
-                        # Add feature regularization with weight 0.005
-                        reg_loss = 0.000 * feature_norm
+                        # Add feature regularization with weight 0.0001
+                        reg_loss = 0.0001 * feature_norm
                         loss = loss + reg_loss
                         
                         # Scale loss by gradient accumulation steps

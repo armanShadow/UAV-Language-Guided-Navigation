@@ -375,6 +375,11 @@ class AnsweringAgent(nn.Module):
 
         visual_context = self.visual_context_projection(visual_context)
         visual_context = visual_context.view(batch_size, self.config.model.num_visual_tokens, self.config.model.hidden_size)
+        
+        # Normalize feature vectors to control their magnitude
+        # Apply normalization along the feature dimension with a fixed scale factor
+        scale_factor = 1.0
+        visual_context = F.normalize(visual_context, p=2, dim=-1) * scale_factor
 
         if torch.isnan(visual_context).any():
             self.logger.warning(f"NaN detected in projected visual_context!")
