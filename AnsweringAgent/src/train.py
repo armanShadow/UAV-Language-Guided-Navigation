@@ -262,7 +262,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             continue
                             
                         # Add feature regularization with weight 0.005
-                        reg_loss = 0.005 * feature_norm
+                        reg_loss = 0.000 * feature_norm
                         loss = loss + reg_loss
                         
                         # Scale loss by gradient accumulation steps
@@ -272,11 +272,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     scaler.scale(loss).backward()
                     
                     # Check for NaNs in gradients right after backward
-                    nan_in_grads = False
                     for name, param in model.named_parameters():
                         if param.grad is not None and torch.isnan(param.grad).any():
                             logger.error(f"[NaN Gradient] NaN detected in gradient for {name} on rank {rank}, batch {batch_idx}")
-                            nan_in_grads = True
                             break
         
                     # Update weights if we've accumulated enough gradients
