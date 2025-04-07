@@ -236,15 +236,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     # Calculate curriculum learning ratio based on epochs
                     # Start with high ratio (rely more on destination) and gradually reduce to 0
-                    max_curriculum_epochs = config.training.curriculum_epochs if hasattr(config.training, 'curriculum_epochs') else min(10, num_epochs // 3)
-                    curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs)) if max_curriculum_epochs > 0 else 0.0
+                    max_curriculum_epochs = config.training.curriculum_epochs
+                    curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs))
+
+                    if rank == 0 and batch_idx % log_frequency == 0:
+                        logger.info(f"Curriculum ratio: {curriculum_ratio}: epoch {epoch}")
                     
                     # Set up destination view if available in batch and curriculum is active
-                    destination_view = None
-                    if 'destination_image' in batch and curriculum_ratio > 0:
-                        if rank == 0 and batch_idx % log_frequency == 0:
-                            logger.info(f"Curriculum ratio: {curriculum_ratio}: epoch {epoch}")
-                        destination_view = batch['destination_image'].to(device, non_blocking=True)
+                    destination_view = batch['destination_image'].to(device, non_blocking=True)
 
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast(enabled=use_amp):
@@ -415,14 +414,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             labels = batch['text_label'].to(device, non_blocking=True)
 
                             # Use the same curriculum ratio for validation as for training
-                            max_curriculum_epochs = config.training.curriculum_epochs if hasattr(config.training, 'curriculum_epochs') else min(10, num_epochs // 3)
-                            curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs)) if max_curriculum_epochs > 0 else 0.0
+                            max_curriculum_epochs = config.training.curriculum_epochs
+                            curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs))
                             
                             # Set up destination view if available in batch and curriculum is active
-                            destination_view = None
-                            if 'destination_image' in batch and curriculum_ratio > 0:
-                                destination_view = batch['destination_image'].to(device, non_blocking=True)
+                            destination_view = batch['destination_image'].to(device, non_blocking=True)
 
+                            
                             with torch.cuda.amp.autocast(enabled=use_amp):
                                 outputs = model(
                                     text_input, 
