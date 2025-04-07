@@ -272,8 +272,25 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
                         labels_reshaped = labels.contiguous().view(batch_size * seq_len)
 
-                        # Calculate loss in the training loop
-                        loss = criterion(logits_reshaped, labels_reshaped)
+                        # Calculate cross-entropy loss
+                        ce_loss = criterion(logits_reshaped, labels_reshaped)
+                        
+                        # Calculate cosine similarity loss between logits and labels
+                        # Convert labels to one-hot encoding
+                        labels_one_hot = F.one_hot(labels_reshaped, num_classes=vocab_size).float()
+                        
+                        # Apply softmax to get probabilities from logits
+                        logits_probs = F.softmax(logits_reshaped, dim=-1)
+                        
+                        # Calculate 1 - cosine similarity (so 0 = perfect match like CE)
+                        cosine_sim_loss = (1 - F.cosine_similarity(logits_probs, labels_one_hot, dim=1)).mean()
+                        
+                        # Combine losses with weighting from config
+                        cosine_weight = config.training.cosine_similarity_weight
+                        loss = ce_loss + cosine_weight * cosine_sim_loss
+                        
+                        if rank == 0 and batch_idx % log_frequency == 0:
+                            logger.info(f"CE loss: {ce_loss.item():.4f}, Cosine loss: {cosine_sim_loss.item():.4f}, Weight: {cosine_weight}")
 
                         if torch.isnan(loss):
                             logger.error(f"[NaN Detected] NaN in loss before backward on rank {rank}, epoch {epoch}, batch {batch_idx}")
@@ -304,7 +321,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 cosine_loss = 1 - F.cosine_similarity(adapted_features_norm, dest_features_norm).mean()
                                 
                                 # Apply destination loss weight
-                                destination_weight = config.training.destination_loss_weight if hasattr(config.training, 'destination_loss_weight') else 0.1
+                                destination_weight = max(0.1, curriculum_ratio)
                                 weighted_dest_loss = destination_weight * cosine_loss
                                 loss = loss + weighted_dest_loss
                                 
@@ -434,7 +451,23 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 batch_size, seq_len, vocab_size = logits.size()
                                 logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
                                 labels_reshaped = labels.contiguous().view(batch_size * seq_len)
-                                loss = criterion(logits_reshaped, labels_reshaped)
+                                
+                                # Calculate cross-entropy loss
+                                ce_loss = criterion(logits_reshaped, labels_reshaped)
+                                
+                                # Calculate cosine similarity loss between logits and labels
+                                # Convert labels to one-hot encoding
+                                labels_one_hot = F.one_hot(labels_reshaped, num_classes=vocab_size).float()
+                                
+                                # Apply softmax to get probabilities from logits
+                                logits_probs = F.softmax(logits_reshaped, dim=-1)
+                                
+                                # Calculate 1 - cosine similarity (so 0 = perfect match like CE)
+                                cosine_sim_loss = (1 - F.cosine_similarity(logits_probs, labels_one_hot, dim=1)).mean()
+                                
+                                # Combine losses with weighting from config
+                                cosine_weight = config.training.cosine_similarity_weight
+                                loss = ce_loss + cosine_weight * cosine_sim_loss
                                 
                                 # Calculate destination loss if adapted_features are available
                                 if "adapted_features" in outputs:
@@ -456,7 +489,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                         cosine_loss = 1 - F.cosine_similarity(adapted_features_norm, dest_features_norm).mean()
                                         
                                         # Apply destination loss weight
-                                        destination_weight = config.training.destination_loss_weight if hasattr(config.training, 'destination_loss_weight') else 0.1
+                                        destination_weight = max(0.1, curriculum_ratio)
                                         weighted_dest_loss = destination_weight * cosine_loss
                                         loss = loss + weighted_dest_loss
                                     

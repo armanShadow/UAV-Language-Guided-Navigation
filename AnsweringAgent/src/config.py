@@ -13,7 +13,7 @@ class ModelConfig:
     bert_model_name: str = 'bert-base-uncased'  # Legacy setting
     t5_model_name: str = 't5-base'  # New setting for T5
     hidden_size: int = 768  # Match T5-base hidden size (d_model)
-    dropout: float = 0.2
+    dropout: float = 0.3
     feat_dropout: float = 0.4
     num_decoder_layers: int = 4  # Not used when using pretrained T5 decoder
     num_attention_heads: int = 8  # Match T5-base (8 heads)
@@ -51,8 +51,10 @@ class TrainingConfig:
     use_augmentation: bool = False
     train_chunk_size: int = 1000
     # Curriculum learning parameters
-    curriculum_epochs: int = 10  # Number of epochs for curriculum learning phase
+    curriculum_epochs: int = 30  # Number of epochs for curriculum learning phase
     destination_loss_weight: float = 0.1  # Weight for destination feature alignment loss
+    # Additional loss weighting
+    cosine_similarity_weight: float = 0.5  # Weight for cosine similarity loss between logits and labels
     
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""
