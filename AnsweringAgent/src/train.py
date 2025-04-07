@@ -416,7 +416,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 early_stopping_triggered = True
 
                     # Save best model
-                    if val_loss < best_val_loss:
+                    if val_loss < best_val_loss and False:
                         # Remove previous best model if it exists
                         if last_best_epoch is not None:
                             prev_best_model = os.path.join(checkpoint_dir, f'best_model_epoch_{last_best_epoch}.pt')
