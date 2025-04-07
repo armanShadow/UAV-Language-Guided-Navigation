@@ -242,6 +242,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Set up destination view if available in batch and curriculum is active
                     destination_view = None
                     if 'destination_image' in batch and curriculum_ratio > 0:
+                        if rank == 0:
+                            logger.info(f"Curriculum ratio: {curriculum_ratio}: epoch {epoch}")
                         destination_view = batch['destination_image'].to(device, non_blocking=True)
 
                     # Forward pass with mixed precision
@@ -293,7 +295,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 dest_features = outputs["destination_features"]
                             else:  # Calculate if not provided but view is available
                                 with torch.no_grad():  # No need for gradients when calculating features outside model
-                                    dest_features = model.feature_extractor.extract_single_view_features(destination_view)
+                                    model_to_use = model.module if hasattr(model, 'module') else model
+                                    dest_features = model_to_use.feature_extractor.extract_single_view_features(destination_view)
                             
                             if dest_features is not None:
                                 # Calculate cosine similarity loss between adapted features and destination features
@@ -418,6 +421,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             # Set up destination view if available in batch and curriculum is active
                             destination_view = None
                             if 'destination_image' in batch and curriculum_ratio > 0:
+                                if rank == 0:
+                                    logger.info(f"Curriculum ratio: {curriculum_ratio}: epoch {epoch}")
                                 destination_view = batch['destination_image'].to(device, non_blocking=True)
 
                             with torch.cuda.amp.autocast(enabled=use_amp):
@@ -445,7 +450,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                         dest_features = outputs["destination_features"]
                                     else:  # Calculate if not provided but view is available
                                         with torch.no_grad():  # No need for gradients in validation
-                                            dest_features = model.feature_extractor.extract_single_view_features(destination_view)
+                                            model_to_use = model.module if hasattr(model, 'module') else model
+                                            dest_features = model_to_use.feature_extractor.extract_single_view_features(destination_view)
                                     
                                     if dest_features is not None:
                                         # Calculate cosine similarity loss between adapted features and destination features
