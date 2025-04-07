@@ -283,7 +283,8 @@ class AnsweringAgent(nn.Module):
         self.logger.info(f"Total trainable parameters: {trainable_params:,}")
     
     def forward(self, text_input: dict, current_view: torch.Tensor, 
-                previous_views: torch.Tensor, labels: torch.Tensor = None, generate: bool = False) -> Dict:
+                previous_views: torch.Tensor, labels: torch.Tensor = None, generate: bool = False,
+                destination_view: Optional[torch.Tensor] = None, curriculum_ratio: float = 0.0) -> Dict:
         """
         Forward pass of the answering agent.
         
@@ -292,9 +293,12 @@ class AnsweringAgent(nn.Module):
             current_view: Current visual input [batch_size, channels, height, width]
             previous_views: Previous visual inputs [batch_size, num_prev, channels, height, width]
             labels: Target token IDs for training/validation [batch_size, seq_len]
+            generate: Whether to generate output text (inference mode)
+            destination_view: Optional destination view for curriculum learning [batch_size, channels, height, width]
+            curriculum_ratio: The ratio (0-1) of destination view information to use (0=none, 1=full)
             
         Returns:
-            Dictionary with logits and feature_norm for training or validation
+            Dictionary with logits, feature_norm and destination_loss (when applicable) for training or validation
         """
         # Extract needed inputs
         input_ids = text_input['input_ids']
@@ -358,6 +362,14 @@ class AnsweringAgent(nn.Module):
         
         # Now apply our specialized temporal observation encoder
         visual_context = self.temporal_encoder(current_features, prev_features)
+
+        # Process destination features if available for curriculum learning
+        destination_features = None
+        if destination_view is not None and curriculum_ratio > 0:
+            # Extract destination features
+            destination_features = self.feature_extractor.extract_single_view_features(destination_view)
+            # Apply curriculum learning - mix current visual context with destination features
+            visual_context = (1 - curriculum_ratio) * visual_context + curriculum_ratio * destination_features
 
         if torch.isnan(visual_context).any():
             nan_percentage = torch.isnan(visual_context).float().mean().item() * 100
@@ -476,10 +488,17 @@ class AnsweringAgent(nn.Module):
             )
                 
             # Return logits for external loss calculation
-            return {
+            result = {
                 "logits": outputs.logits,
-                "feature_norm": feature_norm
+                "feature_norm": feature_norm,
+                "adapted_features": adapted_features.mean(dim=1)
             }
+            
+            # Include destination features if available for external loss calculation
+            if destination_features is not None:
+                result["destination_features"] = destination_features
+            
+            return result
         
         # Inference mode
         else:

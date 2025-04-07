@@ -26,9 +26,7 @@ class ModelConfig:
     use_pretrained_decoder: bool = True  # Use T5's pretrained decoder instead of custom
 
 @dataclass
-class TrainingConfig:
-    """Configuration for training settings."""
-    per_gpu_batch_size: int = 7
+class TrainingConfig:      
     num_epochs: int = 200000
     learning_rate: float = 5e-5
     weight_decay: float = 0.02
@@ -52,6 +50,10 @@ class TrainingConfig:
     early_stopping_min_delta: float = 0.001
     use_augmentation: bool = False
     train_chunk_size: int = 1000
+    # Curriculum learning parameters
+    curriculum_epochs: int = 10  # Number of epochs for curriculum learning phase
+    destination_loss_weight: float = 0.1  # Weight for destination feature alignment loss
+    
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""
         if not torch.cuda.is_available():

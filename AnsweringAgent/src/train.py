@@ -26,6 +26,7 @@ import numpy as np
 import threading
 import math  # Add math import for cosine decay function
 from transformers import T5Tokenizer
+import torch.nn.functional as F
 
 # Enable Python fault handler for segfaults
 faulthandler.enable()
@@ -233,9 +234,26 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     previous_views = batch['previous_views_image'].to(device, non_blocking=True)
                     labels = batch['text_label'].to(device, non_blocking=True)
 
+                    # Calculate curriculum learning ratio based on epochs
+                    # Start with high ratio (rely more on destination) and gradually reduce to 0
+                    max_curriculum_epochs = config.training.curriculum_epochs if hasattr(config.training, 'curriculum_epochs') else min(10, num_epochs // 3)
+                    curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs)) if max_curriculum_epochs > 0 else 0.0
+                    
+                    # Set up destination view if available in batch and curriculum is active
+                    destination_view = None
+                    if 'destination_image' in batch and curriculum_ratio > 0:
+                        destination_view = batch['destination_image'].to(device, non_blocking=True)
+
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast(enabled=use_amp):
-                        outputs = model(text_input, current_view, previous_views, labels)
+                        outputs = model(
+                            text_input, 
+                            current_view, 
+                            previous_views, 
+                            labels,
+                            destination_view=destination_view,
+                            curriculum_ratio=curriculum_ratio
+                        )
                         logits = outputs["logits"]
                         feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
 
@@ -264,6 +282,32 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Add feature regularization with weight 0.0001
                         reg_loss = 0.0001 * feature_norm
                         loss = loss + reg_loss
+                        
+                        # Calculate destination loss if adapted_features are available
+                        if "adapted_features" in outputs:
+                            adapted_features = outputs["adapted_features"]  # This is already the mean across sequence length
+                            
+                            # Get destination features if available, or calculate them if not
+                            dest_features = None
+                            if "destination_features" in outputs:
+                                dest_features = outputs["destination_features"]
+                            else:  # Calculate if not provided but view is available
+                                with torch.no_grad():  # No need for gradients when calculating features outside model
+                                    dest_features = model.feature_extractor.extract_single_view_features(destination_view)
+                            
+                            if dest_features is not None:
+                                # Calculate cosine similarity loss between adapted features and destination features
+                                dest_features_norm = F.normalize(dest_features, p=2, dim=1)
+                                adapted_features_norm = F.normalize(adapted_features, p=2, dim=1)
+                                cosine_loss = 1 - F.cosine_similarity(adapted_features_norm, dest_features_norm).mean()
+                                
+                                # Apply destination loss weight
+                                destination_weight = config.training.destination_loss_weight if hasattr(config.training, 'destination_loss_weight') else 0.1
+                                weighted_dest_loss = destination_weight * cosine_loss
+                                loss = loss + weighted_dest_loss
+                                
+                                if rank == 0 and batch_idx % log_frequency == 0:
+                                    logger.info(f"Destination loss: Cosine={cosine_loss.item():.4f}, Weighted={weighted_dest_loss.item():.4f}")
                         
                         # Scale loss by gradient accumulation steps
                         loss = loss / config.training.gradient_accumulation_steps
@@ -367,13 +411,53 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             previous_views = batch['previous_views_image'].to(device, non_blocking=True)
                             labels = batch['text_label'].to(device, non_blocking=True)
 
+                            # Use the same curriculum ratio for validation as for training
+                            max_curriculum_epochs = config.training.curriculum_epochs if hasattr(config.training, 'curriculum_epochs') else min(10, num_epochs // 3)
+                            curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs)) if max_curriculum_epochs > 0 else 0.0
+                            
+                            # Set up destination view if available in batch and curriculum is active
+                            destination_view = None
+                            if 'destination_image' in batch and curriculum_ratio > 0:
+                                destination_view = batch['destination_image'].to(device, non_blocking=True)
+
                             with torch.cuda.amp.autocast(enabled=use_amp):
-                                outputs = model(text_input, current_view, previous_views, labels)
+                                outputs = model(
+                                    text_input, 
+                                    current_view, 
+                                    previous_views, 
+                                    labels,
+                                    destination_view=destination_view,
+                                    curriculum_ratio=curriculum_ratio
+                                )
                                 logits = outputs["logits"]
                                 batch_size, seq_len, vocab_size = logits.size()
                                 logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
                                 labels_reshaped = labels.contiguous().view(batch_size * seq_len)
                                 loss = criterion(logits_reshaped, labels_reshaped)
+                                
+                                # Calculate destination loss if adapted_features are available
+                                if "adapted_features" in outputs:
+                                    adapted_features = outputs["adapted_features"]  # This is already the mean across sequence length
+                                    
+                                    # Get destination features if available, or calculate them if not
+                                    dest_features = None
+                                    if "destination_features" in outputs:
+                                        dest_features = outputs["destination_features"]
+                                    else:  # Calculate if not provided but view is available
+                                        with torch.no_grad():  # No need for gradients in validation
+                                            dest_features = model.feature_extractor.extract_single_view_features(destination_view)
+                                    
+                                    if dest_features is not None:
+                                        # Calculate cosine similarity loss between adapted features and destination features
+                                        dest_features_norm = F.normalize(dest_features, p=2, dim=1)
+                                        adapted_features_norm = F.normalize(adapted_features, p=2, dim=1)
+                                        cosine_loss = 1 - F.cosine_similarity(adapted_features_norm, dest_features_norm).mean()
+                                        
+                                        # Apply destination loss weight
+                                        destination_weight = config.training.destination_loss_weight if hasattr(config.training, 'destination_loss_weight') else 0.1
+                                        weighted_dest_loss = destination_weight * cosine_loss
+                                        loss = loss + weighted_dest_loss
+                                    
                             val_loss += loss.item()
 
                         except Exception as e:

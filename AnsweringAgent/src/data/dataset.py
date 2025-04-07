@@ -232,7 +232,6 @@ class AnsweringDataset(Dataset):
                 'text_label': tokenized_answer,
                 'current_view_image': current_view,
                 'previous_views_image': default_views,
-                'first_instruction': first_instruction,
             }
             
             if 'destination_image' in item:
