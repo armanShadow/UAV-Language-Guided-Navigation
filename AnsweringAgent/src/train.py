@@ -1007,7 +1007,7 @@ def main():
                     return float(current_step) / float(max(1, warmup_steps))
                 else:
                     # Introduce curriculum-aware decay
-                    curriculum_phase_steps = int(config.training.curriculum_epochs * len(train_loader) / config.training.gradient_accumulation_steps)
+                    curriculum_phase_steps = int(total_steps * 0.15)  # e.g., first 15% of training
                     if current_step < warmup_steps + curriculum_phase_steps:
                         # Faster decay during curriculum learning
                         progress = float(current_step - warmup_steps) / float(max(1, curriculum_phase_steps))
@@ -1017,6 +1017,7 @@ def main():
                         progress = float(current_step - warmup_steps - curriculum_phase_steps) / float(
                             max(1, total_steps - warmup_steps - curriculum_phase_steps))
                         return max(0.0, 0.3 * (1.0 + math.cos(math.pi * progress)))
+            return LambdaLR(optimizer, lr_lambda)
         
         # Optimizer, loss, and scheduler
         optimizer = optim.AdamW(
