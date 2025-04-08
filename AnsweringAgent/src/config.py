@@ -52,9 +52,9 @@ class TrainingConfig:
     train_chunk_size: int = 1000
     # Curriculum learning parameters
     curriculum_epochs: int = 30  # Number of epochs for curriculum learning phase
-    destination_loss_weight: float = 0.1  # Weight for destination feature alignment loss
+    min_destination_loss_weight: float = 0.1  # Weight for destination feature alignment loss
     # Additional loss weighting
-    cosine_similarity_weight: float = 0.5  # Weight for cosine similarity loss between logits and labels
+    min_cosine_similarity_weight: float = 0.5  # Weight for cosine similarity loss between logits and labels
     
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""

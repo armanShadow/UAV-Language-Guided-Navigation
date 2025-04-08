@@ -218,6 +218,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
             model.train()
             total_loss = 0
+            total_ce_loss = 0
+            total_cosine_loss = 0
+            total_destination_loss = 0
             optimizer.zero_grad(set_to_none=True)
 
             epoch_start_time = time.time()
@@ -240,7 +243,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs))
 
                     if rank == 0 and batch_idx % log_frequency == 0:
-                        logger.info(f"Curriculum ratio: {curriculum_ratio}: epoch {epoch}")
+                        logger.info(f"Curriculum ratio: {curriculum_ratio}: epoch {epoch + 1}")
                     
                     # Set up destination view if available in batch and curriculum is active
                     destination_view = batch['destination_image'].to(device, non_blocking=True)
@@ -286,16 +289,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         cosine_sim_loss = (1 - F.cosine_similarity(logits_probs, labels_one_hot, dim=1)).mean()
                         
                         # Combine losses with weighting from config
-                        cosine_weight = config.training.cosine_similarity_weight
+                        cosine_weight = min(config.training.min_cosine_similarity_weight + (epoch / 100), 0.8)
                         loss = ce_loss + cosine_weight * cosine_sim_loss
-                        
-                        if rank == 0 and batch_idx % log_frequency == 0:
-                            logger.info(f"CE loss: {ce_loss.item():.4f}, Cosine loss: {cosine_sim_loss.item():.4f}, Weight: {cosine_weight}")
-
-                        if torch.isnan(loss):
-                            logger.error(f"[NaN Detected] NaN in loss before backward on rank {rank}, epoch {epoch}, batch {batch_idx}")
-                            logger.error(f"Loss value: nan")
-                            continue
                             
                         # Add feature regularization with weight 0.0001
                         reg_loss = 0.0001 * feature_norm
@@ -321,12 +316,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 cosine_loss = 1 - F.cosine_similarity(adapted_features_norm, dest_features_norm).mean()
                                 
                                 # Apply destination loss weight
-                                destination_weight = max(0.1, curriculum_ratio)
+                                min_destination_loss_weight = config.training.min_destination_loss_weight
+                                destination_weight = min_destination_loss_weight + min_destination_loss_weight * max(0.0, 1.0 - (epoch / max_curriculum_epochs))
                                 weighted_dest_loss = destination_weight * cosine_loss
                                 loss = loss + weighted_dest_loss
-                                
-                                if rank == 0 and batch_idx % log_frequency == 0:
-                                    logger.info(f"Destination loss: Cosine={cosine_loss.item():.4f}, Weighted={weighted_dest_loss.item():.4f}")
+                            
+                        if torch.isnan(loss):
+                            logger.error(f"[NaN Detected] NaN in loss before backward on rank {rank}, epoch {epoch}, batch {batch_idx}")
+                            logger.error(f"Loss value: nan")
+                            continue
                         
                         # Scale loss by gradient accumulation steps
                         loss = loss / config.training.gradient_accumulation_steps
@@ -366,6 +364,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         optimizer.zero_grad(set_to_none=True)
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
+                    total_ce_loss += ce_loss.item()
+                    total_cosine_loss += cosine_sim_loss.item()
+                    total_destination_loss += weighted_dest_loss.item()
                 
                     # Log at specified frequency
                     if batch_idx % log_frequency == 0 and rank == 0:
@@ -402,15 +403,27 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # Synchronize loss across processes in distributed mode
             if is_distributed and dist.is_initialized():
                 loss_tensor = torch.tensor(total_loss, device=device)
+                total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)   
+                total_cosine_loss_tensor = torch.tensor(total_cosine_loss, device=device)
+                total_destination_loss_tensor = torch.tensor(total_destination_loss, device=device)
                 dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_ce_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_cosine_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_destination_loss_tensor, op=dist.ReduceOp.SUM)
                 total_loss = loss_tensor.item() / dist.get_world_size()
+                total_ce_loss = total_ce_loss_tensor.item() / dist.get_world_size()
+                total_cosine_loss = total_cosine_loss_tensor.item() / dist.get_world_size()
+                total_destination_loss = total_destination_loss_tensor.item() / dist.get_world_size()
 
             # Normalize training loss
             avg_epoch_loss = total_loss / len(train_loader)
+            avg_ce_loss = total_ce_loss / len(train_loader)
+            avg_cosine_loss = total_cosine_loss / len(train_loader)
+            avg_destination_loss = total_destination_loss / len(train_loader)
             epoch_time = time.time() - epoch_start_time
             
             if rank == 0:
-                logger.info(f'Epoch {epoch + 1} completed in {epoch_time:.2f}s. Average loss: {avg_epoch_loss:.4f}')
+                logger.info(f'Epoch {epoch + 1} completed in {epoch_time:.2f}s. Average loss: {avg_epoch_loss:.4f}, CE loss: {avg_ce_loss:.4f}, Cosine loss: {avg_cosine_loss:.4f}, Destination loss: {avg_destination_loss:.4f}')
 
             # Validation phase - only run periodically to save time
             if (epoch + 1) % config.training.eval_freq == 0:
@@ -466,7 +479,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 cosine_sim_loss = (1 - F.cosine_similarity(logits_probs, labels_one_hot, dim=1)).mean()
                                 
                                 # Combine losses with weighting from config
-                                cosine_weight = config.training.cosine_similarity_weight
+                                cosine_weight = min(config.training.min_cosine_similarity_weight + (epoch / 100), 0.8)
                                 loss = ce_loss + cosine_weight * cosine_sim_loss
                                 
                                 # Calculate destination loss if adapted_features are available
@@ -489,7 +502,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                         cosine_loss = 1 - F.cosine_similarity(adapted_features_norm, dest_features_norm).mean()
                                         
                                         # Apply destination loss weight
-                                        destination_weight = max(0.1, curriculum_ratio)
+                                        min_destination_loss_weight = config.training.min_destination_loss_weight
+                                        destination_weight = min_destination_loss_weight + min_destination_loss_weight * max(0.0, 1.0 - (epoch / max_curriculum_epochs))
                                         weighted_dest_loss = destination_weight * cosine_loss
                                         loss = loss + weighted_dest_loss
                                     
