@@ -206,8 +206,11 @@ class AnsweringDataset(Dataset):
             'input_ids': item['tokenized_input']['input_ids'].squeeze(0),
             'attention_mask': item['tokenized_input']['attention_mask'].squeeze(0)
         }
-        tokenized_answer = item['tokenized_answer']['input_ids'].squeeze(0)
-        
+        tokenized_answer = {
+            'input_ids': item['tokenized_answer']['input_ids'].squeeze(0),
+            'attention_mask': item['tokenized_answer']['attention_mask'].squeeze(0)
+        }
+
         
         # Get text fields for reference (not used for model input)
         first_instruction = item.get('first_instruction', '')
@@ -257,7 +260,6 @@ class AnsweringDataset(Dataset):
             'text_label': tokenized_answer,
             'current_view_image': current_view,
             'previous_views_image': previous_views,
-            'first_instruction': first_instruction,
         }
         
         # Add destination if available (important for curriculum learning)

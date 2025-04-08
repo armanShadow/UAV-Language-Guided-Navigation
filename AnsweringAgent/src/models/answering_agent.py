@@ -484,14 +484,16 @@ class AnsweringAgent(nn.Module):
                 attention_mask=attention_mask,
                 encoder_outputs=(adapted_features,),
                 labels=labels,
-                return_dict=True
+                return_dict=True,
+                output_hidden_states=True
             )
                 
             # Return logits for external loss calculation
             result = {
                 "logits": outputs.logits,
                 "feature_norm": feature_norm,
-                "adapted_features": adapted_features.mean(dim=1)
+                "adapted_features": adapted_features.mean(dim=1),
+                "hidden_states": outputs.hidden_states[-1]
             }
             
             # Include destination features if available for external loss calculation
