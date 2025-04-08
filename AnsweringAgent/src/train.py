@@ -322,7 +322,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             
                             with torch.no_grad():
                                 model_to_use = model.module if hasattr(model, 'module') else model
-                                embedding_layer = model_to_use.t5_model.t5.decoder.embed_tokens
+                                embedding_layer = model_to_use.t5_model.decoder.embed_tokens
                                 label_embeddings = embedding_layer(valid_labels)
 
                             label_embeddings = F.normalize(label_embeddings, p=2, dim=1)
@@ -537,7 +537,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     
                                     with torch.no_grad():
                                         model_to_use = model.module if hasattr(model, 'module') else model
-                                        embedding_layer = model_to_use.t5_model.t5.decoder.embed_tokens
+                                        embedding_layer = model_to_use.t5_model.decoder.embed_tokens
                                         label_embeddings = embedding_layer(valid_labels)
 
                                     label_embeddings = F.normalize(label_embeddings, p=2, dim=1)
