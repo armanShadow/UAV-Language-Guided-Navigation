@@ -330,7 +330,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             # Calculate decoder hidden states cosine similarity loss
                             cosine_sim_loss = (1 - F.cosine_similarity(
                                 valid_hidden_norm, 
-                                label_embeddings.expand(-1, valid_hidden_norm.size(1))
+                                label_embeddings
                             )).mean()
                             
                                 
@@ -545,7 +545,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     # Calculate decoder hidden states cosine similarity loss
                                     cosine_sim_loss = (1 - F.cosine_similarity(
                                         valid_hidden_norm, 
-                                        label_embeddings.expand(-1, valid_hidden_norm.size(1))
+                                        label_embeddings
                                     )).mean()
                                         
                                 
@@ -1004,14 +1004,19 @@ def main():
         def get_lr_schedule(optimizer, warmup_steps, total_steps):
             def lr_lambda(current_step):
                 if current_step < warmup_steps:
-                    # Linear warmup
                     return float(current_step) / float(max(1, warmup_steps))
                 else:
-                    # Cosine decay after warmup
-                    progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
-                    return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
-                    
-            return LambdaLR(optimizer, lr_lambda)
+                    # Introduce curriculum-aware decay
+                    curriculum_phase_steps = int(config.training.curriculum_epochs * len(train_loader) / config.training.gradient_accumulation_steps)
+                    if current_step < warmup_steps + curriculum_phase_steps:
+                        # Faster decay during curriculum learning
+                        progress = float(current_step - warmup_steps) / float(max(1, curriculum_phase_steps))
+                        return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+                    else:
+                        # Slower decay after curriculum phase
+                        progress = float(current_step - warmup_steps - curriculum_phase_steps) / float(
+                            max(1, total_steps - warmup_steps - curriculum_phase_steps))
+                        return max(0.0, 0.3 * (1.0 + math.cos(math.pi * progress)))
         
         # Optimizer, loss, and scheduler
         optimizer = optim.AdamW(

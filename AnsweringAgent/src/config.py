@@ -52,8 +52,8 @@ class TrainingConfig:
     train_chunk_size: int = 1000
     # Curriculum learning parameters
     curriculum_epochs: int = 10  # Number of epochs for curriculum learning phase
-    destination_loss_weight_start: float = 0.1
-    destination_loss_weight_end: float = 0.05
+    destination_loss_weight_start: float = 0.2
+    destination_loss_weight_end: float = 0.1
     # Additional loss weighting
     cosine_similarity_weight_start: float = 0.3
     cosine_similarity_weight_end: float = 0.8
