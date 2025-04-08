@@ -551,6 +551,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 
                                 # Combine losses with weighting from config
                                 cosine_weight = get_weight_schedule(config.training.cosine_similarity_weight_start, config.training.cosine_similarity_weight_end, max_curriculum_epochs)(epoch)
+                                if rank == 0 and (epoch+1) % log_frequency == 0:
+                                    logger.info(f'Cosine weight: {cosine_weight:.4f}')
                                 loss = ce_loss + cosine_weight * cosine_sim_loss
                                 
                                 # Calculate destination loss if adapted_features are available
@@ -572,6 +574,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 
                                 # Apply destination loss weight
                                 destination_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
+                                if rank == 0 and (epoch+1) % log_frequency == 0:
+                                    logger.info(f'Destination weight: {destination_weight:.4f}')
                                 weighted_dest_loss = destination_weight * cosine_loss
                                 loss = loss + weighted_dest_loss
                                     
