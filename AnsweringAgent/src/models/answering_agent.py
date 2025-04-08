@@ -493,7 +493,7 @@ class AnsweringAgent(nn.Module):
                 "logits": outputs.logits,
                 "feature_norm": feature_norm,
                 "adapted_features": adapted_features.mean(dim=1),
-                "hidden_states": outputs.hidden_states[-1]
+                "hidden_states": outputs.decoder_hidden_states[-1]
             }
             
             # Include destination features if available for external loss calculation
