@@ -419,7 +419,8 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
             text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
             current_view = batch['current_view_image'].to(device, non_blocking=True)
             previous_views = batch['previous_views_image'].to(device, non_blocking=True)
-            labels = batch['text_label'].to(device, non_blocking=True)
+            labels_input_ids = batch['text_label']['input_ids'].to(device, non_blocking=True)
+            labels_attention_mask = batch['text_label']['attention_mask'].to(device, non_blocking=True)
             
             # Get destination view if available
             destination_view = batch.get('destination_image')
@@ -431,7 +432,7 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
                 text_input, 
                 current_view, 
                 previous_views, 
-                labels=labels,
+                labels_input_ids=labels_input_ids,
                 destination_view=destination_view,
                 curriculum_ratio=curriculum_ratio
             )
@@ -440,17 +441,15 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
             logits = outputs["logits"]
             batch_size, seq_len, vocab_size = logits.size()
             logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
-            labels_reshaped = labels.contiguous().view(batch_size * seq_len)
+            labels_reshaped = labels_input_ids.contiguous().view(batch_size * seq_len)
             ce_loss = criterion(logits_reshaped, labels_reshaped)
-            
-            # Calculate distribution similarity loss (KL divergence)
-            label_attention_mask = text_input.get('attention_mask')
-            if label_attention_mask is not None:
-                label_attention_mask = label_attention_mask.reshape(-1)
+
+            if labels_attention_mask is not None:
+                labels_attention_mask = labels_attention_mask.reshape(-1)
                 distribution_loss = calculate_distribution_similarity_loss(
                     logits_reshaped, 
                     labels_reshaped, 
-                    label_attention_mask, 
+                    labels_attention_mask, 
                     model, 
                     device
                 )
@@ -652,26 +651,7 @@ def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
         ('val_seen', val_seen_loader),
         ('val_unseen', val_unseen_loader)
     ]
-    
-    # Evaluate with curriculum (destination features included)
-    curriculum_ratio = 0.8  # High curriculum ratio (early in training)
-    logger.info(f"\n{'='*50}\nEvaluating with curriculum learning (ratio: {curriculum_ratio})\n{'='*50}")
-    
-    for name, loader in datasets:
-        logger.info(f"\n{'='*50}\nEvaluating {name} dataset (with curriculum)\n{'='*50}")
-        
-        # Classification metrics with curriculum
-        loss_metrics, class_metrics = evaluate_classification(
-            model, loader, criterion, tokenizer, device, logger, f"{name} (with curriculum)", 
-            curriculum_ratio=curriculum_ratio
-        )
-        
-        results['with_curriculum']['classification'][name] = {
-            **loss_metrics,
-            **class_metrics
-        }
-        
-        # Skip generation evaluation to save time during with-curriculum phase
+
     
     # Evaluate post-curriculum (no destination features)
     curriculum_ratio = 0.0  # No curriculum (later in training)
