@@ -826,9 +826,7 @@ def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
             'visual_recon_loss_gap': results['post_curriculum']['classification'][name]['visual_recon_loss'] - 
                                     results['post_curriculum']['classification']['train']['visual_recon_loss'],
             'dest_recon_loss_gap': results['post_curriculum']['classification'][name]['dest_recon_loss'] - 
-                                  results['post_curriculum']['classification']['train']['dest_recon_loss'],
-            'accuracy_gap': results['post_curriculum']['classification']['train']['token_accuracy'] - 
-                           results['post_curriculum']['classification'][name]['token_accuracy']
+                                  results['post_curriculum']['classification']['train']['dest_recon_loss']
         }
         
         # Generation gaps
@@ -863,7 +861,6 @@ def explain_metrics():
     """Return a dictionary explaining what each metric means and how to interpret it."""
     explanations = {
         'classification': {
-            'accuracy': 'Token-level classification accuracy - percentage of tokens correctly predicted.',
             'cross_entropy_loss': 'Standard cross-entropy loss from token classification.',
             'distribution_loss': 'KL divergence between predicted and target token distributions - lower is better.',
             'destination_loss': 'Cosine similarity loss between predicted and target destination features - lower is better.',
@@ -1011,7 +1008,11 @@ def main():
     def lexical_diversity(text):
         if not text:
             return 0
-        tokens = nltk.word_tokenize(text.lower())
+        try:
+            tokens = nltk.word_tokenize(text.lower())
+        except Exception as e:
+            print(f"Warning: Tokenization error in lexical diversity: {str(e)}")
+            tokens = text.lower().split()
         return len(set(tokens)) / len(tokens) if tokens else 0
     
     visual_context_analysis['lexical_diversity'] = {
@@ -1155,8 +1156,9 @@ def main():
 
     # Analyze reconstruction-task tradeoff for last evaluated dataset (could be any of train, val_seen, val_unseen)
     logger.info("4. RECONSTRUCTION-TASK TRADEOFF ANALYSIS")
-    classification_metrics = results['post_curriculum']['classification'][list(datasets)[-1][0]]
-    reconstruction_losses = results['post_curriculum']['classification'][list(datasets)[-1][0]]
+    # Use val_unseen dataset for the analysis
+    classification_metrics = results['post_curriculum']['classification']['val_unseen']
+    reconstruction_losses = results['post_curriculum']['classification']['val_unseen']
     analyze_reconstruction_tradeoff(classification_metrics, reconstruction_losses, logger)
 
 if __name__ == "__main__":
