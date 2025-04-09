@@ -432,7 +432,7 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
                 text_input, 
                 current_view, 
                 previous_views, 
-                labels_input_ids=labels_input_ids,
+                labels=labels_input_ids,
                 destination_view=destination_view,
                 curriculum_ratio=curriculum_ratio
             )
