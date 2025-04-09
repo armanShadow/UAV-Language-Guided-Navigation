@@ -161,6 +161,49 @@ def get_weight_schedule(start_weight: float, end_weight: float, total_epochs: in
 
     return weight_fn
 
+def calculate_reconstruction_loss(reconstructed_features, original_features):
+    reconstructed_features_norm = F.normalize(reconstructed_features, p=2, dim=1)
+    original_features_norm = F.normalize(original_features, p=2, dim=1)
+    reconstruction_loss = F.mse_loss(reconstructed_features_norm, original_features_norm)
+    return reconstruction_loss
+
+def calculate_cosine_similarity_loss(first_features, second_features):
+    first_features_norm = F.normalize(first_features, p=2, dim=1)
+    second_features_norm = F.normalize(second_features, p=2, dim=1)
+    cosine_loss = 1 - F.cosine_similarity(first_features_norm, second_features_norm).mean()
+    return cosine_loss
+
+def calculate_embedings_cosine_similarity_loss(labels_flat, mask_flat, decoder_hidden_states, model, device):
+    cosine_sim_loss = torch.tensor(0.0, device=device)                                          
+    # Calculate cosine similarity between decoder hidden states and labels
+    # Get decoder hidden states [batch_size, seq_len, hidden_dim
+    # Use label attention mask directly from batch
+    # Reshape all to 2D tensors for easier processing
+    decoder_hidden_flat = decoder_hidden_states.reshape(-1, decoder_hidden_states.size(-1))
+    
+    # Only compute similarity on non-padded tokens (where mask is 1)
+    valid_positions = mask_flat.bool()
+    if valid_positions.sum() > 0:  # Check that we have at least one valid position
+        valid_hidden = decoder_hidden_flat[valid_positions]
+        valid_labels = labels_flat[valid_positions]
+        
+        # Normalize the hidden states
+        valid_hidden_norm = F.normalize(valid_hidden, p=2, dim=1)
+        
+        with torch.no_grad():
+            model_to_use = model.module if hasattr(model, 'module') else model
+            embedding_layer = model_to_use.t5_model.decoder.embed_tokens
+            label_embeddings = embedding_layer(valid_labels)
+
+        label_embeddings = F.normalize(label_embeddings, p=2, dim=1)
+        
+        # Calculate decoder hidden states cosine similarity loss
+        cosine_sim_loss = (1 - F.cosine_similarity(
+            valid_hidden_norm, 
+            label_embeddings
+        )).mean()
+
+    return cosine_sim_loss
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler,
                 num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None,
                 logger=None, is_distributed=False):
@@ -237,8 +280,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             model.train()
             total_loss = 0
             total_ce_loss = 0
-            total_cosine_loss = 0
+            total_embedings_cosine_loss = 0
             total_destination_loss = 0
+            total_visual_reconstruction_loss = 0
+            total_destination_reconstruction_loss = 0
             optimizer.zero_grad(set_to_none=True)
 
             epoch_start_time = time.time()
@@ -297,76 +342,31 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
 
                         # Calculate cross-entropy loss
-                        ce_loss = criterion(logits_reshaped, labels_reshaped) 
+                        ce_loss = criterion(logits_reshaped, labels_reshaped)
+                        ce_loss_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
 
-                        cosine_sim_loss = torch.tensor(0.0, device=device)                     
-                        
-                        # Calculate cosine similarity between decoder hidden states and labels
-                        # Get decoder hidden states [batch_size, seq_len, hidden_dim]
-                        decoder_hidden_states = outputs["hidden_states"]
-                        
-                        # Use label attention mask directly from batch
-                        # Reshape all to 2D tensors for easier processing
-                        decoder_hidden_flat = decoder_hidden_states.reshape(-1, decoder_hidden_states.size(-1))
-                        labels_flat = labels_reshaped
-                        mask_flat = label_attention_mask.reshape(-1)
-                        
-                        # Only compute similarity on non-padded tokens (where mask is 1)
-                        valid_positions = mask_flat.bool()
-                        if valid_positions.sum() > 0:  # Check that we have at least one valid position
-                            valid_hidden = decoder_hidden_flat[valid_positions]
-                            valid_labels = labels_flat[valid_positions]
-                            
-                            # Normalize the hidden states
-                            valid_hidden_norm = F.normalize(valid_hidden, p=2, dim=1)
-                            
-                            with torch.no_grad():
-                                model_to_use = model.module if hasattr(model, 'module') else model
-                                embedding_layer = model_to_use.t5_model.decoder.embed_tokens
-                                label_embeddings = embedding_layer(valid_labels)
-
-                            label_embeddings = F.normalize(label_embeddings, p=2, dim=1)
-                            
-                            # Calculate decoder hidden states cosine similarity loss
-                            cosine_sim_loss = (1 - F.cosine_similarity(
-                                valid_hidden_norm, 
-                                label_embeddings
-                            )).mean()
-                            
-                                
-                                      
-                        
-                        # Combine losses with weighting from config
-                        cosine_weight = get_weight_schedule(config.training.cosine_similarity_weight_start, config.training.cosine_similarity_weight_end, max_curriculum_epochs)(epoch)
-                        loss = ce_loss + cosine_weight * cosine_sim_loss
-
-                        if rank == 0 and batch_idx % log_frequency == 0:
-                            logger.info(f'Cosine weight: {cosine_weight:.4f}')
-                            
                         # Add feature regularization with weight 0.0001
                         reg_loss = 0.0001 * feature_norm
-                        loss = loss + reg_loss
+                        loss = ce_loss_weight * ce_loss + reg_loss
+
+                        embedings_cosine_loss = calculate_embedings_cosine_similarity_loss(labels_reshaped, label_attention_mask.reshape(-1), outputs["hidden_states"], model, device)
+
+                        # Combine losses with weighting from config
+                        embedings_loss_weight = get_weight_schedule(config.training.embedding_loss_weight_start, config.training.embedding_loss_weight_end, max_curriculum_epochs)(epoch)
+                        loss = loss + embedings_loss_weight * embedings_cosine_loss
+                            
+                        dest_features = outputs["destination_features"]
                         
-                        # Calculate destination loss if adapted_features are available
-                        adapted_features = outputs["adapted_features"]  # This is already the mean across sequence length
-                        
-                        # Get destination features if available, or calculate them if not
-                        if "destination_features" in outputs:
-                            dest_features = outputs["destination_features"]
-                        else:  # Calculate if not provided but view is available
-                            with torch.no_grad():  # No need for gradients when calculating features outside model
-                                model_to_use = model.module if hasattr(model, 'module') else model
-                                dest_features = model_to_use.feature_extractor.extract_single_view_features(destination_view)
-                        
-                        # Calculate cosine similarity loss between adapted features and destination features
-                        dest_features_norm = F.normalize(dest_features, p=2, dim=1)
-                        adapted_features_norm = F.normalize(adapted_features, p=2, dim=1)
-                        dest_cosine_loss = 1 - F.cosine_similarity(adapted_features_norm, dest_features_norm).mean()
-                        
-                       
+                        destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
                         destination_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
-                        weighted_dest_loss = destination_weight * dest_cosine_loss
-                        loss = loss + weighted_dest_loss
+                        loss = loss + destination_weight * destination_cosine_loss
+
+                        #calculate visual reconstruction loss
+                        visual_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_visual_features"], outputs["visual_context_target"])
+                        destination_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_destination_features"], dest_features)
+                        reconstruction_weight = get_weight_schedule(config.training.reconstruction_weight_start, config.training.reconstruction_weight_end, max_curriculum_epochs)(epoch)
+                        loss = loss + reconstruction_weight * (visual_reconstruction_loss + destination_reconstruction_loss)
+                        
 
                         if rank == 0 and batch_idx % log_frequency == 0:
                             logger.info(f'Destination weight: {destination_weight:.4f}')
@@ -415,8 +415,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
                     total_ce_loss += ce_loss.item()
-                    total_cosine_loss += cosine_sim_loss.item()
-                    total_destination_loss += dest_cosine_loss.item()
+                    total_embedings_cosine_loss += embedings_cosine_loss.item()
+                    total_destination_loss += destination_cosine_loss.item()
+                    total_visual_reconstruction_loss += visual_reconstruction_loss.item()
+                    total_destination_reconstruction_loss += destination_reconstruction_loss.item()
                 
                     # Log at specified frequency
                     if batch_idx % log_frequency == 0 and rank == 0:
@@ -454,26 +456,31 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             if is_distributed and dist.is_initialized():
                 loss_tensor = torch.tensor(total_loss, device=device)
                 total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)   
-                total_cosine_loss_tensor = torch.tensor(total_cosine_loss, device=device)
+                total_embedings_cosine_loss_tensor = torch.tensor(total_embedings_cosine_loss, device=device)
                 total_destination_loss_tensor = torch.tensor(total_destination_loss, device=device)
+                total_visual_reconstruction_loss_tensor = torch.tensor(total_visual_reconstruction_loss, device=device)
+                total_destination_reconstruction_loss_tensor = torch.tensor(total_destination_reconstruction_loss, device=device)
                 dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_ce_loss_tensor, op=dist.ReduceOp.SUM)
-                dist.all_reduce(total_cosine_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_embedings_cosine_loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_destination_loss_tensor, op=dist.ReduceOp.SUM)
                 total_loss = loss_tensor.item() / dist.get_world_size()
                 total_ce_loss = total_ce_loss_tensor.item() / dist.get_world_size()
-                total_cosine_loss = total_cosine_loss_tensor.item() / dist.get_world_size()
+                total_embedings_cosine_loss = total_embedings_cosine_loss_tensor.item() / dist.get_world_size()
                 total_destination_loss = total_destination_loss_tensor.item() / dist.get_world_size()
-
+                total_visual_reconstruction_loss = total_visual_reconstruction_loss_tensor.item() / dist.get_world_size()   
+                total_destination_reconstruction_loss = total_destination_reconstruction_loss_tensor.item() / dist.get_world_size()
             # Normalize training loss
             avg_epoch_loss = total_loss / len(train_loader)
             avg_ce_loss = total_ce_loss / len(train_loader)
-            avg_cosine_loss = total_cosine_loss / len(train_loader)
+            avg_embedings_cosine_loss = total_embedings_cosine_loss / len(train_loader)
             avg_destination_loss = total_destination_loss / len(train_loader)
+            avg_visual_reconstruction_loss = total_visual_reconstruction_loss / len(train_loader)
+            avg_destination_reconstruction_loss = total_destination_reconstruction_loss / len(train_loader)
             epoch_time = time.time() - epoch_start_time
             
             if rank == 0:
-                logger.info(f'Epoch {epoch + 1} completed in {epoch_time:.2f}s. Average loss: {avg_epoch_loss:.4f}, CE loss: {avg_ce_loss:.4f}, Cosine loss: {avg_cosine_loss:.4f}, Destination loss: {avg_destination_loss:.4f}')
+                logger.info(f'Epoch {epoch + 1} completed in {epoch_time:.2f}s. Average loss: {avg_epoch_loss:.4f}, CE loss: {avg_ce_loss:.4f}, Embedings cosine loss: {avg_embedings_cosine_loss:.4f}, Destination loss: {avg_destination_loss:.4f}, Visual reconstruction loss: {avg_visual_reconstruction_loss:.4f}, Destination reconstruction loss: {avg_destination_reconstruction_loss:.4f}')
 
             # Validation phase - only run periodically to save time
             if (epoch + 1) % config.training.eval_freq == 0:
@@ -520,67 +527,26 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 
                                 # Calculate cross-entropy loss
                                 ce_loss = criterion(logits_reshaped, labels_reshaped)
+                                ce_loss_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
+                                loss = ce_loss_weight * ce_loss
                                 
-                                cosine_sim_loss = torch.tensor(0.0, device=device)                     
-                                # Calculate cosine similarity between decoder hidden states and labels
-                                    # Get decoder hidden states [batch_size, seq_len, hidden_dim]
-                                decoder_hidden_states = outputs["hidden_states"]
-                                
-                                # Use label attention mask directly from batch
-                                # Reshape all to 2D tensors for easier processing
-                                decoder_hidden_flat = decoder_hidden_states.reshape(-1, decoder_hidden_states.size(-1))
-                                labels_flat = labels_reshaped
-                                mask_flat = label_attention_mask.reshape(-1)
-                                
-                                # Only compute similarity on non-padded tokens (where mask is 1)
-                                valid_positions = mask_flat.bool()
-                                if valid_positions.sum() > 0:  # Check that we have at least one valid position
-                                    valid_hidden = decoder_hidden_flat[valid_positions]
-                                    valid_labels = labels_flat[valid_positions]
-                                    
-                                    # Normalize the hidden states
-                                    valid_hidden_norm = F.normalize(valid_hidden, p=2, dim=1)
-                                    
-                                    with torch.no_grad():
-                                        model_to_use = model.module if hasattr(model, 'module') else model
-                                        embedding_layer = model_to_use.t5_model.decoder.embed_tokens
-                                        label_embeddings = embedding_layer(valid_labels)
-
-                                    label_embeddings = F.normalize(label_embeddings, p=2, dim=1)
-                                    
-                                    # Calculate decoder hidden states cosine similarity loss
-                                    cosine_sim_loss = (1 - F.cosine_similarity(
-                                        valid_hidden_norm, 
-                                        label_embeddings
-                                    )).mean()
-                                        
-                                
+                                embedings_cosine_loss = calculate_embedings_cosine_similarity_loss(labels_reshaped, label_attention_mask.reshape(-1), outputs["hidden_states"], model, device)
                                 # Combine losses with weighting from config
-                                cosine_weight = get_weight_schedule(config.training.cosine_similarity_weight_start, config.training.cosine_similarity_weight_end, max_curriculum_epochs)(epoch)
-                                loss = ce_loss + cosine_weight * cosine_sim_loss
+                                embedings_cosine_weight = get_weight_schedule(config.training.embedding_loss_weight_start, config.training.embedding_loss_weight_end, max_curriculum_epochs)(epoch)
+                                loss = loss + embedings_cosine_weight * embedings_cosine_loss
                                 
-                                # Calculate destination loss if adapted_features are available
-                                adapted_features = outputs["adapted_features"]  # This is already the mean across sequence length
-                                
-                                # Get destination features if available, or calculate them if not
-                                if "destination_features" in outputs:
-                                    dest_features = outputs["destination_features"]
-                                else:  # Calculate if not provided but view is available
-                                    with torch.no_grad():  # No need for gradients in validation
-                                        model_to_use = model.module if hasattr(model, 'module') else model
-                                        dest_features = model_to_use.feature_extractor.extract_single_view_features(destination_view)
-                                
-                                
-                                # Calculate cosine similarity loss between adapted features and destination features
-                                dest_features_norm = F.normalize(dest_features, p=2, dim=1)
-                                adapted_features_norm = F.normalize(adapted_features, p=2, dim=1)
-                                cosine_loss = 1 - F.cosine_similarity(adapted_features_norm, dest_features_norm).mean()
+                                dest_features = outputs["destination_features"]
+                                destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
                                 
                                 # Apply destination loss weight
                                 destination_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
-                                weighted_dest_loss = destination_weight * cosine_loss
-                                loss = loss + weighted_dest_loss
-                                    
+                                loss = loss + destination_weight * destination_cosine_loss
+                                
+                                visual_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_visual_features"], outputs["visual_context_target"])
+                                destination_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_destination_features"], dest_features)
+                                reconstruction_weight = get_weight_schedule(config.training.reconstruction_weight_start, config.training.reconstruction_weight_end, max_curriculum_epochs)(epoch)
+                                loss = loss + reconstruction_weight * (visual_reconstruction_loss + destination_reconstruction_loss)
+                                
                             val_loss += loss.item()
 
                         except Exception as e:

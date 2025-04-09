@@ -55,8 +55,12 @@ class TrainingConfig:
     destination_loss_weight_start: float = 0.2
     destination_loss_weight_end: float = 0.1
     # Additional loss weighting
-    cosine_similarity_weight_start: float = 0.3
-    cosine_similarity_weight_end: float = 0.8
+    embedding_loss_weight_start: float = 0.8
+    embedding_loss_weight_end: float = 0.3
+    reconstruction_weight_start: float = 0.3
+    reconstruction_weight_end: float = 0.1
+    ce_loss_weight_start: float = 0.8
+    ce_loss_weight_end: float = 1.0
     
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""

@@ -135,8 +135,6 @@ class CrossModalFusion(nn.Module):
         attn_mask = None
         if text_mask is not None:
             # Convert from [batch_size, seq_len] to attention mask
-            if (text_mask.sum(dim=1) == 0).any():
-                logger.warning("A sample in the batch has all tokens masked!")
             attn_mask = ~text_mask.bool()
         
         # Visual conditioning on text
@@ -164,13 +162,6 @@ class CrossModalFusion(nn.Module):
         # Compute fusion gate
         # Determine how much of each modality to use at each position
         gate = self.fusion_gate(torch.cat([attended_text, attended_visual], dim=-1))
-        
-        # Check for NaNs in gate
-        if torch.isnan(gate).any():
-            logger.warning("NaN detected in fusion gate in CrossModalFusion!")
-            # For gates, 0.5 is a balanced choice between the two modalities
-            # We use the original inputs rather than potentially corrupted attended features
-            return text_features  # Return original text features as a fallback
         
         # Weighted combination of the two streams
         fused_features = gate * attended_visual + (1 - gate) * attended_text
@@ -249,6 +240,9 @@ class AnsweringAgent(nn.Module):
             nn.Linear(config.model.hidden_size, config.model.hidden_size),
             nn.LayerNorm(config.model.hidden_size)
         )
+
+        self.destination_reconstruction_head = nn.Linear(config.model.hidden_size, config.model.hidden_size)
+        self.visual_reconstruction_head = nn.Linear(config.model.hidden_size, config.model.hidden_size)
         
         # Initialize adapter weights
         self._init_adapter_weights()
@@ -365,9 +359,10 @@ class AnsweringAgent(nn.Module):
 
         # Process destination features if available for curriculum learning
         destination_features = None
-        if destination_view is not None and curriculum_ratio > 0:
+        if destination_view is not None:
             # Extract destination features
-            destination_features = self.feature_extractor.extract_single_view_features(destination_view)
+            with torch.no_grad():
+                destination_features = self.feature_extractor.extract_single_view_features(destination_view)
             # Apply curriculum learning - mix current visual context with destination features
             visual_context = (1 - curriculum_ratio) * visual_context + curriculum_ratio * destination_features
 
@@ -448,6 +443,10 @@ class AnsweringAgent(nn.Module):
         
         # Apply the adapter to bridge the gap between our features and what T5 expects
         adapted_features = self.t5_adapter(fused_features)
+
+        pooled_adapted_features = adapted_features.mean(dim=1) # [batch_size, hidden_size]
+        reconstructed_destination_features = self.destination_reconstruction_head(pooled_adapted_features)
+        reconstructed_visual_features = self.visual_reconstruction_head(pooled_adapted_features)
         
         # Check for NaNs in adapted features
         if torch.isnan(adapted_features).any():
@@ -493,7 +492,10 @@ class AnsweringAgent(nn.Module):
                 "logits": outputs.logits,
                 "feature_norm": feature_norm,
                 "adapted_features": adapted_features.mean(dim=1),
-                "hidden_states": outputs.decoder_hidden_states[-1]
+                "hidden_states": outputs.decoder_hidden_states[-1],
+                "reconstructed_destination_features": reconstructed_destination_features,
+                "reconstructed_visual_features": reconstructed_visual_features,
+                "visual_context_target": visual_context.mean(dim=1)
             }
             
             # Include destination features if available for external loss calculation
