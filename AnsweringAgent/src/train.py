@@ -399,7 +399,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         distribution_similarity_loss = calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, label_attention_mask.reshape(-1), model, device)
 
                         # Combine losses with weighting from config
-                        distribution_similarity_weight = get_weight_schedule(config.training.embedding_loss_weight_start, config.training.embedding_loss_weight_end, max_curriculum_epochs)(epoch)
+                        distribution_similarity_weight = get_weight_schedule(config.training.distribution_loss_weight_start, config.training.distribution_loss_weight_end, max_curriculum_epochs)(epoch)
                         loss = loss + distribution_similarity_weight * distribution_similarity_loss
                             
                         dest_features = outputs["destination_features"]
@@ -579,7 +579,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 
                                 distribution_similarity_loss = calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, label_attention_mask.reshape(-1), model, device)
                                 # Combine losses with weighting from config
-                                distribution_similarity_weight = get_weight_schedule(config.training.embedding_loss_weight_start, config.training.embedding_loss_weight_end, max_curriculum_epochs)(epoch)
+                                distribution_similarity_weight = get_weight_schedule(config.training.distribution_loss_weight_start, config.training.distribution_loss_weight_end, max_curriculum_epochs)(epoch)
                                 loss = loss + distribution_similarity_weight * distribution_similarity_loss
                                 
                                 dest_features = outputs["destination_features"]
