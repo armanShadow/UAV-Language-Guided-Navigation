@@ -132,34 +132,6 @@ def compute_text_metrics(predictions, targets, tokenizer):
     # Average metrics
     return {k: np.mean(v) for k, v in metrics.items()}, decoded_preds, decoded_targets
 
-def compute_accuracy_metrics(outputs, labels, pad_token_id, attention_mask=None):
-    """Compute token-level accuracy metrics."""
-    # Reshape outputs and labels
-    outputs_reshaped = outputs.reshape(-1, outputs.size(-1))
-    labels_reshaped = labels.reshape(-1)
-
-    # Get predictions
-    _, predicted = outputs_reshaped.max(1)
-    predicted = predicted.reshape(outputs.size(0), outputs.size(1))
-
-    # Create mask for non-padding tokens
-    if attention_mask is not None:
-        # Use provided attention mask
-        mask = attention_mask.bool()
-    else:
-        # Fall back to inferring mask from labels
-        mask = (labels != pad_token_id)
-
-    # Calculate metrics
-    total_tokens = mask.sum().item()
-    correct_tokens = ((predicted == labels) & mask).sum().item()
-    accuracy = correct_tokens / total_tokens if total_tokens > 0 else 0.0
-
-    return {
-        'token_accuracy': accuracy,
-        'total_tokens': total_tokens,
-        'correct_tokens': correct_tokens
-    }
 
 def generate_examples(model, data_loader, tokenizer, device, logger, dataset_name, num_examples=10):
     """Generate and save language examples from each dataset."""
@@ -406,19 +378,11 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
     total_visual_recon_loss = 0
     total_dest_recon_loss = 0
     
-    total_metrics = {
-        'token_accuracy': 0,
-        'total_tokens': 0,
-        'correct_tokens': 0
-    }
     
     logger.info(f"Evaluating classification on {dataset_name} dataset...")
     
     # Get config values for loss weighting
     config = model.config
-    # Use epoch 1 for validation
-    epoch = 1  
-    max_curriculum_epochs = config.training.curriculum_epochs
     
     # Get the weight schedules
     ce_loss_weight = config.training.ce_loss_weight_end
@@ -661,16 +625,16 @@ def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
     
     for name, loader in datasets:
         logger.info(f"\n{'='*50}\nEvaluating {name} dataset\n{'='*50}")
+        logger.info(f"Size of {name} dataset: {len(loader.dataset)}")
         
         # Classification metrics post-curriculum
-        loss_metrics, class_metrics = evaluate_classification(
+        loss_metrics = evaluate_classification(
             model, loader, criterion, tokenizer, device, logger, name, 
             curriculum_ratio=curriculum_ratio
         )
         
         results['post_curriculum']['classification'][name] = {
-            **loss_metrics,
-            **class_metrics
+            **loss_metrics
         }
         
         # Generation metrics (BLEU, ROUGE, F1) - only in post-curriculum phase
