@@ -415,18 +415,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Base reconstruction weight from config
                         reconstruction_weight = get_weight_schedule(config.training.reconstruction_weight_start, config.training.reconstruction_weight_end, max_curriculum_epochs)(epoch)
                         
-                        # Increase destination reconstruction weight as curriculum_ratio decreases
-                        # This encourages the model to remember the destination as direct access is reduced
-                        destination_boost_factor = max(1.0, 2.0 - 2.0 * curriculum_ratio)  # Ranges from 1.0 to 2.0 as curriculum_ratio goes from 1.0 to 0
-                        
                         # Apply the weighted reconstruction losses
-                        loss = loss + reconstruction_weight * (
-                            visual_reconstruction_loss + 
-                            destination_boost_factor * destination_reconstruction_loss
-                        )
-                        
-                        if rank == 0 and batch_idx % log_frequency == 0:
-                            logger.info(f'Destination weight: {destination_weight:.4f}, Dest reconstruction boost: {destination_boost_factor:.4f}')
+                        loss = loss + reconstruction_weight * (visual_reconstruction_loss + destination_reconstruction_loss)
                         
                         if torch.isnan(loss):
                             logger.error(f"[NaN Detected] NaN in loss before backward on rank {rank}, epoch {epoch}, batch {batch_idx}")
@@ -603,13 +593,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 destination_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_destination_features"], dest_features)
                                 reconstruction_weight = get_weight_schedule(config.training.reconstruction_weight_start, config.training.reconstruction_weight_end, max_curriculum_epochs)(epoch)
                                 
-                                # Increase destination reconstruction weight as curriculum_ratio decreases (same as in training)
-                                destination_boost_factor = max(1.0, 2.0 - 2.0 * curriculum_ratio)
-                                
                                 # Apply the weighted reconstruction losses
                                 loss = loss + reconstruction_weight * (
                                     visual_reconstruction_loss + 
-                                    destination_boost_factor * destination_reconstruction_loss
+                                    destination_reconstruction_loss
                                 )
                                 
                             val_loss += loss.item()

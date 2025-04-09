@@ -52,14 +52,14 @@ class TrainingConfig:
     train_chunk_size: int = 1000
     # Curriculum learning parameters
     curriculum_epochs: int = 10  # Number of epochs for curriculum learning phase
-    destination_loss_weight_start: float = 0.2
-    destination_loss_weight_end: float = 0.1
+    destination_loss_weight_start: float = 0.7
+    destination_loss_weight_end: float = 0.2
     # Additional loss weighting
-    embedding_loss_weight_start: float = 0.8
-    embedding_loss_weight_end: float = 0.3
-    reconstruction_weight_start: float = 0.3
-    reconstruction_weight_end: float = 0.1
-    ce_loss_weight_start: float = 0.8
+    distribution_loss_weight_start: float = 0.8
+    distribution_loss_weight_end: float = 0.3
+    reconstruction_weight_start: float = 0.1
+    reconstruction_weight_end: float = 0.3
+    ce_loss_weight_start: float = 0.7
     ce_loss_weight_end: float = 1.0
     
     def __post_init__(self):
