@@ -6,3 +6,4 @@
 **/__pycache__
 documents/
 /AnsweringAgent/src/data/processed_data
+/AnsweringAgent/outputs/logs
