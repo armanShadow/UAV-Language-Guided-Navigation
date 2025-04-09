@@ -171,14 +171,20 @@ def generate_examples(model, data_loader, tokenizer, device, logger, dataset_nam
             # Use smaller batches for generation if needed
             if gen_batch_size is not None and gen_batch_size < data_loader.batch_size:
                 batch_size = len(text_input['input_ids'])
-                all_batch_generated = []
                 
+                # Process each mini-batch separately
                 for i in range(0, batch_size, gen_batch_size):
+                    # Stop if we have enough examples
+                    if len(all_examples) >= num_examples:
+                        break
+                        
                     # Get batch slice
                     end_idx = min(i + gen_batch_size, batch_size)
                     text_input_slice = {k: v[i:end_idx] for k, v in text_input.items()}
                     current_view_slice = current_view[i:end_idx]
                     previous_views_slice = previous_views[i:end_idx]
+                    labels_slice = labels[i:end_idx] if labels is not None else None
+                    input_text_slice = input_text[i:end_idx]
                     
                     # Generate text for this slice
                     outputs = model(
@@ -188,14 +194,31 @@ def generate_examples(model, data_loader, tokenizer, device, logger, dataset_nam
                         generate=True
                     )
                     
-                    all_batch_generated.append(outputs["sequences"].cpu())
+                    # Get generated text directly
+                    generated_sequences = outputs["sequences"].cpu()
+                    generated_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in generated_sequences]
+                    reference_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in labels_slice] if labels_slice is not None else [""] * len(generated_text)
+                    
+                    # Add examples from this mini-batch
+                    for j in range(len(generated_text)):
+                        if len(all_examples) >= num_examples:
+                            break
+                            
+                        example = {
+                            "dataset": dataset_name,
+                            "input_text": input_text_slice[j],
+                            "reference": reference_text[j],
+                            "generated": generated_text[j],
+                            # Calculate individual metrics for this example
+                            "bleu": calculate_bleu([reference_text[j]], generated_text[j]),
+                            "rouge": calculate_rouge([reference_text[j]], generated_text[j]),
+                            "f1": calculate_f1([reference_text[j]], generated_text[j])
+                        }
+                        all_examples.append(example)
                     
                     # Clear cache after each sub-batch
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                
-                # Combine predictions
-                generated_sequences = torch.cat(all_batch_generated, dim=0)
             else:
                 # Generate text for the full batch
                 outputs = model(
@@ -204,29 +227,29 @@ def generate_examples(model, data_loader, tokenizer, device, logger, dataset_nam
                     previous_views,
                     generate=True
                 )
+                
+                # Decode predictions and references
                 generated_sequences = outputs["sequences"].cpu()
-            
-            # Decode predictions and references
-            generated_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in generated_sequences]
-            reference_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in labels]
-            
-            # Store examples
-            for i in range(len(generated_text)):
-                # Only collect up to num_examples
-                if len(all_examples) >= num_examples:
-                    break
-                    
-                example = {
-                    "dataset": dataset_name,
-                    "input_text": input_text[i],
-                    "reference": reference_text[i],
-                    "generated": generated_text[i],
-                    # Calculate individual metrics for this example
-                    "bleu": calculate_bleu([reference_text[i]], generated_text[i]),
-                    "rouge": calculate_rouge([reference_text[i]], generated_text[i]),
-                    "f1": calculate_f1([reference_text[i]], generated_text[i])
-                }
-                all_examples.append(example)
+                generated_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in generated_sequences]
+                reference_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in labels] if labels is not None else [""] * len(generated_text)
+                
+                # Store examples
+                for i in range(len(generated_text)):
+                    # Only collect up to num_examples
+                    if len(all_examples) >= num_examples:
+                        break
+                        
+                    example = {
+                        "dataset": dataset_name,
+                        "input_text": input_text[i],
+                        "reference": reference_text[i],
+                        "generated": generated_text[i],
+                        # Calculate individual metrics for this example
+                        "bleu": calculate_bleu([reference_text[i]], generated_text[i]),
+                        "rouge": calculate_rouge([reference_text[i]], generated_text[i]),
+                        "f1": calculate_f1([reference_text[i]], generated_text[i])
+                    }
+                    all_examples.append(example)
             
             # Clear CUDA cache after each batch
             if torch.cuda.is_available():
@@ -312,14 +335,15 @@ def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_n
             # Use smaller batches for generation if needed
             if gen_batch_size is not None and gen_batch_size < data_loader.batch_size:
                 batch_size = len(text_input['input_ids'])
-                all_batch_preds = []
                 
+                # Process each small batch separately and collect results directly
                 for i in range(0, batch_size, gen_batch_size):
                     # Get batch slice
                     end_idx = min(i + gen_batch_size, batch_size)
                     text_input_slice = {k: v[i:end_idx] for k, v in text_input.items()}
                     current_view_slice = current_view[i:end_idx]
                     previous_views_slice = previous_views[i:end_idx]
+                    labels_slice = labels[i:end_idx]
                     
                     # Generate text for this slice
                     outputs = model(
@@ -329,14 +353,13 @@ def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_n
                         generate=True
                     )
                     
-                    all_batch_preds.append(outputs["sequences"].cpu())
+                    # Add to our collections directly (no concatenation needed)
+                    all_predictions.extend(outputs["sequences"].cpu())
+                    all_targets.extend(labels_slice.cpu())
                     
                     # Clear cache after each sub-batch
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                
-                # Combine predictions from all slices
-                batch_predictions = torch.cat(all_batch_preds, dim=0)
             else:
                 # Generate text for the full batch
                 outputs = model(
@@ -345,11 +368,9 @@ def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_n
                     previous_views,
                     generate=True
                 )
-                batch_predictions = outputs["sequences"].cpu()
-            
-            # Collect predictions and targets
-            all_predictions.extend(batch_predictions)
-            all_targets.extend(labels.cpu())
+                # Add to our collections
+                all_predictions.extend(outputs["sequences"].cpu())
+                all_targets.extend(labels.cpu())
             
             # Clear CUDA cache after each batch
             if torch.cuda.is_available():
