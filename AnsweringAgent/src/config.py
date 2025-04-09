@@ -33,13 +33,13 @@ class TrainingConfig:
     gradient_clip: float = 0.5
     warmup_steps: int = 1000
     log_freq: int = 2
-    eval_freq: int = 1  #(validate every ~66 minutes)
+    eval_freq: int = 50  #(validate every ~66 minutes)
     num_workers: int = 4
     pin_memory: bool = True
     mixed_precision: bool = False
     device: str = 'cuda'
     seed: int = 42
-    checkpoint_frequency: int = 400
+    checkpoint_frequency: int = 200
     scheduler_factor: float = 0.5
     scheduler_patience: int = 5
     scheduler_verbose: bool = True
@@ -51,8 +51,8 @@ class TrainingConfig:
     use_augmentation: bool = False
     train_chunk_size: int = 1000
     # Curriculum learning parameters
-    curriculum_epochs: int = 10  # Number of epochs for curriculum learning phase
-    destination_loss_weight_start: float = 0.7
+    curriculum_epochs: int = 30  # Number of epochs for curriculum learning phase
+    destination_loss_weight_start: float = 1.0
     destination_loss_weight_end: float = 0.2
     # Additional loss weighting
     distribution_loss_weight_start: float = 0.8

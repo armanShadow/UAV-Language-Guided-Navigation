@@ -356,9 +356,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Start with high ratio (rely more on destination) and gradually reduce to 0
                     max_curriculum_epochs = config.training.curriculum_epochs
                     curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs))
-
-                    if rank == 0 and batch_idx % log_frequency == 0:
-                        logger.info(f"Curriculum ratio: {curriculum_ratio}: epoch {epoch + 1}")
                     
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast(enabled=use_amp):
@@ -641,7 +638,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 early_stopping_triggered = True
 
                     # Save best model
-                    if val_loss < best_val_loss and False:
+                    if val_loss < best_val_loss:
                         # Remove previous best model if it exists
                         if last_best_epoch is not None:
                             prev_best_model = os.path.join(checkpoint_dir, f'best_model_epoch_{last_best_epoch}.pt')
