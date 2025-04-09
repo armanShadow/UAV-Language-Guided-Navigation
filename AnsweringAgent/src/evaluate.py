@@ -132,7 +132,7 @@ def compute_text_metrics(predictions, targets, tokenizer):
     # Average metrics
     return {k: np.mean(v) for k, v in metrics.items()}, decoded_preds, decoded_targets
 
-def compute_accuracy_metrics(outputs, labels, pad_token_id):
+def compute_accuracy_metrics(outputs, labels, pad_token_id, attention_mask=None):
     """Compute token-level accuracy metrics."""
     # Reshape outputs and labels
     outputs_reshaped = outputs.reshape(-1, outputs.size(-1))
@@ -143,7 +143,12 @@ def compute_accuracy_metrics(outputs, labels, pad_token_id):
     predicted = predicted.reshape(outputs.size(0), outputs.size(1))
 
     # Create mask for non-padding tokens
-    mask = (labels != pad_token_id)
+    if attention_mask is not None:
+        # Use provided attention mask
+        mask = attention_mask.bool()
+    else:
+        # Fall back to inferring mask from labels
+        mask = (labels != pad_token_id)
 
     # Calculate metrics
     total_tokens = mask.sum().item()
@@ -176,7 +181,12 @@ def generate_examples(model, data_loader, tokenizer, device, logger, dataset_nam
             text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
             current_view = batch['current_view_image'].to(device, non_blocking=True)
             previous_views = batch['previous_views_image'].to(device, non_blocking=True)
-            labels = batch['text_label']
+            
+            # Handle text_label as either tensor or dict
+            if isinstance(batch['text_label'], dict):
+                labels = batch['text_label']['input_ids']
+            else:
+                labels = batch['text_label']
             
             # Get input dialog history
             input_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in text_input['input_ids']]
@@ -272,7 +282,12 @@ def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_n
             text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
             current_view = batch['current_view_image'].to(device, non_blocking=True)
             previous_views = batch['previous_views_image'].to(device, non_blocking=True)
-            labels = batch['text_label']
+            
+            # Handle text_label as either tensor or dict
+            if isinstance(batch['text_label'], dict):
+                labels = batch['text_label']['input_ids']
+            else:
+                labels = batch['text_label']
             
             # Generate text
             outputs = model(
@@ -505,7 +520,7 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
             total_dest_recon_loss += dest_recon_loss.item()
             
             # Calculate accuracy metrics
-            batch_metrics = compute_accuracy_metrics(logits, labels, pad_token_id=tokenizer.pad_token_id)
+            batch_metrics = compute_accuracy_metrics(logits, labels_input_ids, pad_token_id=tokenizer.pad_token_id, attention_mask=labels_attention_mask)
             for k, v in batch_metrics.items():
                 if k in total_metrics:
                     total_metrics[k] += v
@@ -639,9 +654,8 @@ def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
     # Set up criterion for classification evaluation
     criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
     
-    # Results dictionary
+    # Results dictionary - we'll only use post_curriculum since we're validating in a single epoch
     results = {
-        'with_curriculum': {'classification': {}, 'generation': {}, 'examples': {}},
         'post_curriculum': {'classification': {}, 'generation': {}, 'examples': {}}
     }
     
@@ -652,17 +666,16 @@ def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
         ('val_unseen', val_unseen_loader)
     ]
 
-    
     # Evaluate post-curriculum (no destination features)
     curriculum_ratio = 0.0  # No curriculum (later in training)
-    logger.info(f"\n{'='*50}\nEvaluating post-curriculum learning (ratio: {curriculum_ratio})\n{'='*50}")
+    logger.info(f"\n{'='*50}\nEvaluating with curriculum ratio: {curriculum_ratio}\n{'='*50}")
     
     for name, loader in datasets:
-        logger.info(f"\n{'='*50}\nEvaluating {name} dataset (post-curriculum)\n{'='*50}")
+        logger.info(f"\n{'='*50}\nEvaluating {name} dataset\n{'='*50}")
         
         # Classification metrics post-curriculum
         loss_metrics, class_metrics = evaluate_classification(
-            model, loader, criterion, tokenizer, device, logger, f"{name} (post-curriculum)", 
+            model, loader, criterion, tokenizer, device, logger, name, 
             curriculum_ratio=curriculum_ratio
         )
         
@@ -717,7 +730,7 @@ def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
     
     # Log overfitting metrics
     logger.info("\n" + "="*50)
-    logger.info("OVERFITTING ANALYSIS (POST-CURRICULUM)")
+    logger.info("OVERFITTING ANALYSIS")
     logger.info("="*50)
     
     for name in ['val_seen', 'val_unseen']:
@@ -727,35 +740,6 @@ def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
         
         for metric, gap in generation_gap[name].items():
             logger.info(f"{metric.upper()} gap: {gap:.4f}")
-    
-    # Curriculum vs Post-Curriculum Analysis for Reconstruction Losses
-    logger.info("\n" + "="*50)
-    logger.info("CURRICULUM VS POST-CURRICULUM ANALYSIS")
-    logger.info("="*50)
-    
-    # Analyze how reconstruction losses change with and without curriculum
-    curriculum_analysis = {}
-    for name in ['train', 'val_seen', 'val_unseen']:
-        with_curr = results['with_curriculum']['classification'][name]
-        post_curr = results['post_curriculum']['classification'][name]
-        
-        curriculum_analysis[name] = {
-            'visual_recon_ratio': post_curr['visual_recon_loss'] / (with_curr['visual_recon_loss'] + 1e-10),
-            'dest_recon_ratio': post_curr['dest_recon_loss'] / (with_curr['dest_recon_loss'] + 1e-10),
-            'visual_recon_diff': post_curr['visual_recon_loss'] - with_curr['visual_recon_loss'],
-            'dest_recon_diff': post_curr['dest_recon_loss'] - with_curr['dest_recon_loss'],
-        }
-        
-        logger.info(f"\n{name} dataset curriculum analysis:")
-        logger.info(f"Visual Recon Loss: With={with_curr['visual_recon_loss']:.6f}, Post={post_curr['visual_recon_loss']:.6f}, Ratio={curriculum_analysis[name]['visual_recon_ratio']:.2f}")
-        logger.info(f"Dest Recon Loss: With={with_curr['dest_recon_loss']:.6f}, Post={post_curr['dest_recon_loss']:.6f}, Ratio={curriculum_analysis[name]['dest_recon_ratio']:.2f}")
-    
-    # Detect memorization 
-    if all(curriculum_analysis[name]['dest_recon_ratio'] < 1.5 for name in ['train', 'val_seen', 'val_unseen']):
-        logger.info("\nFINDING: Destination reconstruction loss remains low even when destination is not provided")
-        logger.info("This indicates that the model is likely memorizing destinations rather than inferring them")
-    
-    results['curriculum_analysis'] = curriculum_analysis
     
     return results
 
@@ -1017,17 +1001,6 @@ def main():
     logger.info(f"Average Generation Metric Gap (Train-Val_Seen): {avg_val_seen_gap:.4f}")
     logger.info(f"Average Generation Metric Gap (Train-Val_Unseen): {avg_val_unseen_gap:.4f}")
     
-    # Get reconstruction loss ratios from curriculum analysis
-    train_dest_recon_ratio = results['curriculum_analysis']['train']['dest_recon_ratio']
-    train_visual_recon_ratio = results['curriculum_analysis']['train']['visual_recon_ratio']
-    val_seen_dest_recon_ratio = results['curriculum_analysis']['val_seen']['dest_recon_ratio']
-    val_unseen_dest_recon_ratio = results['curriculum_analysis']['val_unseen']['dest_recon_ratio']
-    
-    logger.info("\nDestination Reconstruction Loss Ratios (post/with curriculum):")
-    logger.info(f"Train: {train_dest_recon_ratio:.2f}")
-    logger.info(f"Val_Seen: {val_seen_dest_recon_ratio:.2f}")
-    logger.info(f"Val_Unseen: {val_unseen_dest_recon_ratio:.2f}")
-    
     # Key findings
     logger.info("\nKEY FINDINGS:")
     
@@ -1042,37 +1015,22 @@ def main():
         logger.info("1. No significant visual context overfitting detected")
         logger.info("   - The gap between seen and unseen environments is proportional")
     
-    # Destination memorization assessment
-    destination_memorization = all(ratio < 1.5 for ratio in [
-        train_dest_recon_ratio, val_seen_dest_recon_ratio, val_unseen_dest_recon_ratio
-    ])
-    
-    if destination_memorization:
-        logger.info("2. DESTINATION MEMORIZATION DETECTED")
-        logger.info("   - Destination reconstruction loss remains low even without destination information")
-        logger.info("   - Train ratio: {:.2f}, Val seen ratio: {:.2f}, Val unseen ratio: {:.2f}".format(
-            train_dest_recon_ratio, val_seen_dest_recon_ratio, val_unseen_dest_recon_ratio
-        ))
-        logger.info("   - Recommendation: Add noise to destination features, increase reconstruction weight")
-    else:
-        logger.info("2. No destination memorization detected")
-        logger.info("   - Model shows increased reconstruction loss when destination isn't provided")
-    
     # Lexical diversity assessment
     if diversity_ratio > 1.5:
-        logger.info("3. GENERIC RESPONSES ON UNSEEN ENVIRONMENTS")
+        logger.info("2. GENERIC RESPONSES ON UNSEEN ENVIRONMENTS")
         logger.info("   - Less lexical diversity on unseen environments suggests falling back to generic responses")
         logger.info("   - Recommendation: Enhance visual feature processing pathway")
     
     # Landmark reference assessment
     if landmark_ratio > 1.5:
-        logger.info("4. REDUCED LANDMARK REFERENCES ON UNSEEN ENVIRONMENTS")
+        logger.info("3. REDUCED LANDMARK REFERENCES ON UNSEEN ENVIRONMENTS")
         logger.info("   - Model mentions fewer visual landmarks in unseen environments")
         logger.info("   - Recommendation: Improve cross-modal integration between visual and text features")
 
-    # Analyze reconstruction-task tradeoff
-    classification_metrics = results['post_curriculum']['classification'][name]
-    reconstruction_losses = results['post_curriculum']['classification'][name]
+    # Analyze reconstruction-task tradeoff for last evaluated dataset (could be any of train, val_seen, val_unseen)
+    logger.info("4. RECONSTRUCTION-TASK TRADEOFF ANALYSIS")
+    classification_metrics = results['post_curriculum']['classification'][list(datasets)[-1][0]]
+    reconstruction_losses = results['post_curriculum']['classification'][list(datasets)[-1][0]]
     analyze_reconstruction_tradeoff(classification_metrics, reconstruction_losses, logger)
 
 if __name__ == "__main__":
