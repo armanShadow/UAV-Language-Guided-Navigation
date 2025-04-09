@@ -519,11 +519,6 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
             total_visual_recon_loss += visual_recon_loss.item()
             total_dest_recon_loss += dest_recon_loss.item()
             
-            # Calculate accuracy metrics
-            batch_metrics = compute_accuracy_metrics(logits, labels_input_ids, pad_token_id=tokenizer.pad_token_id, attention_mask=labels_attention_mask)
-            for k, v in batch_metrics.items():
-                if k in total_metrics:
-                    total_metrics[k] += v
     
     # Calculate average losses
     num_batches = len(data_loader)
@@ -534,19 +529,13 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
     avg_visual_recon_loss = total_visual_recon_loss / num_batches
     avg_dest_recon_loss = total_dest_recon_loss / num_batches
     
-    # Calculate token accuracy
-    if total_metrics['total_tokens'] > 0:
-        total_metrics['token_accuracy'] = total_metrics['correct_tokens'] / total_metrics['total_tokens']
-    
     # Log metrics
     logger.info(f"{dataset_name} Combined Loss: {avg_loss:.4f}")
     logger.info(f"{dataset_name} Cross-Entropy Loss: {avg_ce_loss:.4f}")
     logger.info(f"{dataset_name} Distribution Loss: {avg_distribution_loss:.4f}")
     logger.info(f"{dataset_name} Destination Loss: {avg_destination_loss:.4f}")
     logger.info(f"{dataset_name} Visual Recon Loss: {avg_visual_recon_loss:.4f}")
-    logger.info(f"{dataset_name} Dest Recon Loss: {avg_dest_recon_loss:.4f}")
-    logger.info(f"{dataset_name} Token Accuracy: {total_metrics['token_accuracy']:.4f}")
-    
+    logger.info(f"{dataset_name} Dest Recon Loss: {avg_dest_recon_loss:.4f}")    
     # Return detailed metrics
     loss_metrics = {
         'combined_loss': avg_loss,
@@ -557,7 +546,7 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
         'dest_recon_loss': avg_dest_recon_loss
     }
     
-    return loss_metrics, total_metrics
+    return loss_metrics
 
 def analyze_reconstruction_tradeoff(classification_metrics, reconstruction_losses, logger):
     """
