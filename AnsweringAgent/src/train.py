@@ -204,6 +204,53 @@ def calculate_embedings_cosine_similarity_loss(labels_flat, mask_flat, decoder_h
         )).mean()
 
     return cosine_sim_loss
+
+def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mask_flat, model, device):
+    """
+    Calculate KL divergence between predicted token distribution and smoothed label distribution.
+    
+    Args:
+        logits_reshaped: Model logits [batch_size * seq_len, vocab_size]
+        labels_reshaped: Token labels [batch_size * seq_len]
+        mask_flat: Attention mask [batch_size * seq_len]
+        model: The model (for accessing vocab size)
+        device: Current device
+        
+    Returns:
+        KL divergence loss between distributions
+    """
+    distribution_loss = torch.tensor(0.0, device=device)
+    
+    # Only compute on non-padded tokens (where mask is 1)
+    valid_positions = mask_flat.bool()
+    if valid_positions.sum() > 0:
+        # Get the vocabulary size
+        model_to_use = model.module if hasattr(model, 'module') else model
+        vocab_size = model_to_use.t5_model.config.vocab_size
+        
+        # Extract valid logits and labels
+        valid_logits = logits_reshaped[valid_positions]  # [valid_count, vocab_size]
+        valid_labels = labels_reshaped[valid_positions]  # [valid_count]
+        
+        # Convert labels to one-hot and apply label smoothing
+        smoothing = 0.1
+        one_hot = F.one_hot(valid_labels, vocab_size).float()
+        smoothed_targets = one_hot * (1 - smoothing) + smoothing / vocab_size
+        
+        # Get softmax of logits (predicted distribution)
+        log_probs = F.log_softmax(valid_logits, dim=-1)
+        
+        # Calculate KL divergence
+        # Note: kl_div expects log-probabilities for the first argument
+        distribution_loss = F.kl_div(
+            log_probs, 
+            smoothed_targets,
+            reduction='batchmean',
+            log_target=False
+        )
+    
+    return distribution_loss
+
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler,
                 num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None,
                 logger=None, is_distributed=False):
@@ -280,7 +327,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             model.train()
             total_loss = 0
             total_ce_loss = 0
-            total_embedings_cosine_loss = 0
+            total_distribution_similarity_loss = 0
             total_destination_loss = 0
             total_visual_reconstruction_loss = 0
             total_destination_reconstruction_loss = 0
@@ -349,11 +396,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         reg_loss = 0.0001 * feature_norm
                         loss = ce_loss_weight * ce_loss + reg_loss
 
-                        embedings_cosine_loss = calculate_embedings_cosine_similarity_loss(labels_reshaped, label_attention_mask.reshape(-1), outputs["hidden_states"], model, device)
+                        distribution_similarity_loss = calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, label_attention_mask.reshape(-1), model, device)
 
                         # Combine losses with weighting from config
-                        embedings_loss_weight = get_weight_schedule(config.training.embedding_loss_weight_start, config.training.embedding_loss_weight_end, max_curriculum_epochs)(epoch)
-                        loss = loss + embedings_loss_weight * embedings_cosine_loss
+                        distribution_similarity_weight = get_weight_schedule(config.training.embedding_loss_weight_start, config.training.embedding_loss_weight_end, max_curriculum_epochs)(epoch)
+                        loss = loss + distribution_similarity_weight * distribution_similarity_loss
                             
                         dest_features = outputs["destination_features"]
                         
@@ -415,7 +462,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
                     total_ce_loss += ce_loss.item()
-                    total_embedings_cosine_loss += embedings_cosine_loss.item()
+                    total_distribution_similarity_loss += distribution_similarity_loss.item()
                     total_destination_loss += destination_cosine_loss.item()
                     total_visual_reconstruction_loss += visual_reconstruction_loss.item()
                     total_destination_reconstruction_loss += destination_reconstruction_loss.item()
@@ -456,31 +503,31 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             if is_distributed and dist.is_initialized():
                 loss_tensor = torch.tensor(total_loss, device=device)
                 total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)   
-                total_embedings_cosine_loss_tensor = torch.tensor(total_embedings_cosine_loss, device=device)
+                total_distribution_similarity_loss_tensor = torch.tensor(total_distribution_similarity_loss, device=device)
                 total_destination_loss_tensor = torch.tensor(total_destination_loss, device=device)
                 total_visual_reconstruction_loss_tensor = torch.tensor(total_visual_reconstruction_loss, device=device)
                 total_destination_reconstruction_loss_tensor = torch.tensor(total_destination_reconstruction_loss, device=device)
                 dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_ce_loss_tensor, op=dist.ReduceOp.SUM)
-                dist.all_reduce(total_embedings_cosine_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_distribution_similarity_loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_destination_loss_tensor, op=dist.ReduceOp.SUM)
                 total_loss = loss_tensor.item() / dist.get_world_size()
                 total_ce_loss = total_ce_loss_tensor.item() / dist.get_world_size()
-                total_embedings_cosine_loss = total_embedings_cosine_loss_tensor.item() / dist.get_world_size()
+                total_distribution_similarity_loss = total_distribution_similarity_loss_tensor.item() / dist.get_world_size()
                 total_destination_loss = total_destination_loss_tensor.item() / dist.get_world_size()
                 total_visual_reconstruction_loss = total_visual_reconstruction_loss_tensor.item() / dist.get_world_size()   
                 total_destination_reconstruction_loss = total_destination_reconstruction_loss_tensor.item() / dist.get_world_size()
             # Normalize training loss
             avg_epoch_loss = total_loss / len(train_loader)
             avg_ce_loss = total_ce_loss / len(train_loader)
-            avg_embedings_cosine_loss = total_embedings_cosine_loss / len(train_loader)
+            avg_distribution_similarity_loss = total_distribution_similarity_loss / len(train_loader)
             avg_destination_loss = total_destination_loss / len(train_loader)
             avg_visual_reconstruction_loss = total_visual_reconstruction_loss / len(train_loader)
             avg_destination_reconstruction_loss = total_destination_reconstruction_loss / len(train_loader)
             epoch_time = time.time() - epoch_start_time
             
             if rank == 0:
-                logger.info(f'Epoch {epoch + 1} completed in {epoch_time:.2f}s. Average loss: {avg_epoch_loss:.4f}, CE loss: {avg_ce_loss:.4f}, Embedings cosine loss: {avg_embedings_cosine_loss:.4f}, Destination loss: {avg_destination_loss:.4f}, Visual reconstruction loss: {avg_visual_reconstruction_loss:.4f}, Destination reconstruction loss: {avg_destination_reconstruction_loss:.4f}')
+                logger.info(f'Epoch {epoch + 1} completed in {epoch_time:.2f}s. Average loss: {avg_epoch_loss:.4f}, CE loss: {avg_ce_loss:.4f}, Distribution similarity loss: {avg_distribution_similarity_loss:.4f}, Destination loss: {avg_destination_loss:.4f}, Visual reconstruction loss: {avg_visual_reconstruction_loss:.4f}, Destination reconstruction loss: {avg_destination_reconstruction_loss:.4f}')
 
             # Validation phase - only run periodically to save time
             if (epoch + 1) % config.training.eval_freq == 0:
@@ -530,10 +577,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 ce_loss_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
                                 loss = ce_loss_weight * ce_loss
                                 
-                                embedings_cosine_loss = calculate_embedings_cosine_similarity_loss(labels_reshaped, label_attention_mask.reshape(-1), outputs["hidden_states"], model, device)
+                                distribution_similarity_loss = calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, label_attention_mask.reshape(-1), model, device)
                                 # Combine losses with weighting from config
-                                embedings_cosine_weight = get_weight_schedule(config.training.embedding_loss_weight_start, config.training.embedding_loss_weight_end, max_curriculum_epochs)(epoch)
-                                loss = loss + embedings_cosine_weight * embedings_cosine_loss
+                                distribution_similarity_weight = get_weight_schedule(config.training.embedding_loss_weight_start, config.training.embedding_loss_weight_end, max_curriculum_epochs)(epoch)
+                                loss = loss + distribution_similarity_weight * distribution_similarity_loss
                                 
                                 dest_features = outputs["destination_features"]
                                 destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
