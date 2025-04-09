@@ -18,60 +18,111 @@ import json
 from tqdm import tqdm
 
 # Download required NLTK data for evaluation
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
+def ensure_nltk_resources():
+    """Ensure all required NLTK resources are downloaded."""
+    # Standard NLTK resources needed
+    required_resources = ['punkt']
+    
+    for resource in required_resources:
+        try:
+            nltk.data.find(f'tokenizers/{resource}')
+            print(f"NLTK resource '{resource}' is available.")
+        except LookupError:
+            print(f"Downloading NLTK resource '{resource}'...")
+            try:
+                nltk.download(resource)
+                print(f"Successfully downloaded '{resource}'")
+            except Exception as e:
+                print(f"Warning: Failed to download NLTK resource '{resource}': {str(e)}")
+                print("Will fall back to simple whitespace tokenization if needed.")
+    
+    # Special handling for punkt_tab (which may not be available for direct download)
+    try:
+        nltk.data.find('tokenizers/punkt_tab')
+        print("NLTK resource 'punkt_tab' is available.")
+    except LookupError:
+        print("Warning: 'punkt_tab' resource not found. Will use fallback methods for tokenization.")
+
+# Call the function to ensure resources are available
+ensure_nltk_resources()
 
 def calculate_bleu(references, hypothesis):
     """Calculate BLEU score."""
     if not hypothesis:
         return 0.0
     
-    # Tokenize hypothesis and references
-    hypothesis_tokens = nltk.word_tokenize(hypothesis.lower())
-    references_tokens = [nltk.word_tokenize(ref.lower()) for ref in references]
-    
-    # Use smoothing function to handle edge cases
-    smoothie = SmoothingFunction().method1
-    
-    # Calculate BLEU score
     try:
-        return sentence_bleu(references_tokens, hypothesis_tokens, 
-                           weights=(0.25, 0.25, 0.25, 0.25), 
-                           smoothing_function=smoothie)
-    except:
-        return 0.0
+        # Tokenize hypothesis and references
+        hypothesis_tokens = nltk.word_tokenize(hypothesis.lower())
+        references_tokens = [nltk.word_tokenize(ref.lower()) for ref in references]
+        
+        # Use smoothing function to handle edge cases
+        smoothie = SmoothingFunction().method1
+        
+        # Calculate BLEU score
+        try:
+            return sentence_bleu(references_tokens, hypothesis_tokens, 
+                               weights=(0.25, 0.25, 0.25, 0.25), 
+                               smoothing_function=smoothie)
+        except:
+            return 0.0
+    except Exception as e:
+        print(f"Warning: Tokenization error in BLEU calculation: {str(e)}")
+        print(f"Hypothesis: '{hypothesis}'")
+        print(f"References: {references}")
+        # Fallback to simple whitespace tokenization
+        try:
+            hypothesis_tokens = hypothesis.lower().split()
+            references_tokens = [ref.lower().split() for ref in references]
+            smoothie = SmoothingFunction().method1
+            return sentence_bleu(references_tokens, hypothesis_tokens, 
+                               weights=(0.25, 0.25, 0.25, 0.25), 
+                               smoothing_function=smoothie)
+        except:
+            return 0.0
 
 def calculate_rouge(references, hypothesis):
     """Calculate ROUGE scores."""
     if not hypothesis or not references:
         return {'rouge1': 0.0, 'rouge2': 0.0, 'rougeL': 0.0}
     
-    # Initialize rouge scorer
-    scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
-    
-    # Calculate scores against each reference and take the best
-    scores = {metric: 0.0 for metric in ['rouge1', 'rouge2', 'rougeL']}
-    
-    for ref in references:
-        if not ref:
-            continue
+    try:
+        # Initialize rouge scorer
+        scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
         
-        results = scorer.score(ref, hypothesis)
+        # Calculate scores against each reference and take the best
+        scores = {metric: 0.0 for metric in ['rouge1', 'rouge2', 'rougeL']}
         
-        # Update with better scores
-        for metric in scores.keys():
-            scores[metric] = max(scores[metric], results[metric].fmeasure)
-    
-    return scores
+        for ref in references:
+            if not ref:
+                continue
+            
+            try:
+                results = scorer.score(ref, hypothesis)
+                
+                # Update with better scores
+                for metric in scores.keys():
+                    scores[metric] = max(scores[metric], results[metric].fmeasure)
+            except Exception as e:
+                print(f"Warning: Error calculating ROUGE for reference '{ref}': {str(e)}")
+                continue
+        
+        return scores
+    except Exception as e:
+        print(f"Warning: Error in ROUGE calculation: {str(e)}")
+        return {'rouge1': 0.0, 'rouge2': 0.0, 'rougeL': 0.0}
 
 def calculate_f1(references, hypothesis):
     """Calculate word-level F1 score."""
     if not hypothesis or not references:
         return 0.0
     
-    hypothesis_tokens = set(nltk.word_tokenize(hypothesis.lower()))
+    try:
+        hypothesis_tokens = set(nltk.word_tokenize(hypothesis.lower()))
+    except Exception as e:
+        print(f"Warning: Tokenization error for hypothesis in F1 calculation: {str(e)}")
+        # Fallback to simple whitespace tokenization
+        hypothesis_tokens = set(hypothesis.lower().split())
     
     # Calculate F1 against each reference and take the best
     best_f1 = 0.0
@@ -80,7 +131,12 @@ def calculate_f1(references, hypothesis):
         if not ref:
             continue
             
-        reference_tokens = set(nltk.word_tokenize(ref.lower()))
+        try:
+            reference_tokens = set(nltk.word_tokenize(ref.lower()))
+        except Exception as e:
+            print(f"Warning: Tokenization error for reference in F1 calculation: {str(e)}")
+            # Fallback to simple whitespace tokenization
+            reference_tokens = set(ref.lower().split())
         
         # Calculate precision, recall, and F1
         common_tokens = hypothesis_tokens.intersection(reference_tokens)
