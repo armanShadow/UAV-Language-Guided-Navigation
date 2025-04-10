@@ -188,7 +188,6 @@ def compute_text_metrics(predictions, targets, tokenizer):
     # Average metrics
     return {k: np.mean(v) for k, v in metrics.items()}, decoded_preds, decoded_targets
 
-
 def generate_examples(model, data_loader, tokenizer, device, logger, dataset_name, num_examples=10, gen_batch_size=None):
     """Generate and save language examples from each dataset."""
     model.eval()
@@ -359,13 +358,34 @@ def analyze_examples(examples, logger):
     # Return correlation analysis
     return dataset_metrics
 
-def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_name, gen_batch_size=None):
-    """Evaluate model's text generation capabilities."""
+def evaluate_with_examples(model, data_loader, tokenizer, device, logger, dataset_name, num_examples=10, gen_batch_size=None):
+    """
+    Evaluate model performance on text generation and collect examples in one unified function.
+    This combines functionality from evaluate_generation and generate_examples functions.
+    
+    Args:
+        model: The model to evaluate
+        data_loader: DataLoader containing evaluation data
+        tokenizer: Tokenizer for decoding predictions
+        device: Device to run evaluation on
+        logger: Logger for recording results
+        dataset_name: Name of the dataset being evaluated
+        num_examples: Number of examples to collect for detailed analysis
+        gen_batch_size: Batch size specifically for generation (smaller than evaluation batch size
+                        to prevent out-of-memory errors during beam search)
+    
+    Returns:
+        tuple: (metrics_dict, collected_examples)
+            - metrics_dict: Dictionary of average metrics (BLEU, ROUGE, F1)
+            - collected_examples: List of example dictionaries containing input, reference, 
+                                 generated text, and individual metrics
+    """
     model.eval()
     all_predictions = []
     all_targets = []
+    collected_examples = []
     
-    logger.info(f"Generating text on {dataset_name} dataset...")
+    logger.info(f"Evaluating generation on {dataset_name} dataset...")
     
     # Clear CUDA cache before generation
     if torch.cuda.is_available():
@@ -373,11 +393,20 @@ def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_n
         logger.info("Cleared CUDA cache before generation")
     
     # Use a smaller batch size for generation if specified
-    if gen_batch_size is not None and gen_batch_size < data_loader.batch_size:
-        logger.info(f"Using smaller batch size {gen_batch_size} for generation (original: {data_loader.batch_size})")
+    original_batch_size = data_loader.batch_size
+    if gen_batch_size is not None and gen_batch_size < original_batch_size:
+        logger.info(f"Using smaller batch size {gen_batch_size} for generation (original: {original_batch_size})")
+        logger.info("This helps prevent out-of-memory errors during beam search")
+    
+    # Select random batch indices for collecting detailed examples
+    total_batches = len(data_loader)
+    batch_indices = np.random.choice(total_batches, 
+                                   min(num_examples // data_loader.batch_size + 1, total_batches), 
+                                   replace=False)
+    logger.info(f"Will collect up to {num_examples} detailed examples from random batches")
     
     with torch.no_grad():
-        for batch in tqdm(data_loader, desc=f"Evaluating {dataset_name}"):
+        for batch_idx, batch in enumerate(tqdm(data_loader, desc=f"Evaluating {dataset_name}")):
             text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
             current_view = batch['current_view_image'].to(device, non_blocking=True)
             previous_views = batch['previous_views_image'].to(device, non_blocking=True)
@@ -388,11 +417,14 @@ def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_n
             else:
                 labels = batch['text_label']
             
+            # Get input dialog history
+            input_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in text_input['input_ids']]
+            
             # Use smaller batches for generation if needed
-            if gen_batch_size is not None and gen_batch_size < data_loader.batch_size:
+            if gen_batch_size is not None and gen_batch_size < original_batch_size:
                 batch_size = len(text_input['input_ids'])
                 
-                # Process each small batch separately and collect results directly
+                # Process each small batch separately
                 for i in range(0, batch_size, gen_batch_size):
                     # Get batch slice
                     end_idx = min(i + gen_batch_size, batch_size)
@@ -400,6 +432,7 @@ def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_n
                     current_view_slice = current_view[i:end_idx]
                     previous_views_slice = previous_views[i:end_idx]
                     labels_slice = labels[i:end_idx]
+                    input_text_slice = input_text[i:end_idx]
                     
                     # Generate text for this slice
                     outputs = model(
@@ -409,9 +442,32 @@ def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_n
                         generate=True
                     )
                     
-                    # Add to our collections directly (no concatenation needed)
+                    # Add to our collections
                     all_predictions.extend(outputs["sequences"].cpu())
                     all_targets.extend(labels_slice.cpu())
+                    
+                    # Collect detailed examples if this is one of our selected batches
+                    if batch_idx in batch_indices and len(collected_examples) < num_examples:
+                        generated_sequences = outputs["sequences"].cpu()
+                        generated_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in generated_sequences]
+                        reference_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in labels_slice]
+                        
+                        # Add examples
+                        for j in range(len(generated_text)):
+                            if len(collected_examples) >= num_examples:
+                                break
+                                
+                            example = {
+                                "dataset": dataset_name,
+                                "input_text": input_text_slice[j],
+                                "reference": reference_text[j],
+                                "generated": generated_text[j],
+                                # Calculate individual metrics for this example
+                                "bleu": calculate_bleu([reference_text[j]], generated_text[j]),
+                                "rouge": calculate_rouge([reference_text[j]], generated_text[j]),
+                                "f1": calculate_f1([reference_text[j]], generated_text[j])
+                            }
+                            collected_examples.append(example)
                     
                     # Clear cache after each sub-batch
                     if torch.cuda.is_available():
@@ -427,6 +483,29 @@ def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_n
                 # Add to our collections
                 all_predictions.extend(outputs["sequences"].cpu())
                 all_targets.extend(labels.cpu())
+                
+                # Collect detailed examples if this is one of our selected batches
+                if batch_idx in batch_indices and len(collected_examples) < num_examples:
+                    generated_sequences = outputs["sequences"].cpu()
+                    generated_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in generated_sequences]
+                    reference_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in labels]
+                    
+                    # Add examples
+                    for i in range(len(generated_text)):
+                        if len(collected_examples) >= num_examples:
+                            break
+                            
+                        example = {
+                            "dataset": dataset_name,
+                            "input_text": input_text[i],
+                            "reference": reference_text[i],
+                            "generated": generated_text[i],
+                            # Calculate individual metrics for this example
+                            "bleu": calculate_bleu([reference_text[i]], generated_text[i]),
+                            "rouge": calculate_rouge([reference_text[i]], generated_text[i]),
+                            "f1": calculate_f1([reference_text[i]], generated_text[i])
+                        }
+                        collected_examples.append(example)
             
             # Clear CUDA cache after each batch
             if torch.cuda.is_available():
@@ -439,16 +518,7 @@ def evaluate_generation(model, data_loader, tokenizer, device, logger, dataset_n
     for name, value in metrics.items():
         logger.info(f"{dataset_name} {name.upper()}: {value:.4f}")
     
-    # Save some examples
-    examples = []
-    for i in range(min(5, len(decoded_preds))):
-        examples.append({
-            "input": tokenizer.decode(all_targets[i], skip_special_tokens=True),
-            "target": decoded_targets[i],
-            "prediction": decoded_preds[i]
-        })
-    
-    return metrics, examples
+    return metrics, collected_examples
 
 def calculate_reconstruction_loss(reconstructed_features, original_features):
     reconstructed_features_norm = F.normalize(reconstructed_features, p=2, dim=1)
@@ -718,19 +788,12 @@ def analyze_reconstruction_tradeoff(classification_metrics, reconstruction_losse
     return results
 
 def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
-    """Evaluate on all three datasets: train, val_seen, val_unseen with curriculum learning phases."""
+    """Evaluate on all three datasets: train, val_seen, val_unseen with classification metrics only."""
     # Create dataset instances
     logger.info("Loading datasets...")
     
-    # Set up smaller subsets for quicker evaluation if needed
-    subset_size = args.subset_size if hasattr(args, 'subset_size') else None
-    
     # Create train dataset
     train_dataset = AnsweringDataset(config=config, split='train')
-    if subset_size and subset_size < len(train_dataset):
-        # Use a fixed subset for consistent evaluation
-        indices = torch.randperm(len(train_dataset))[:subset_size]
-        train_dataset = Subset(train_dataset, indices)
     
     # Create validation seen dataset
     val_seen_dataset = AnsweringDataset(config=config, split='val_seen')
@@ -768,7 +831,7 @@ def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
     
     # Results dictionary - we'll only use post_curriculum since we're validating in a single epoch
     results = {
-        'post_curriculum': {'classification': {}, 'generation': {}, 'examples': {}}
+        'classification': {}
     }
     
     # List of datasets to evaluate
@@ -778,84 +841,61 @@ def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
         ('val_unseen', val_unseen_loader)
     ]
 
-    # Evaluate post-curriculum (no destination features)
-    curriculum_ratio = 0.0  # No curriculum (later in training)
+    # Evaluate with curriculum ratio of 0 (no curriculum)
+    curriculum_ratio = 0.0
     logger.info(f"\n{'='*50}\nEvaluating with curriculum ratio: {curriculum_ratio}\n{'='*50}")
-    
-    # Determine generation batch size (smaller than evaluation batch size to save memory)
-    gen_batch_size = args.gen_batch_size if hasattr(args, 'gen_batch_size') else args.batch_size // 4
-    logger.info(f"Using generation batch size: {gen_batch_size}")
     
     for name, loader in datasets:
         logger.info(f"\n{'='*50}\nEvaluating {name} dataset\n{'='*50}")
         logger.info(f"Size of {name} dataset: {len(loader.dataset)}")
         
-        # Classification metrics post-curriculum
+        # Classification metrics
         loss_metrics = evaluate_classification(
             model, loader, criterion, tokenizer, device, logger, name, 
             curriculum_ratio=curriculum_ratio
         )
         
-        results['post_curriculum']['classification'][name] = {
+        results['classification'][name] = {
             **loss_metrics
         }
-        
-        # Generation metrics (BLEU, ROUGE, F1) - only in post-curriculum phase
-        gen_metrics, examples = evaluate_generation(
-            model, loader, tokenizer, device, logger, name, gen_batch_size=gen_batch_size
-        )
-        results['post_curriculum']['generation'][name] = gen_metrics
-        results['post_curriculum']['examples'][name] = examples
     
-    # Calculate overfitting metrics for post-curriculum phase
+    # Calculate loss gaps between train and validation metrics
     classification_gap = {}
-    generation_gap = {}
     
     # Calculate gaps between train and validation metrics
     for name in ['val_seen', 'val_unseen']:
         # Classification gaps
         classification_gap[name] = {
-            'combined_loss_gap': results['post_curriculum']['classification'][name]['combined_loss'] - 
-                                results['post_curriculum']['classification']['train']['combined_loss'],
-            'ce_loss_gap': results['post_curriculum']['classification'][name]['ce_loss'] - 
-                          results['post_curriculum']['classification']['train']['ce_loss'],
-            'distribution_loss_gap': results['post_curriculum']['classification'][name]['distribution_loss'] - 
-                                    results['post_curriculum']['classification']['train']['distribution_loss'],
-            'destination_loss_gap': results['post_curriculum']['classification'][name]['destination_loss'] - 
-                                   results['post_curriculum']['classification']['train']['destination_loss'],
-            'visual_recon_loss_gap': results['post_curriculum']['classification'][name]['visual_recon_loss'] - 
-                                    results['post_curriculum']['classification']['train']['visual_recon_loss'],
-            'dest_recon_loss_gap': results['post_curriculum']['classification'][name]['dest_recon_loss'] - 
-                                  results['post_curriculum']['classification']['train']['dest_recon_loss']
-        }
-        
-        # Generation gaps
-        generation_gap[name] = {
-            metric: results['post_curriculum']['generation']['train'][metric] - 
-                   results['post_curriculum']['generation'][name][metric]
-            for metric in results['post_curriculum']['generation']['train'].keys()
+            'combined_loss_gap': results['classification'][name]['combined_loss'] - 
+                                results['classification']['train']['combined_loss'],
+            'ce_loss_gap': results['classification'][name]['ce_loss'] - 
+                          results['classification']['train']['ce_loss'],
+            'distribution_loss_gap': results['classification'][name]['distribution_loss'] - 
+                                    results['classification']['train']['distribution_loss'],
+            'destination_loss_gap': results['classification'][name]['destination_loss'] - 
+                                   results['classification']['train']['destination_loss'],
+            'visual_recon_loss_gap': results['classification'][name]['visual_recon_loss'] - 
+                                    results['classification']['train']['visual_recon_loss'],
+            'dest_recon_loss_gap': results['classification'][name]['dest_recon_loss'] - 
+                                  results['classification']['train']['dest_recon_loss']
         }
     
     # Add gaps to results
-    results['post_curriculum']['overfitting'] = {
-        'classification': classification_gap,
-        'generation': generation_gap
+    results['overfitting'] = {
+        'classification': classification_gap
     }
     
     # Log overfitting metrics
     logger.info("\n" + "="*50)
-    logger.info("OVERFITTING ANALYSIS")
+    logger.info("LOSS GAP ANALYSIS")
     logger.info("="*50)
     
     for name in ['val_seen', 'val_unseen']:
         logger.info(f"\nGap between train and {name}:")
         for loss_type, gap in classification_gap[name].items():
             logger.info(f"{loss_type}: {gap:.4f}")
-        
-        for metric, gap in generation_gap[name].items():
-            logger.info(f"{metric.upper()} gap: {gap:.4f}")
     
-    return results
+    return results, datasets
 
 def explain_metrics():
     """Return a dictionary explaining what each metric means and how to interpret it."""
@@ -877,8 +917,7 @@ def explain_metrics():
             'semantic_sim': 'Semantic similarity between generated and reference texts using embeddings. Higher is better.'
         },
         'overfitting': {
-            'classification': 'Difference between train and validation metrics for classification. Lower gap is better.',
-            'generation': 'Difference between train and validation metrics for generation. Lower gap is better.'
+            'classification': 'Difference between train and validation metrics for classification. Lower gap is better.'
         },
         'curriculum_analysis': {
             'dest_recon_ratio': 'Ratio of destination reconstruction loss after curriculum vs. with curriculum. Higher values (>1.0) indicate the model is properly using the destination when available.',
@@ -900,7 +939,6 @@ def main():
     parser.add_argument('--batch-size', type=int, default=8, help='Batch size for evaluation')
     parser.add_argument('--gen-batch-size', type=int, default=None, help='Batch size for generation (defaults to batch-size/4)')
     parser.add_argument('--gpu', type=int, default=0, help='GPU device ID to use')
-    parser.add_argument('--subset-size', type=int, default=500, help='Size of training subset to evaluate on')
     parser.add_argument('--num-examples', type=int, default=10, help='Number of examples to generate per dataset')
     args = parser.parse_args()
     
@@ -937,56 +975,62 @@ def main():
     model.eval()
     
     logger.info(f"Model loaded. Epoch: {checkpoint['epoch']}, Val Loss: {checkpoint.get('val_loss', 'N/A')}")
-    logger.info("Running validation for a single epoch (epoch=1)")
+    logger.info("Running validation for a single epoch")
     
-    # Evaluate on all datasets
-    results = evaluate_all_datasets(model, tokenizer, config, device, logger, args)
+    # Evaluate on all datasets (classification metrics only)
+    results, datasets = evaluate_all_datasets(model, tokenizer, config, device, logger, args)
     
-    # Generate examples from all datasets
+    # Generate examples and calculate generation metrics
     logger.info("\n" + "="*50)
-    logger.info("ANALYZING GENERATED LANGUAGE EXAMPLES")
+    logger.info("GENERATING TEXT EXAMPLES AND CALCULATING GENERATION METRICS")
     logger.info("="*50)
     
-    # Create dataloaders for example generation
-    train_dataset = AnsweringDataset(config=config, split='train')
-    val_seen_dataset = AnsweringDataset(config=config, split='val_seen')
-    val_unseen_dataset = AnsweringDataset(config=config, split='val_unseen')
-    
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,  # Set to True to get different random examples
-        num_workers=config.training.num_workers,
-        pin_memory=config.training.pin_memory
-    )
-    
-    val_seen_loader = DataLoader(
-        val_seen_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=config.training.num_workers,
-        pin_memory=config.training.pin_memory
-    )
-    
-    val_unseen_loader = DataLoader(
-        val_unseen_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=config.training.num_workers,
-        pin_memory=config.training.pin_memory
-    )
-    
+    # We'll use the dataloaders from the classification evaluation
     all_examples = []
-    for name, loader in [('train', train_loader), ('val_seen', val_seen_loader), ('val_unseen', val_unseen_loader)]:
-        examples = generate_examples(model, loader, tokenizer, device, logger, name, 
-                                     num_examples=args.num_examples, 
-                                     gen_batch_size=args.gen_batch_size)
+    generation_metrics = {}
+    
+    for name, loader in datasets:
+        logger.info(f"\n{'='*50}\nEvaluating text generation on {name} dataset\n{'='*50}")
+        
+        # Use our combined function for generation metrics and examples
+        gen_metrics, examples = evaluate_with_examples(
+            model, loader, tokenizer, device, logger, name,
+            num_examples=args.num_examples, 
+            gen_batch_size=args.gen_batch_size
+        )
+        
+        # Store results
+        generation_metrics[name] = gen_metrics
         all_examples.extend(examples)
         
         # Log examples
         logger.info(f"\nGenerated {len(examples)} examples from {name} dataset:")
         for i, example in enumerate(examples):
             logger.info("\n" + format_example_for_display(example, i+1))
+            
+    # Add generation metrics to results
+    results['generation'] = generation_metrics
+    
+    # Calculate generation gaps
+    generation_gap = {}
+    for name in ['val_seen', 'val_unseen']:
+        generation_gap[name] = {
+            metric: results['generation']['train'][metric] - 
+                   results['generation'][name][metric]
+            for metric in results['generation']['train'].keys()
+        }
+    
+    results['overfitting']['generation'] = generation_gap
+    
+    # Log generation gaps
+    logger.info("\n" + "="*50)
+    logger.info("GENERATION GAP ANALYSIS")
+    logger.info("="*50)
+    
+    for name in ['val_seen', 'val_unseen']:
+        logger.info(f"\nGeneration gap between train and {name}:")
+        for metric, gap in generation_gap[name].items():
+            logger.info(f"{metric.upper()} gap: {gap:.4f}")
     
     # Analyze examples
     example_metrics = analyze_examples(all_examples, logger)
@@ -1122,17 +1166,22 @@ def main():
     logger.info("="*50)
     
     # Calculate the average gap for all metrics
-    avg_val_seen_gap = np.mean([gap for gap in results['post_curriculum']['overfitting']['generation']['val_seen'].values()])
-    avg_val_unseen_gap = np.mean([gap for gap in results['post_curriculum']['overfitting']['generation']['val_unseen'].values()])
+    avg_val_seen_loss_gap = np.mean([gap for gap in results['overfitting']['classification']['val_seen'].values()])
+    avg_val_unseen_loss_gap = np.mean([gap for gap in results['overfitting']['classification']['val_unseen'].values()])
     
-    logger.info(f"Average Generation Metric Gap (Train-Val_Seen): {avg_val_seen_gap:.4f}")
-    logger.info(f"Average Generation Metric Gap (Train-Val_Unseen): {avg_val_unseen_gap:.4f}")
+    avg_val_seen_gen_gap = np.mean([gap for gap in results['overfitting']['generation']['val_seen'].values()])
+    avg_val_unseen_gen_gap = np.mean([gap for gap in results['overfitting']['generation']['val_unseen'].values()])
+    
+    logger.info(f"Average Loss Gap (Train-Val_Seen): {avg_val_seen_loss_gap:.4f}")
+    logger.info(f"Average Loss Gap (Train-Val_Unseen): {avg_val_unseen_loss_gap:.4f}")
+    logger.info(f"Average Generation Metric Gap (Train-Val_Seen): {avg_val_seen_gen_gap:.4f}")
+    logger.info(f"Average Generation Metric Gap (Train-Val_Unseen): {avg_val_unseen_gen_gap:.4f}")
     
     # Key findings
     logger.info("\nKEY FINDINGS:")
     
     # Visual context overfitting assessment
-    visual_context_overfitting = avg_val_unseen_gap > (1.5 * avg_val_seen_gap)
+    visual_context_overfitting = avg_val_unseen_gen_gap > (1.5 * avg_val_seen_gen_gap)
     
     if visual_context_overfitting:
         logger.info("1. SIGNIFICANT VISUAL CONTEXT OVERFITTING DETECTED")
@@ -1154,11 +1203,10 @@ def main():
         logger.info("   - Model mentions fewer visual landmarks in unseen environments")
         logger.info("   - Recommendation: Improve cross-modal integration between visual and text features")
 
-    # Analyze reconstruction-task tradeoff for last evaluated dataset (could be any of train, val_seen, val_unseen)
+    # Analyze reconstruction-task tradeoff for val_unseen dataset
     logger.info("4. RECONSTRUCTION-TASK TRADEOFF ANALYSIS")
-    # Use val_unseen dataset for the analysis
-    classification_metrics = results['post_curriculum']['classification']['val_unseen']
-    reconstruction_losses = results['post_curriculum']['classification']['val_unseen']
+    classification_metrics = results['classification']['val_unseen']
+    reconstruction_losses = results['classification']['val_unseen']
     analyze_reconstruction_tradeoff(classification_metrics, reconstruction_losses, logger)
 
 if __name__ == "__main__":
