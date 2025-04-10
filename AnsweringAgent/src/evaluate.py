@@ -36,12 +36,7 @@ def ensure_nltk_resources():
                 print(f"Warning: Failed to download NLTK resource '{resource}': {str(e)}")
                 print("Will fall back to simple whitespace tokenization if needed.")
     
-    # Special handling for punkt_tab (which may not be available for direct download)
-    try:
-        nltk.data.find('tokenizers/punkt_tab')
-        print("NLTK resource 'punkt_tab' is available.")
-    except LookupError:
-        print("Warning: 'punkt_tab' resource not found. Will use fallback methods for tokenization.")
+    # Remove the punkt_tab check as it's not a standard NLTK resource and causes errors
 
 # Call the function to ensure resources are available
 ensure_nltk_resources()
@@ -1225,11 +1220,8 @@ def main():
     def lexical_diversity(text):
         if not text:
             return 0
-        try:
-            tokens = nltk.word_tokenize(text.lower())
-        except Exception as e:
-            print(f"Warning: Tokenization error in lexical diversity: {str(e)}")
-            tokens = text.lower().split()
+        # Use simple whitespace tokenization to avoid NLTK resource errors
+        tokens = text.lower().split()
         return len(set(tokens)) / len(tokens) if tokens else 0
     
     visual_context_analysis['lexical_diversity'] = {
