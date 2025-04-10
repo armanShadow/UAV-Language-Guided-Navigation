@@ -932,6 +932,180 @@ def explain_metrics():
     }
     return explanations
 
+def calculate_bleu_simple(references, hypothesis):
+    """Calculate BLEU score using simple tokenization."""
+    if not hypothesis or not references:
+        return 0.0
+    
+    # Simple whitespace tokenization
+    hypothesis_tokens = hypothesis.lower().split()
+    references_tokens = [ref.lower().split() for ref in references]
+    
+    # Use SmoothingFunction
+    smoothie = SmoothingFunction().method1
+    try:
+        return sentence_bleu(references_tokens, hypothesis_tokens, 
+                           weights=(0.25, 0.25, 0.25, 0.25), 
+                           smoothing_function=smoothie)
+    except:
+        return 0.0
+
+def calculate_f1_simple(references, hypothesis):
+    """Calculate word-level F1 score using simple tokenization."""
+    if not hypothesis or not references:
+        return 0.0
+    
+    # Simple whitespace tokenization
+    hypothesis_tokens = set(hypothesis.lower().split())
+    
+    best_f1 = 0.0
+    for ref in references:
+        if not ref:
+            continue
+            
+        reference_tokens = set(ref.lower().split())
+        
+        # Calculate precision, recall, and F1
+        common_tokens = hypothesis_tokens.intersection(reference_tokens)
+        
+        if not hypothesis_tokens or not reference_tokens:
+            continue
+            
+        precision = len(common_tokens) / len(hypothesis_tokens) if hypothesis_tokens else 0
+        recall = len(common_tokens) / len(reference_tokens) if reference_tokens else 0
+        
+        if precision + recall > 0:
+            f1 = 2 * (precision * recall) / (precision + recall)
+            best_f1 = max(best_f1, f1)
+    
+    return best_f1
+
+def evaluate_with_samples(model, data_loader, tokenizer, device, logger, dataset_name, num_samples=10):
+    """
+    Evaluate model on a small random subset of examples.
+    
+    Args:
+        model: The model to evaluate
+        data_loader: DataLoader with evaluation data
+        tokenizer: Tokenizer for decoding predictions
+        device: Device to run evaluation on
+        logger: Logger for recording results
+        dataset_name: Name of the dataset being evaluated
+        num_samples: Number of samples to evaluate (default: 10)
+        
+    Returns:
+        tuple: (metrics_dict, collected_examples)
+    """
+    model.eval()
+    logger.info(f"Evaluating {num_samples} random samples from {dataset_name}")
+    
+    # Create a small random subset of the dataset
+    total_examples = len(data_loader.dataset)
+    indices = np.random.choice(total_examples, min(num_samples, total_examples), replace=False)
+    subset = Subset(data_loader.dataset, indices)
+    
+    # Create a new dataloader with batch size of 4 (or other small value)
+    subset_loader = DataLoader(
+        subset, 
+        batch_size=4,  # Small fixed batch size for generation
+        shuffle=False,
+        num_workers=data_loader.num_workers,
+        pin_memory=True
+    )
+    
+    # Clear CUDA cache before generation
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    
+    all_predictions = []
+    all_targets = []
+    examples = []
+    
+    try:
+        with torch.no_grad():
+            for batch in tqdm(subset_loader, desc=f"Evaluating {dataset_name} samples"):
+                text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
+                current_view = batch['current_view_image'].to(device, non_blocking=True)
+                previous_views = batch['previous_views_image'].to(device, non_blocking=True)
+                
+                # Get labels
+                if isinstance(batch['text_label'], dict):
+                    labels = batch['text_label']['input_ids'].to(device, non_blocking=True)
+                else:
+                    labels = batch['text_label'].to(device, non_blocking=True)
+                
+                # Get input text
+                input_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in text_input['input_ids']]
+                
+                # Generate text
+                outputs = model(
+                    text_input, 
+                    current_view, 
+                    previous_views,
+                    generate=True
+                )
+                
+                # Get outputs
+                generated = outputs["sequences"].cpu()
+                all_predictions.extend(generated)
+                all_targets.extend(labels.cpu())
+                
+                # Decode text
+                generated_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in generated]
+                reference_text = [tokenizer.decode(ids, skip_special_tokens=True) for ids in labels]
+                
+                # Create examples
+                for i in range(len(generated_text)):
+                    # Use simple tokenizer for metrics to avoid NLTK errors
+                    bleu = calculate_bleu_simple([reference_text[i]], generated_text[i])
+                    rouge = calculate_rouge([reference_text[i]], generated_text[i])
+                    f1 = calculate_f1_simple([reference_text[i]], generated_text[i])
+                    
+                    example = {
+                        "dataset": dataset_name,
+                        "input_text": input_text[i],
+                        "reference": reference_text[i],
+                        "generated": generated_text[i],
+                        "bleu": bleu,
+                        "rouge": rouge,
+                        "f1": f1
+                    }
+                    examples.append(example)
+                
+                # Clear cache
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+    
+    except Exception as e:
+        logger.error(f"Error during evaluation: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+    
+    # Calculate overall metrics
+    if examples:
+        metrics = {
+            'bleu': np.mean([ex['bleu'] for ex in examples]),
+            'rouge1': np.mean([ex['rouge']['rouge1'] for ex in examples]),
+            'rouge2': np.mean([ex['rouge']['rouge2'] for ex in examples]),
+            'rougeL': np.mean([ex['rouge']['rougeL'] for ex in examples]),
+            'f1': np.mean([ex['f1'] for ex in examples])
+        }
+    else:
+        # Return zeros if no examples were processed successfully
+        metrics = {
+            'bleu': 0.0,
+            'rouge1': 0.0,
+            'rouge2': 0.0,
+            'rougeL': 0.0,
+            'f1': 0.0
+        }
+    
+    # Log metrics
+    for name, value in metrics.items():
+        logger.info(f"{dataset_name} {name.upper()}: {value:.4f}")
+    
+    return metrics, examples
+
 def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description='Enhanced evaluation for AnsweringAgent')
@@ -993,10 +1167,9 @@ def main():
         logger.info(f"\n{'='*50}\nEvaluating text generation on {name} dataset\n{'='*50}")
         
         # Use our combined function for generation metrics and examples
-        gen_metrics, examples = evaluate_with_examples(
+        gen_metrics, examples = evaluate_with_samples(
             model, loader, tokenizer, device, logger, name,
-            num_examples=args.num_examples, 
-            gen_batch_size=args.gen_batch_size
+            num_samples=args.num_examples
         )
         
         # Store results
