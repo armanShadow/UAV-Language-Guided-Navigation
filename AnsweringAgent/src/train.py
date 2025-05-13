@@ -207,7 +207,7 @@ def calculate_embedings_cosine_similarity_loss(labels_flat, mask_flat, decoder_h
 
 def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mask_flat, model, device):
     """
-    Calculate KL divergence between predicted token distribution and smoothed label distribution.
+    Calculate sentence-level distribution similarity loss using embeddings.
     
     Args:
         logits_reshaped: Model logits [batch_size * seq_len, vocab_size]
@@ -217,7 +217,7 @@ def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mas
         device: Current device
         
     Returns:
-        KL divergence loss between distributions
+        Sentence-level distribution similarity loss
     """
     distribution_loss = torch.tensor(0.0, device=device)
     
@@ -226,28 +226,35 @@ def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mas
     if valid_positions.sum() > 0:
         # Get the vocabulary size
         model_to_use = model.module if hasattr(model, 'module') else model
-        vocab_size = model_to_use.t5_model.config.vocab_size
         
         # Extract valid logits and labels
         valid_logits = logits_reshaped[valid_positions]  # [valid_count, vocab_size]
         valid_labels = labels_reshaped[valid_positions]  # [valid_count]
         
-        # Convert labels to one-hot and apply label smoothing
-        smoothing = 0.1
-        one_hot = F.one_hot(valid_labels, vocab_size).float()
-        smoothed_targets = one_hot * (1 - smoothing) + smoothing / vocab_size
-        
         # Get softmax of logits (predicted distribution)
-        log_probs = F.log_softmax(valid_logits, dim=-1)
+        probs = F.softmax(valid_logits, dim=-1)
         
-        # Calculate KL divergence
-        # Note: kl_div expects log-probabilities for the first argument
-        distribution_loss = F.kl_div(
-            log_probs, 
-            smoothed_targets,
-            reduction='batchmean',
-            log_target=False
-        )
+        # Get embeddings for both predicted and target distributions
+        with torch.no_grad():
+            embedding_layer = model_to_use.t5_model.decoder.embed_tokens
+            
+            # Get embeddings for target tokens
+            target_embeddings = embedding_layer(valid_labels)  # [valid_count, hidden_dim]
+            
+            # Get embeddings for predicted distribution
+            # Weight each embedding by its probability
+            all_token_embeddings = embedding_layer.weight  # [vocab_size, hidden_dim]
+            predicted_embeddings = torch.matmul(probs, all_token_embeddings)  # [valid_count, hidden_dim]
+        
+        # Normalize embeddings
+        target_embeddings = F.normalize(target_embeddings, p=2, dim=1)
+        predicted_embeddings = F.normalize(predicted_embeddings, p=2, dim=1)
+        
+        # Calculate cosine similarity loss
+        distribution_loss = (1 - F.cosine_similarity(
+            predicted_embeddings,
+            target_embeddings
+        )).mean()
     
     return distribution_loss
 
