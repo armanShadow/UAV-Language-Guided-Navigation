@@ -62,6 +62,14 @@ class TrainingConfig:
     ce_loss_weight_start: float = 0.7
     ce_loss_weight_end: float = 1.0
     
+    # Contrastive Learning Parameters
+    use_contrastive_learning: bool = False  # Enable/disable contrastive learning
+    contrastive_loss_type: str = "triplet"  # Options: "triplet", "infonce", "supcon"
+    contrastive_margin: float = 0.5  # Margin for triplet loss
+    contrastive_temperature: float = 0.07  # Temperature for InfoNCE loss
+    contrastive_weight_start: float = 0.1  # Initial weight for contrastive loss
+    contrastive_weight_end: float = 0.5  # Final weight for contrastive loss
+    
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""
         if not torch.cuda.is_available():

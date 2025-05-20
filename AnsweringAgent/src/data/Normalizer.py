@@ -281,107 +281,202 @@ class AnsweringAgentNormalizer:
         
         return transformed_image
 
-    def process_turn(self, data: Dict[str, Any], image_dir: str, 
-                   output_size: Tuple[int, int] = (224, 224),
-                   apply_augmentation: bool = False) -> Dict[str, Any]:
-        """Process a single dialog turn from the new JSON format.
+    def process_contrastive_samples(self, dialog_turn: Dict[str, Any], max_length: int = 128) -> Dict[str, Any]:
+        """Process contrastive samples in a dialog turn.
         
         Args:
-            data: Dictionary containing a single dialog turn data
-            image_dir: Directory containing satellite images
-            output_size: Size of the output image (width, height)
-            apply_augmentation: Whether to apply visual augmentations
+            dialog_turn: Dialog turn data containing contrastive samples
+            max_length: Maximum sequence length for tokenization
             
         Returns:
-            Dict[str, Any]: Processed turn data with images but raw text
+            Dict containing processed contrastive samples
         """
-        processed_data = {}
+        contrastive_data = {}
         
-        # Extract all needed fields
-        question = data.get('question')
-        answer = data.get('answer')
-        first_instruction = data.get('first_instruction', '')
-        dialog_history = data.get('dialog_history', [])
-        current_view_coords = data.get('current_view_coords')
-        previous_observations = data.get('previous_observations', [])
-        map_name = data.get('map_name')
-        
-        # Extract GPS information
-        gps_botm_left = data.get('gps_data', {}).get('gps_botm_left')
-        gps_top_right = data.get('gps_data', {}).get('gps_top_right')
-        lat_ratio = data.get('gps_data', {}).get('lat_ratio')
-        lng_ratio = data.get('gps_data', {}).get('lng_ratio')
-        
-        # Handle potential string formats for GPS data
-        if isinstance(gps_botm_left, str):
-            gps_botm_left = json.loads(gps_botm_left)
-        if isinstance(gps_top_right, str):
-            gps_top_right = json.loads(gps_top_right)
-        if isinstance(current_view_coords, str):
-            current_view_coords = json.loads(current_view_coords)
-        
-        # Store raw text data - no tokenization
-        processed_data['question'] = question
-        processed_data['answer'] = answer
-        processed_data['first_instruction'] = first_instruction
-        processed_data['dialog_history'] = dialog_history
-        
-        # Process current view coordinates to image
-        if current_view_coords:
-            transformed_image = self.process_coordinates_to_image(
-                current_view_coords, map_name, image_dir,
-                gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
-                output_size, apply_augmentation=apply_augmentation
-            )
-            processed_data['current_view_image'] = torch.from_numpy(transformed_image).float()
-        
-        # Process previous view coordinates to images
-        if previous_observations:
-            processed_data['previous_views_image'] = []
+        # Process positive examples
+        if "contrastive_samples" in dialog_turn and "positive_examples" in dialog_turn["contrastive_samples"]:
+            positive_examples = dialog_turn["contrastive_samples"]["positive_examples"]
+            contrastive_data["positive_examples"] = []
             
-            for prev_coords in previous_observations:
-                # Handle potential string format
-                if isinstance(prev_coords, str):
-                    prev_coords = json.loads(prev_coords)
-                    
-                transformed_image = self.process_coordinates_to_image(
-                    prev_coords, map_name, image_dir,
-                    gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
-                    output_size, apply_augmentation=apply_augmentation
+            for example in positive_examples:
+                # Tokenize the positive example
+                tokenized = self.tokenizer(
+                    example["text"],
+                    max_length=max_length,
+                    padding="max_length",
+                    truncation=True,
+                    return_tensors="pt"
                 )
-                processed_data['previous_views_image'].append(torch.from_numpy(transformed_image).float())
+                
+                contrastive_data["positive_examples"].append({
+                    "text": example["text"],
+                    "tokenized": {
+                        "input_ids": tokenized["input_ids"],
+                        "attention_mask": tokenized["attention_mask"]
+                    },
+                    "similarity": example.get("similarity", 1.0),
+                    "type": example.get("type", "paraphrase")
+                })
+        
+        # Process negative examples
+        if "contrastive_samples" in dialog_turn and "negative_examples" in dialog_turn["contrastive_samples"]:
+            negative_examples = dialog_turn["contrastive_samples"]["negative_examples"]
+            contrastive_data["negative_examples"] = []
+            
+            for example in negative_examples:
+                # Tokenize the negative example
+                tokenized = self.tokenizer(
+                    example["text"],
+                    max_length=max_length,
+                    padding="max_length",
+                    truncation=True,
+                    return_tensors="pt"
+                )
+                
+                contrastive_data["negative_examples"].append({
+                    "text": example["text"],
+                    "tokenized": {
+                        "input_ids": tokenized["input_ids"],
+                        "attention_mask": tokenized["attention_mask"]
+                    },
+                    "similarity": example.get("similarity", 0.0),
+                    "type": example.get("type", "unrelated")
+                })
+        
+        # Add complexity metadata if present
+        if "complexity_metadata" in dialog_turn:
+            contrastive_data["complexity_metadata"] = dialog_turn["complexity_metadata"]
+        
+        return contrastive_data
+
+    def process_dialog_turn(self, episode: Dict[str, Any], dialog_turn: Dict[str, Any], 
+                          image_dir: str, output_size: Tuple[int, int] = (224, 224),
+                          apply_augmentation: bool = False, max_history: int = 3) -> Dict[str, Any]:
+        """Process a single dialog turn to create a training example.
+        
+        Args:
+            episode: Episode data
+            dialog_turn: Dialog turn data
+            image_dir: Path to image directory
+            output_size: Output image size
+            apply_augmentation: Whether to apply data augmentation
+            max_history: Maximum number of previous dialog turns to include
+            
+        Returns:
+            Dict containing processed dialog turn data
+        """
+        result = {}
+        
+        # Get map name and GPS coordinates
+        map_name = episode['map_name']
+        gps_botm_left = np.array(episode['gps_botm_left'])
+        gps_top_right = np.array(episode['gps_top_right'])
+        lat_ratio = episode['lat_ratio']
+        lng_ratio = episode['lng_ratio']
+        
+        # Process current observation
+        if 'observation' in dialog_turn and 'view_area_coords' in dialog_turn['observation']:
+            current_view, coords = self.process_coordinates_to_image(
+                dialog_turn['observation']['view_area_coords'],
+                map_name, image_dir, gps_botm_left, gps_top_right,
+                lat_ratio, lng_ratio, output_size, apply_augmentation
+            )
+            result['current_view_image'] = torch.tensor(current_view)
+            result['current_coords'] = coords
+        else:
+            # If no observation, create a blank image
+            current_view = np.zeros((3, output_size[0], output_size[1]), dtype=np.float32)
+            result['current_view_image'] = torch.tensor(current_view)
+            result['current_coords'] = np.zeros((4, 2), dtype=np.float32)
+        
+        # Process previous observations
+        if 'previous_observations' in dialog_turn and len(dialog_turn['previous_observations']) > 0:
+            prev_views = []
+            prev_coords = []
+            
+            for prev_obs in dialog_turn['previous_observations'][-max_history:]:
+                prev_view, coords = self.process_coordinates_to_image(
+                    prev_obs, map_name, image_dir, gps_botm_left, gps_top_right,
+                    lat_ratio, lng_ratio, output_size, apply_augmentation
+                )
+                prev_views.append(torch.tensor(prev_view))
+                prev_coords.append(coords)
+                
+            result['previous_views_image'] = prev_views
+            result['previous_coords'] = prev_coords
+        else:
+            result['previous_views_image'] = []
+            result['previous_coords'] = []
         
         # Process destination coordinates if available
-        destination = data.get('destination')
-        if destination:
-            # Check if destination is a set of coordinates or a single point
-            if isinstance(destination, list) and len(destination) > 0:
-                # Get the destination image from coordinates
-                dest_image = self.process_coordinates_to_image(
-                    destination, map_name, image_dir,
-                    gps_botm_left, gps_top_right, lat_ratio, lng_ratio,
-                    output_size, apply_augmentation=False  # No augmentation for destination
-                )
-                processed_data['destination_image'] = torch.from_numpy(dest_image).float()
-
-        # Tokenize text
-        combined_text = f"Question: {question} <extra_id_0> First Instruction: {first_instruction} <extra_id_1> History: {' '.join(dialog_history)}"
-        processed_data['tokenized_input'] = self.tokenizer(
-            combined_text,
-            padding='max_length',
-            truncation=True,
-            max_length=self.config.data.max_seq_length,
-            return_tensors='pt'
-        )
-
-        processed_data['tokenized_answer'] = self.tokenizer(
-            f"Answer: {answer}",
-            padding='max_length',
-            truncation=True,
-            max_length=self.config.model.max_answer_length,
-            return_tensors='pt'
-        )
-        return processed_data
+        if 'destination' in episode:
+            destination_view, dest_coords = self.process_coordinates_to_image(
+                episode['destination'], map_name, image_dir, gps_botm_left, gps_top_right,
+                lat_ratio, lng_ratio, output_size, False  # No augmentation for destination
+            )
+            result['destination_image'] = torch.tensor(destination_view)
+            result['destination_coords'] = dest_coords
+        
+        # Process dialog history
+        dialog_history = []
+        if 'dialog_history' in dialog_turn and len(dialog_turn['dialog_history']) > 0:
+            dialog_history = dialog_turn['dialog_history'][-max_history:]
+        
+        # Process first instruction
+        first_instruction = episode.get('first_instruction', '')
+        result['first_instruction'] = first_instruction
+        
+        # Process current question and answer
+        question = dialog_turn.get('question', '')
+        answer = dialog_turn.get('answer', '')
+        
+        # Create dialog context by combining history, first instruction, and current question
+        dialog_ctx = []
+        if first_instruction:
+            dialog_ctx.append(f"First Instruction: {first_instruction}")
+        
+        for hist in dialog_history:
+            dialog_ctx.append(hist)
+            
+        if question:
+            dialog_ctx.append(f"Question: {question}")
+            
+        # Combine dialog context
+        dialog_context = " ".join(dialog_ctx)
+        
+        # Tokenize input and answer
+        if self.tokenizer:
+            max_length = self.config.data.max_seq_length if self.config else 512
+            
+            result['tokenized_input'] = self.tokenizer(
+                dialog_context, 
+                max_length=max_length,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt"
+            )
+            
+            result['tokenized_answer'] = self.tokenizer(
+                answer,
+                max_length=max_length,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt"
+            )
+        
+        # Store raw text for reference
+        result['dialog_context'] = dialog_context
+        result['question'] = question
+        result['answer'] = answer
+        
+        # Process contrastive samples if present
+        if "contrastive_samples" in dialog_turn or "complexity_metadata" in dialog_turn:
+            result['contrastive_data'] = self.process_contrastive_samples(
+                dialog_turn,
+                max_length=self.config.data.max_seq_length if self.config else 512
+            )
+        
+        return result
 
     def preprocess_all_data(self, data_path: str, image_dir: str, 
                            output_size: Tuple[int, int] = (224, 224), 
@@ -436,7 +531,7 @@ class AnsweringAgentNormalizer:
         # Process each turn
         for idx, turn in enumerate(flattened_turns):
             try:
-                processed_data = self.process_turn(
+                processed_data = self.process_dialog_turn(
                     turn,
                     image_dir,
                     output_size=output_size,

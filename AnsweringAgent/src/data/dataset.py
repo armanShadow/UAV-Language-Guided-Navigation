@@ -8,6 +8,7 @@ from config import Config
 import pickle
 import math
 import traceback
+import random
 
 # Set tokenizer parallelism environment variable
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -196,12 +197,13 @@ class AnsweringDataset(Dataset):
                 - current_view_image: Current view image tensor
                 - previous_views_image: Previous views image tensor (if available)
                 - text_label: Tokenized answer label
+                - positive_example: Tokenized positive contrastive example (if available)
+                - negative_example: Tokenized negative contrastive example (if available)
         """
         # Get the preprocessed data item
         item = self.data_items[idx]
         
         # Get pre-tokenized text data
-        #TODO: Move this to the normalizer
         tokenized_text = {
             'input_ids': item['tokenized_input']['input_ids'].squeeze(0),
             'attention_mask': item['tokenized_input']['attention_mask'].squeeze(0)
@@ -225,7 +227,6 @@ class AnsweringDataset(Dataset):
                 previous_views.append(img)
         
         # Handle case where previous_views is empty 
-        #TODO: Move this to the normalizer
         if len(previous_views) == 0:
             # Instead of zeros, replicate the current view for all previous views
             default_views = torch.stack([current_view] * self.max_prev_views, dim=0)
@@ -240,6 +241,10 @@ class AnsweringDataset(Dataset):
             if 'destination_image' in item:
                 result['destination_image'] = item['destination_image']
 
+            # Add contrastive examples if available
+            if 'contrastive_data' in item:
+                self._add_contrastive_examples(item['contrastive_data'], result)
+
             return result   
         
         # Pad or truncate to max_previous_views
@@ -247,26 +252,69 @@ class AnsweringDataset(Dataset):
             previous_views = previous_views[:self.max_prev_views]
         elif len(previous_views) < self.max_prev_views:
             # Instead of zero padding, replicate the current view for padding
-            padding = [current_view.clone() 
-                      for _ in range(self.max_prev_views - len(previous_views))]
+            padding = [current_view.clone() for _ in range(self.max_prev_views - len(previous_views))]
             previous_views.extend(padding)
+            
+        # Stack the views into a single tensor
+        previous_views_tensor = torch.stack(previous_views, dim=0)
         
-        # Stack correctly along a new dimension - will be [num_views, C, H, W]
-        previous_views = torch.stack(previous_views, dim=0)
-        
-        # Include destination if available (for curriculum learning)
+        # Build result dictionary
         result = {
             'text_input': tokenized_text,
             'text_label': tokenized_answer,
             'current_view_image': current_view,
-            'previous_views_image': previous_views,
+            'previous_views_image': previous_views_tensor,
         }
         
-        # Add destination if available (important for curriculum learning)
+        # Add destination image if available
         if 'destination_image' in item:
             result['destination_image'] = item['destination_image']
             
+        # Add contrastive examples if available
+        if 'contrastive_data' in item:
+            self._add_contrastive_examples(item['contrastive_data'], result)
+            
         return result
+        
+    def _add_contrastive_examples(self, contrastive_data: Dict[str, Any], result: Dict[str, Any]) -> None:
+        """
+        Add contrastive examples to the result dictionary.
+        
+        Args:
+            contrastive_data: Dictionary containing contrastive samples
+            result: Result dictionary to update with contrastive examples
+        """
+        # Add positive examples
+        if 'positive_examples' in contrastive_data and contrastive_data['positive_examples']:
+            # Select one random positive example
+            pos_examples = contrastive_data['positive_examples']
+            pos_idx = random.randint(0, len(pos_examples) - 1)
+            pos_example = pos_examples[pos_idx]
+            
+            result['positive_example'] = {
+                'input_ids': pos_example['tokenized']['input_ids'].squeeze(0),
+                'attention_mask': pos_example['tokenized']['attention_mask'].squeeze(0),
+                'similarity': pos_example['similarity'],
+                'type': pos_example['type']
+            }
+        
+        # Add negative examples
+        if 'negative_examples' in contrastive_data and contrastive_data['negative_examples']:
+            # Select one random negative example
+            neg_examples = contrastive_data['negative_examples']
+            neg_idx = random.randint(0, len(neg_examples) - 1)
+            neg_example = neg_examples[neg_idx]
+            
+            result['negative_example'] = {
+                'input_ids': neg_example['tokenized']['input_ids'].squeeze(0),
+                'attention_mask': neg_example['tokenized']['attention_mask'].squeeze(0),
+                'similarity': neg_example['similarity'],
+                'type': neg_example['type']
+            }
+        
+        # Add complexity metadata if available
+        if 'complexity_metadata' in contrastive_data:
+            result['complexity_metadata'] = contrastive_data['complexity_metadata']
     
     @staticmethod
     def create_datasets(config: Config, logger=None, splits=['train', 'val_seen', 'val_unseen'], exhuastive_loading=False, tokenizer=None):

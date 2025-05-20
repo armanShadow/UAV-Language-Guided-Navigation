@@ -278,251 +278,204 @@ class AnsweringAgent(nn.Module):
     
     def forward(self, text_input: dict, current_view: torch.Tensor, 
                 previous_views: torch.Tensor, labels: torch.Tensor = None, generate: bool = False,
-                destination_view: Optional[torch.Tensor] = None, curriculum_ratio: float = 0.0) -> Dict:
+                destination_view: Optional[torch.Tensor] = None, curriculum_ratio: float = 0.0,
+                positive_input: Optional[dict] = None, negative_input: Optional[dict] = None) -> Dict:
         """
-        Forward pass of the answering agent.
+        Forward pass of the model.
         
         Args:
-            text_input: Dictionary with input_ids and attention_mask
-            current_view: Current visual input [batch_size, channels, height, width]
-            previous_views: Previous visual inputs [batch_size, num_prev, channels, height, width]
-            labels: Target token IDs for training/validation [batch_size, seq_len]
-            generate: Whether to generate output text (inference mode)
-            destination_view: Optional destination view for curriculum learning [batch_size, channels, height, width]
-            curriculum_ratio: The ratio (0-1) of destination view information to use (0=none, 1=full)
+            text_input (dict): Tokenized input with keys 'input_ids' and 'attention_mask'
+            current_view (torch.Tensor): Current view image tensor [batch_size, 3, H, W]
+            previous_views (torch.Tensor): Previous views tensor [batch_size, max_prev, 3, H, W]
+            labels (torch.Tensor, optional): Target labels for generation/loss calculation
+            generate (bool): Whether to generate text instead of calculating loss
+            destination_view (torch.Tensor, optional): Destination view for curriculum learning
+            curriculum_ratio (float): Ratio for curriculum learning (0-1)
+            positive_input (dict, optional): Positive example for contrastive learning
+            negative_input (dict, optional): Negative example for contrastive learning
             
         Returns:
-            Dictionary with logits, feature_norm and destination_loss (when applicable) for training or validation
+            Dict containing model outputs, including:
+                - logits: Output logits
+                - encoder_last_hidden_state: Encoder hidden states
+                - visual_context: Visual context
+                - adapted_features: Adapted features for contrastive learning
         """
-        # Extract needed inputs
-        input_ids = text_input['input_ids']
-        attention_mask = text_input.get('attention_mask', None)
-
         batch_size = current_view.size(0)
+        device = current_view.device
         
-        # Extract current view features using the dedicated method
-        current_features = self.feature_extractor.extract_single_view_features(current_view)
-        if torch.isnan(current_features).any():
-            nan_percentage = torch.isnan(current_features).float().mean().item() * 100
-            self.logger.warning(f"NaN detected in current_features! - {nan_percentage:.2f}% of values are NaN")
+        # --- Visual Processing ---
+        # Extract visual features from current view
+        # Extract visual features
+        if hasattr(self, 'feature_extractor'):
+            current_features = self.feature_extractor(current_view)
+        else:
+            # Handle cases where we might load a checkpoint with different architecture
+            self.logger.warning("Feature extractor not found, returning zero features")
+            current_features = torch.zeros(batch_size, self.config.model.hidden_size, 
+                                        device=device)
+        
+        # Process previous views if available
+        if previous_views.size(0) > 0:
+            # Extract features for each previous view
+            num_prev = min(previous_views.size(1), self.config.data.max_previous_views)
+            prev_features_list = []
             
-            # If more than 50% of values are NaN, this is a serious issue
-            if nan_percentage > 50:
-                self.logger.error("More than 50% of current_features are NaN - training may be unstable")
+            # Reshape to process each view separately
+            views_to_process = previous_views[:, :num_prev].contiguous()
+            views_flat = views_to_process.view(-1, *views_to_process.shape[2:])
             
-            # Instead of simply replacing with zeros, which can lead to gradient issues,
-            # we can use a small random value within the feature's existing range
-            # This might help prevent the network from getting stuck in bad local minima
-            with torch.no_grad():
-                # Calculate valid statistics
-                valid_features = current_features[~torch.isnan(current_features)]
-                if len(valid_features) > 0:
-                    mean_val = valid_features.mean().item()
-                    std_val = valid_features.std().item()
-                    # Replace NaNs with small random noise around the mean
-                    mask = torch.isnan(current_features)
-                    current_features[mask] = mean_val + torch.randn_like(current_features[mask]) * std_val * 0.1
-                else:
-                    # If all values are NaN, use a small random initialization
-                    current_features = torch.randn_like(current_features) * 0.01
-        
-        # Extract previous view features
-        prev_features = []
-        prev_views_count = previous_views.size(1)
-        
-        # Process each previous view separately
-        for i in range(prev_views_count):
-            prev_view = previous_views[:, i]
-            prev_feat = self.feature_extractor.extract_single_view_features(prev_view)
-            prev_features.append(prev_feat)
-        
-        # Stack previous features [batch_size, num_prev, hidden_size]
-        prev_features = torch.stack(prev_features, dim=1)
+            # Process all views at once for efficiency
+            all_prev_features = self.feature_extractor(views_flat)
+            
+            # Reshape back to [batch, num_prev, hidden]
+            prev_features = all_prev_features.view(batch_size, num_prev, -1)
+        else:
+            # Default to empty tensor if no previous views
+            prev_features = torch.zeros(batch_size, 1, self.config.model.hidden_size,
+                                      device=device)
 
-        if torch.isnan(prev_features).any():
-            nan_percentage = torch.isnan(prev_features).float().mean().item() * 100
-            self.logger.warning(f"NaN detected in prev_features! - {nan_percentage:.2f}% of values are NaN")
-            
-            # Similar approach as with current_features
-            with torch.no_grad():
-                valid_features = prev_features[~torch.isnan(prev_features)]
-                if len(valid_features) > 0:
-                    mean_val = valid_features.mean().item()
-                    std_val = valid_features.std().item()
-                    mask = torch.isnan(prev_features)
-                    prev_features[mask] = mean_val + torch.randn_like(prev_features[mask]) * std_val * 0.1
-                else:
-                    prev_features = torch.randn_like(prev_features) * 0.01
-        
-        # Now apply our specialized temporal observation encoder
+        # Apply temporal encoding to incorporate previous views
         visual_context = self.temporal_encoder(current_features, prev_features)
-
-        # Process destination features if available for curriculum learning
-        destination_features = None
-        if destination_view is not None:
-            # Extract destination features
-            with torch.no_grad():
-                destination_features = self.feature_extractor.extract_single_view_features(destination_view)
-            # Apply curriculum learning - mix current visual context with destination features
-            visual_context = (1 - curriculum_ratio) * visual_context + curriculum_ratio * destination_features
-
-        if torch.isnan(visual_context).any():
-            nan_percentage = torch.isnan(visual_context).float().mean().item() * 100
-            self.logger.warning(f"NaN detected in visual_context! - {nan_percentage:.2f}% of values are NaN")
+        
+        # Process destination image if provided (for curriculum learning)
+        dest_features = None
+        if destination_view is not None and curriculum_ratio > 0:
+            dest_features = self.feature_extractor(destination_view)
             
-            # If NaNs appear after the temporal encoder, we should fall back to the input
-            # This maintains the computational graph while avoiding NaN propagation
-            if nan_percentage > 50:
-                self.logger.error("Severe NaN issue in visual_context - using current_features as fallback")
-                visual_context = current_features  # Use the input as fallback
-            else:
-                # Replace only the NaN values with corresponding values from current_features
-                mask = torch.isnan(visual_context)
-                visual_context[mask] = current_features[mask]
-
-        visual_context = self.visual_context_projection(visual_context)
-        visual_context = visual_context.view(batch_size, self.config.model.num_visual_tokens, self.config.model.hidden_size)
+            # Use linear interpolation for curriculum learning
+            # As training progresses, curriculum_ratio decreases
+            # - Early training: rely more on destination (oracle)
+            # - Later training: rely more on visual context (learned)
+            visual_context = (
+                curriculum_ratio * dest_features + 
+                (1 - curriculum_ratio) * visual_context
+            )
         
-        # Normalize feature vectors to control their magnitude
-        # Apply normalization along the feature dimension with a fixed scale factor
-        scale_factor = 1.0
-        visual_context = F.normalize(visual_context, p=2, dim=-1) * scale_factor
-
-        if torch.isnan(visual_context).any():
-            self.logger.warning(f"NaN detected in projected visual_context!")
-            # After projection, we should handle NaNs carefully to maintain gradient flow
-            with torch.no_grad():
-                mask = torch.isnan(visual_context)
-                # Replace with small random values to maintain gradient flow
-                visual_context[mask] = torch.randn_like(visual_context[mask]) * 0.01
-        
-        # Check if any sequence has all masks set to 0 (completely masked)
-        if attention_mask is not None and (attention_mask.sum(dim=1) == 0).any():
-            self.logger.warning("Some sequences have all positions masked!")
-
+        # --- Text Processing ---
+        # Get T5 encoder outputs for the input text
         encoder_outputs = self.t5_model.encoder(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
+            input_ids=text_input["input_ids"],
+            attention_mask=text_input["attention_mask"],
             return_dict=True
         )
-
-        text_features = encoder_outputs.last_hidden_state
-
-        if torch.isnan(text_features).any():
-            nan_percentage = torch.isnan(text_features).float().mean().item() * 100
-            self.logger.warning(f"NaN detected in T5 text_features! - {nan_percentage:.2f}% of values are NaN")
-            
-            # T5 encoder outputs should not have NaNs; this indicates a serious issue
-            if nan_percentage > 10:
-                self.logger.error("Significant NaNs in T5 encoder output - model stability is compromised")
-                
-            # For T5 outputs, since we're not training the T5 model, we can safely replace with zeros
-            # without affecting the training dynamics of our trainable components
-            mask = torch.isnan(text_features)
-            text_features[mask] = 0.0
         
-        # Apply cross-modal fusion
+        # --- Cross-Modal Fusion ---
+        # Visual tokens need to be the same dimension as T5's hidden states
+        # Project visual context to create multiple visual tokens
+        visual_ctx_expanded = self.visual_context_projection(visual_context)
+        visual_ctx_expanded = visual_ctx_expanded.view(
+            batch_size, 
+            self.config.model.num_visual_tokens, 
+            self.config.model.hidden_size
+        )
+        
+        # Get text features from encoder
+        text_features = encoder_outputs.last_hidden_state
+        
+        # Apply cross-modal fusion between text and visual features
         fused_features = self.fusion_module(
             text_features=text_features,
-            visual_features=visual_context,
-            text_mask=attention_mask
+            visual_features=visual_ctx_expanded,
+            text_mask=text_input["attention_mask"]
         )
-
-        if torch.isnan(fused_features).any():
-            nan_percentage = torch.isnan(fused_features).float().mean().item() * 100
-            self.logger.warning(f"NaN detected in fused_features! - {nan_percentage:.2f}% of values are NaN")
-            
-            # If fusion fails, fall back to text features
-            if nan_percentage > 30:
-                self.logger.error("Severe NaN issue in fusion - using text_features as fallback")
-                fused_features = text_features  # Use text features as fallback
-            else:
-                # Replace NaN values with corresponding values from text_features
-                mask = torch.isnan(fused_features)
-                fused_features[mask] = text_features[mask]
         
-        # Apply the adapter to bridge the gap between our features and what T5 expects
-        adapted_features = self.t5_adapter(fused_features)
-
-        pooled_adapted_features = adapted_features.mean(dim=1) # [batch_size, hidden_size]
-        reconstructed_destination_features = self.destination_reconstruction_head(pooled_adapted_features)
-        reconstructed_visual_features = self.visual_reconstruction_head(pooled_adapted_features)
+        # Adapt the fused features to work with T5 decoder
+        encoder_hidden_states = self.t5_adapter(fused_features)
         
-        # Check for NaNs in adapted features
-        if torch.isnan(adapted_features).any():
-            nan_percentage = torch.isnan(adapted_features).float().mean().item() * 100
-            self.logger.warning(f"NaN detected in adapted_features - {nan_percentage:.2f}% of values are NaN")
-            
-            # For the final output to T5, we need to ensure no NaNs
-            if nan_percentage > 20:
-                self.logger.error("Severe NaN issue in adapter output - using fused_features as fallback")
-                # Use fused features as fallback for stability
-                adapted_features = fused_features
-            else:
-                # Replace only NaN values
-                mask = torch.isnan(adapted_features)
-                adapted_features[mask] = fused_features[mask]
+        # --- Create reconstruction targets for additional training signal ---
+        visual_context_target = visual_context.detach()  # Stop gradients
+        reconstructed_visual_features = self.visual_reconstruction_head(encoder_hidden_states.mean(dim=1))
         
-        # Calculate feature norm for regularization (detach to prevent memory leak)
-        feature_norm = adapted_features.norm(2).detach()
-        
-        # During training mode, return logits for loss calculation in training loop
-        if not generate:
-            # Note: Don't use torch.no_grad() here as we need gradients for backward
-            # T5 parameters are already frozen in _freeze_t5_parameters method
-            
-            # Check if labels contain NaN values
-            if labels is not None and torch.isnan(labels).any():
-                self.logger.warning("NaN detected in labels!")
-                # NaN in labels is invalid - must replace with a valid token ID
-                # Use pad token for missing values as it's semantically appropriate
-                labels = torch.nan_to_num(labels, nan=self.tokenizer.pad_token_id)
-                
-            outputs = self.t5_model(
-                input_ids=None,
-                attention_mask=attention_mask,
-                encoder_outputs=(adapted_features,),
-                labels=labels,
-                return_dict=True,
-                output_hidden_states=True
+        # Create reconstruction target for destination if available
+        reconstructed_destination_features = None
+        if dest_features is not None:
+            dest_features_detached = dest_features.detach()  # Stop gradients
+            reconstructed_destination_features = self.destination_reconstruction_head(
+                encoder_hidden_states.mean(dim=1)
             )
-                
-            # Return logits for external loss calculation
-            result = {
-                "logits": outputs.logits,
-                "feature_norm": feature_norm,
-                "adapted_features": adapted_features.mean(dim=1),
-                "hidden_states": outputs.decoder_hidden_states[-1],
-                "reconstructed_destination_features": reconstructed_destination_features,
+
+        # --- Decoder Processing ---
+        # Calculate logits or generate text
+        if not generate:
+            # Training or validation mode
+            
+            # Get decoder outputs
+            decoder_outputs = self.t5_model.decoder(
+                input_ids=labels,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=text_input["attention_mask"],
+                return_dict=True
+            )
+            
+            # Get logits for token prediction
+            logits = self.t5_model.lm_head(decoder_outputs.last_hidden_state)
+            
+            # Create output dictionary
+            outputs = {
+                "logits": logits,
+                "encoder_last_hidden_state": encoder_hidden_states,
+                "visual_context": visual_context,
+                "visual_context_target": visual_context_target,
                 "reconstructed_visual_features": reconstructed_visual_features,
-                "visual_context_target": visual_context.mean(dim=1)
+                "adapted_features": encoder_hidden_states.mean(dim=1),
+                "feature_norm": visual_context.norm(p=2, dim=1).mean()
             }
             
-            # Include destination features if available for external loss calculation
-            if destination_features is not None:
-                result["destination_features"] = destination_features
-            
-            return result
-        
-        # Inference mode
-        else:
-            # Generate output sequence
-            with torch.no_grad():  # Don't train the T5 model during generation
-                outputs = self.t5_model.generate(
-                    encoder_outputs=BaseModelOutput(
-                        last_hidden_state=adapted_features,
-                    ),
-                    attention_mask=attention_mask,
-                    max_length=self.config.model.max_answer_length,
-                    num_beams=4,  # Use beam search for better quality
-                    early_stopping=True,
-                    return_dict_in_generate=True,
-                    output_scores=True
+            if dest_features is not None:
+                outputs["reconstructed_destination_features"] = reconstructed_destination_features
+                
+            # --- Process positive examples for contrastive learning ---
+            if positive_input is not None:
+                positive_encoder_outputs = self.t5_model.encoder(
+                    input_ids=positive_input["input_ids"],
+                    attention_mask=positive_input["attention_mask"],
+                    return_dict=True
                 )
-            
+                
+                # Apply fusion with the same visual context
+                positive_fused = self.fusion_module(
+                    text_features=positive_encoder_outputs.last_hidden_state,
+                    visual_features=visual_ctx_expanded,
+                    text_mask=positive_input["attention_mask"]
+                )
+                
+                # Adapt the fused features
+                positive_adapted = self.t5_adapter(positive_fused)
+                
+                # Add to outputs
+                outputs["positive_encoder_hidden_state"] = positive_adapted
+                outputs["positive_adapted_features"] = positive_adapted.mean(dim=1)
+                
+            # --- Process negative examples for contrastive learning ---
+            if negative_input is not None:
+                negative_encoder_outputs = self.t5_model.encoder(
+                    input_ids=negative_input["input_ids"],
+                    attention_mask=negative_input["attention_mask"],
+                    return_dict=True
+                )
+                
+                # Apply fusion with the same visual context
+                negative_fused = self.fusion_module(
+                    text_features=negative_encoder_outputs.last_hidden_state,
+                    visual_features=visual_ctx_expanded,
+                    text_mask=negative_input["attention_mask"]
+                )
+                
+                # Adapt the fused features
+                negative_adapted = self.t5_adapter(negative_fused)
+                
+                # Add to outputs
+                outputs["negative_encoder_hidden_state"] = negative_adapted
+                outputs["negative_adapted_features"] = negative_adapted.mean(dim=1)
+                
+            return outputs
+        else:
+            # Generation mode
+            # Return encoder outputs for use with generate_answer
             return {
-                "sequences": outputs.sequences,
-                "scores": outputs.scores if hasattr(outputs, "scores") else None
+                "encoder_hidden_states": encoder_hidden_states,
+                "encoder_attention_mask": text_input["attention_mask"]
             }
     
             

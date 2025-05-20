@@ -27,6 +27,7 @@ import threading
 import math  # Add math import for cosine decay function
 from transformers import T5Tokenizer
 import torch.nn.functional as F
+from models.contrastive_loss import ContrastiveLoss
 
 # Enable Python fault handler for segfaults
 faulthandler.enable()
@@ -173,38 +174,6 @@ def calculate_cosine_similarity_loss(first_features, second_features):
     cosine_loss = 1 - F.cosine_similarity(first_features_norm, second_features_norm).mean()
     return cosine_loss
 
-def calculate_embedings_cosine_similarity_loss(labels_flat, mask_flat, decoder_hidden_states, model, device):
-    cosine_sim_loss = torch.tensor(0.0, device=device)                                          
-    # Calculate cosine similarity between decoder hidden states and labels
-    # Get decoder hidden states [batch_size, seq_len, hidden_dim
-    # Use label attention mask directly from batch
-    # Reshape all to 2D tensors for easier processing
-    decoder_hidden_flat = decoder_hidden_states.reshape(-1, decoder_hidden_states.size(-1))
-    
-    # Only compute similarity on non-padded tokens (where mask is 1)
-    valid_positions = mask_flat.bool()
-    if valid_positions.sum() > 0:  # Check that we have at least one valid position
-        valid_hidden = decoder_hidden_flat[valid_positions]
-        valid_labels = labels_flat[valid_positions]
-        
-        # Normalize the hidden states
-        valid_hidden_norm = F.normalize(valid_hidden, p=2, dim=1)
-        
-        with torch.no_grad():
-            model_to_use = model.module if hasattr(model, 'module') else model
-            embedding_layer = model_to_use.t5_model.decoder.embed_tokens
-            label_embeddings = embedding_layer(valid_labels)
-
-        label_embeddings = F.normalize(label_embeddings, p=2, dim=1)
-        
-        # Calculate decoder hidden states cosine similarity loss
-        cosine_sim_loss = (1 - F.cosine_similarity(
-            valid_hidden_norm, 
-            label_embeddings
-        )).mean()
-
-    return cosine_sim_loss
-
 def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mask_flat, model, device):
     """
     Calculate sentence-level distribution similarity loss using embeddings.
@@ -284,6 +253,17 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     # Initialize Exponential Moving Average
     ema = EMA(model, decay=0.999)
     
+    # Initialize contrastive loss if enabled
+    contrastive_loss_fn = None
+    if config.training.use_contrastive_learning:
+        contrastive_loss_fn = ContrastiveLoss(
+            margin=config.training.contrastive_margin,
+            temperature=config.training.contrastive_temperature,
+            loss_type=config.training.contrastive_loss_type
+        )
+        if rank == 0:
+            logger.info(f"Contrastive learning enabled with {config.training.contrastive_loss_type} loss")
+    
     # Clear cache once at beginning rather than every iteration
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -338,6 +318,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             total_destination_loss = 0
             total_visual_reconstruction_loss = 0
             total_destination_reconstruction_loss = 0
+            total_contrastive_loss = 0  # Track contrastive loss
             optimizer.zero_grad(set_to_none=True)
 
             epoch_start_time = time.time()
@@ -356,13 +337,26 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Handle text_label as a dictionary with input_ids and attention_mask
                     label_input_ids = batch['text_label']['input_ids'].to(device, non_blocking=True)
                     label_attention_mask = batch['text_label']['attention_mask'].to(device, non_blocking=True)
+                    
                     # Set up destination view if available in batch and curriculum is active
-                    destination_view = batch['destination_image'].to(device, non_blocking=True)
+                    destination_view = batch['destination_image'].to(device, non_blocking=True) if 'destination_image' in batch else None
                     
                     # Calculate curriculum learning ratio based on epochs
                     # Start with high ratio (rely more on destination) and gradually reduce to 0
                     max_curriculum_epochs = config.training.curriculum_epochs
                     curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs))
+                    
+                    # Prepare contrastive examples if enabled
+                    positive_input = None
+                    negative_input = None
+                    if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
+                        if 'positive_example' in batch:
+                            positive_input = {k: v.to(device, non_blocking=True) for k, v in batch['positive_example'].items()
+                                            if k in ['input_ids', 'attention_mask']}
+                        
+                        if 'negative_example' in batch:
+                            negative_input = {k: v.to(device, non_blocking=True) for k, v in batch['negative_example'].items()
+                                            if k in ['input_ids', 'attention_mask']}
                     
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast(enabled=use_amp):
@@ -372,7 +366,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             previous_views, 
                             labels=label_input_ids,
                             destination_view=destination_view,
-                            curriculum_ratio=curriculum_ratio
+                            curriculum_ratio=curriculum_ratio,
+                            positive_input=positive_input,
+                            negative_input=negative_input
                         )
                         
                         logits = outputs["logits"]
@@ -399,169 +395,187 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Add feature regularization with weight 0.0001
                         reg_loss = 0.0001 * feature_norm
                         loss = ce_loss_weight * ce_loss + reg_loss
-
+                        
+                        # Calculate distribution similarity loss
                         distribution_similarity_loss = calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, label_attention_mask.reshape(-1), model, device)
-
-                        # Combine losses with weighting from config
+                        
+                        # Add weighted distribution similarity loss
                         distribution_similarity_weight = get_weight_schedule(config.training.distribution_loss_weight_start, config.training.distribution_loss_weight_end, max_curriculum_epochs)(epoch)
                         loss = loss + distribution_similarity_weight * distribution_similarity_loss
-                            
-                        dest_features = outputs["destination_features"]
                         
+                        # Add destination loss if destination view is available
                         destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
+                        
                         destination_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
                         loss = loss + destination_weight * destination_cosine_loss
-
-                        #calculate visual reconstruction loss
+                        
+                        # Add reconstruction losses
                         visual_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_visual_features"], outputs["visual_context_target"])
                         destination_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_destination_features"], dest_features)
                         
-                        # Base reconstruction weight from config
+                        # Calculate the weight for reconstruction loss
                         reconstruction_weight = get_weight_schedule(config.training.reconstruction_weight_start, config.training.reconstruction_weight_end, max_curriculum_epochs)(epoch)
                         
-                        # Apply the weighted reconstruction losses
+                        # Add weighted reconstruction loss
                         loss = loss + reconstruction_weight * (visual_reconstruction_loss + destination_reconstruction_loss)
                         
-                        if torch.isnan(loss):
-                            logger.error(f"[NaN Detected] NaN in loss before backward on rank {rank}, epoch {epoch}, batch {batch_idx}")
-                            logger.error(f"Loss value: nan")
-                            continue
-                        
-                        # Scale loss by gradient accumulation steps
-                        loss = loss / config.training.gradient_accumulation_steps
-
-                    # Backward pass with gradient scaling
-                    scaler.scale(loss).backward()
+                        # Calculate contrastive loss if enabled
+                        contrastive_loss = torch.tensor(0.0, device=device)
+                        if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
+                            if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
+                                # Extract embeddings for contrastive loss
+                                anchor_emb = outputs['adapted_features']
+                                positive_emb = outputs['positive_adapted_features']
+                                negative_emb = outputs['negative_adapted_features']
+                                
+                                # Calculate contrastive loss
+                                contrastive_loss = contrastive_loss_fn(anchor_emb, positive_emb, negative_emb)
+                                
+                                # Add weighted contrastive loss to total loss
+                                contrastive_weight = get_weight_schedule(
+                                    config.training.contrastive_weight_start,
+                                    config.training.contrastive_weight_end,
+                                    max_curriculum_epochs
+                                )(epoch)
+                                loss = loss + contrastive_weight * contrastive_loss
+                                total_contrastive_loss += contrastive_loss.item()
+                
+                    # Apply gradient accumulation: normalize loss
+                    loss = loss / config.training.gradient_accumulation_steps
                     
-                    # Check for NaNs in gradients right after backward
-                    for name, param in model.named_parameters():
-                        if param.grad is not None and torch.isnan(param.grad).any():
-                            logger.error(f"[NaN Gradient] NaN detected in gradient for {name} on rank {rank}, batch {batch_idx}")
-                            break
-        
-                    # Update weights if we've accumulated enough gradients
-                    if (batch_idx + 1) % config.training.gradient_accumulation_steps == 0:
-                        # Synchronize gradients across processes in distributed mode
-                        if is_distributed and dist.is_initialized():
-                            # Use bucket view approach for more efficient all-reduce
-                            all_reduce_bucketed(gradient_buckets, dist.get_world_size())
-
-                        # Unscale gradients for clipping
-                        scaler.unscale_(optimizer)
-
-                        for name, param in model.named_parameters():
-                            if param.grad is not None and torch.isnan(param.grad).any():
-                                logger.error(f"[NaN Gradient] NaN detected in gradient for {name} on rank {rank}, batch {batch_idx}")
-                                break
-                        # Clip gradients
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.gradient_clip)
-                        # Optimizer step with scaling
-                        scaler.step(optimizer)
-                        scaler.update()
-                        # Step the scheduler after each update
-                        scheduler.step()
-                        # Update EMA weights
-                        ema.update()
-                        optimizer.zero_grad(set_to_none=True)
-
-                    total_loss += loss.item() * config.training.gradient_accumulation_steps
+                    # Accumulate statistics
                     total_ce_loss += ce_loss.item()
                     total_distribution_similarity_loss += distribution_similarity_loss.item()
                     total_destination_loss += destination_cosine_loss.item()
                     total_visual_reconstruction_loss += visual_reconstruction_loss.item()
                     total_destination_reconstruction_loss += destination_reconstruction_loss.item()
-                
-                    # Log at specified frequency
-                    if batch_idx % log_frequency == 0 and rank == 0:
-                        avg_loss = total_loss / (batch_idx + 1)
-                        # Calculate throughput
-                        elapsed = time.time() - epoch_start_time
-                        batch_size = train_loader.batch_size
-                        if is_distributed and dist.is_initialized():
-                            samples_processed = (batch_idx + 1) * batch_size * dist.get_world_size()
-                        else:
-                            samples_processed = (batch_idx + 1) * batch_size
-                        throughput = samples_processed / elapsed
+                    
+                    # Backpropagation with mixed precision
+                    scaler.scale(loss).backward()
+                    
+                    # Gradient accumulation
+                    if ((batch_idx + 1) % config.training.gradient_accumulation_steps == 0) or (batch_idx + 1 == len(train_loader)):
+                        # Unscale gradients to apply custom gradient operations (like clipping)
+                        scaler.unscale_(optimizer)
                         
-                        memory_stats = log_gpu_memory()
-                        logger.info(f'Memory: {memory_stats}')
-                        logger.info(f'Epoch: {epoch + 1}/{num_epochs}, Batch: {batch_idx}/{len(train_loader)}, '
-                                   f'Loss: {avg_loss:.4f}, Throughput: {throughput:.2f} samples/sec')
-
-                    # Free variables but don't empty cache every iteration - too expensive
-                    del text_input, current_view, previous_views, outputs, logits_reshaped, labels_reshaped
-                    # Force garbage collection after every batch for debugging
-                    gc.collect()
+                        # Add gradient clipping
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.gradient_clip)
+                        
+                        # Update parameters with scaler aware step
+                        scaler.step(optimizer)
+                        scaler.update()
+                        optimizer.zero_grad(set_to_none=True)
+                        
+                        # Update EMA
+                        ema.update()
                     
-                    # Clear CUDA cache more frequently when debugging memory issues
-                    if batch_idx % 5 == 0 and torch.cuda.is_available():
-                        torch.cuda.empty_cache()
+                    total_loss += loss.item() * config.training.gradient_accumulation_steps
                     
+                    # Only have rank 0 log progress
+                    if rank == 0 and batch_idx % log_frequency == 0:
+                        avg_loss = total_loss / (batch_idx + 1)
+                        logger.info(f"Epoch {epoch+1}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | "
+                                  f"Loss: {avg_loss:.4f} | CE: {total_ce_loss/(batch_idx+1):.4f} | "
+                                  f"Dist: {total_distribution_similarity_loss/(batch_idx+1):.4f}")
+                        
+                        # Log GPU memory usage
+                        if torch.cuda.is_available():
+                            logger.info(f"GPU Memory: {log_gpu_memory()}")
+                
                 except Exception as e:
-                    TRAINING_FAILED = True
-                    logger.error(f"Critical error in training batch {batch_idx}: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    raise e
-
-            # Synchronize loss across processes in distributed mode
-            if is_distributed and dist.is_initialized():
+                    # Log and continue in case of batch failure
+                    if rank == 0:
+                        logger.error(f"Error in batch {batch_idx}: {str(e)}")
+                        logger.error(traceback.format_exc())
+                    
+                    # Zero out gradients to avoid accumulation
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
+            
+            # Calculate average losses across distributed processes
+            if is_distributed:
+                # Gather losses from all processes
+                world_size = dist.get_world_size()
+                
                 loss_tensor = torch.tensor(total_loss, device=device)
-                total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)   
+                total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)
                 total_distribution_similarity_loss_tensor = torch.tensor(total_distribution_similarity_loss, device=device)
                 total_destination_loss_tensor = torch.tensor(total_destination_loss, device=device)
                 total_visual_reconstruction_loss_tensor = torch.tensor(total_visual_reconstruction_loss, device=device)
                 total_destination_reconstruction_loss_tensor = torch.tensor(total_destination_reconstruction_loss, device=device)
+                total_contrastive_loss_tensor = torch.tensor(total_contrastive_loss, device=device)
+                
+                # All-reduce to sum losses across processes
                 dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_ce_loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_distribution_similarity_loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_destination_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_visual_reconstruction_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_destination_reconstruction_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_contrastive_loss_tensor, op=dist.ReduceOp.SUM)
+                
+                # Calculate averages
                 total_loss = loss_tensor.item() / dist.get_world_size()
                 total_ce_loss = total_ce_loss_tensor.item() / dist.get_world_size()
                 total_distribution_similarity_loss = total_distribution_similarity_loss_tensor.item() / dist.get_world_size()
                 total_destination_loss = total_destination_loss_tensor.item() / dist.get_world_size()
-                total_visual_reconstruction_loss = total_visual_reconstruction_loss_tensor.item() / dist.get_world_size()   
+                total_visual_reconstruction_loss = total_visual_reconstruction_loss_tensor.item() / dist.get_world_size()
                 total_destination_reconstruction_loss = total_destination_reconstruction_loss_tensor.item() / dist.get_world_size()
-            # Normalize training loss
+                total_contrastive_loss = total_contrastive_loss_tensor.item() / dist.get_world_size()
+            
             avg_epoch_loss = total_loss / len(train_loader)
             avg_ce_loss = total_ce_loss / len(train_loader)
             avg_distribution_similarity_loss = total_distribution_similarity_loss / len(train_loader)
             avg_destination_loss = total_destination_loss / len(train_loader)
             avg_visual_reconstruction_loss = total_visual_reconstruction_loss / len(train_loader)
             avg_destination_reconstruction_loss = total_destination_reconstruction_loss / len(train_loader)
-            epoch_time = time.time() - epoch_start_time
+            avg_contrastive_loss = total_contrastive_loss / len(train_loader)  # Average contrastive loss
             
+            # Log the epoch summary (only rank 0)
             if rank == 0:
-                logger.info(f'Epoch {epoch + 1} completed in {epoch_time:.2f}s. Average loss: {avg_epoch_loss:.4f}, CE loss: {avg_ce_loss:.4f}, Distribution similarity loss: {avg_distribution_similarity_loss:.4f}, Destination loss: {avg_destination_loss:.4f}, Visual reconstruction loss: {avg_visual_reconstruction_loss:.4f}, Destination reconstruction loss: {avg_destination_reconstruction_loss:.4f}')
-
-            # Validation phase - only run periodically to save time
-            if (epoch + 1) % config.training.eval_freq == 0:
+                epoch_time = time.time() - epoch_start_time
+                logger.info(f"Epoch {epoch+1}/{num_epochs} | "
+                          f"Loss: {avg_epoch_loss:.4f} | CE: {avg_ce_loss:.4f} | "
+                          f"Dist: {avg_distribution_similarity_loss:.4f} | Dest: {avg_destination_loss:.4f} | "
+                          f"VRecon: {avg_visual_reconstruction_loss:.4f} | "
+                          f"DRecon: {avg_destination_reconstruction_loss:.4f} | " 
+                          f"Contrastive: {avg_contrastive_loss:.4f} | "  # Log contrastive loss
+                          f"Time: {epoch_time:.1f}s")
+            
+            # Validation step
+            val_loss = 0
+            
+            if (epoch + 1) % config.training.eval_freq == 0 or epoch == num_epochs - 1:
                 model.eval()
-                val_loss = 0
-                if rank == 0:
-                    logger.info("Starting validation...")
                 
-                # Apply EMA weights for validation
+                # Apply EMA for validation
                 ema.apply_shadow()
-
+                
                 with torch.no_grad():
                     for batch_idx, batch in enumerate(val_loader):
                         try:
+                            # Load validation data
                             text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
                             current_view = batch['current_view_image'].to(device, non_blocking=True)
                             previous_views = batch['previous_views_image'].to(device, non_blocking=True)
                             
-                            # Handle text_label as a dictionary with input_ids and attention_mask
                             label_input_ids = batch['text_label']['input_ids'].to(device, non_blocking=True)
                             label_attention_mask = batch['text_label']['attention_mask'].to(device, non_blocking=True)
                             
-                            # Calculate curriculum learning ratio based on epochs
-                            max_curriculum_epochs = config.training.curriculum_epochs
-                            curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs))
+                            # Set up destination view if available
+                            destination_view = batch['destination_image'].to(device, non_blocking=True) if 'destination_image' in batch else None
                             
-                            # Set up destination view if available in batch and curriculum is active
-                            destination_view = batch['destination_image'].to(device, non_blocking=True)
-
+                            # Prepare contrastive examples if available
+                            positive_input = None
+                            negative_input = None
+                            if 'positive_example' in batch and 'negative_example' in batch:
+                                positive_input = {k: v.to(device, non_blocking=True) for k, v in batch['positive_example'].items() 
+                                              if k in ['input_ids', 'attention_mask']}
+                                
+                                negative_input = {k: v.to(device, non_blocking=True) for k, v in batch['negative_example'].items()
+                                               if k in ['input_ids', 'attention_mask']}
                             
+                            # Use mixed precision for validation as well for consistent numerical behavior
                             with torch.cuda.amp.autocast(enabled=use_amp):
                                 outputs = model(
                                     text_input, 
@@ -569,135 +583,189 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     previous_views, 
                                     labels=label_input_ids,
                                     destination_view=destination_view,
-                                    curriculum_ratio=curriculum_ratio
+                                    curriculum_ratio=0.0,  # No curriculum during validation
+                                    positive_input=positive_input,
+                                    negative_input=negative_input
                                 )
+                                
                                 logits = outputs["logits"]
                                 batch_size, seq_len, vocab_size = logits.size()
+                                
+                                # Reshape logits and labels
                                 logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
                                 labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
                                 
-                                # Calculate cross-entropy loss
+                                # Calculate validation losses
                                 ce_loss = criterion(logits_reshaped, labels_reshaped)
-                                ce_loss_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
+                                ce_loss_weight = config.training.ce_loss_weight_end  # Use final weight for validation
+                                
                                 loss = ce_loss_weight * ce_loss
                                 
-                                distribution_similarity_loss = calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, label_attention_mask.reshape(-1), model, device)
-                                # Combine losses with weighting from config
-                                distribution_similarity_weight = get_weight_schedule(config.training.distribution_loss_weight_start, config.training.distribution_loss_weight_end, max_curriculum_epochs)(epoch)
+                                # Add distribution similarity loss
+                                distribution_similarity_loss = calculate_distribution_similarity_loss(
+                                    logits_reshaped, labels_reshaped, label_attention_mask.reshape(-1), model, device
+                                )
+                                distribution_similarity_weight = config.training.distribution_loss_weight_end
                                 loss = loss + distribution_similarity_weight * distribution_similarity_loss
                                 
-                                dest_features = outputs["destination_features"]
-                                destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
+                                # Add destination loss if available
+                                if 'destination_image' in batch and dest_features is not None:
+                                    destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
+                                    destination_weight = config.training.destination_loss_weight_end
+                                    loss = loss + destination_weight * destination_cosine_loss
                                 
-                                # Apply destination loss weight
-                                destination_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
-                                loss = loss + destination_weight * destination_cosine_loss
-                                
-                                visual_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_visual_features"], outputs["visual_context_target"])
-                                destination_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_destination_features"], dest_features)
-                                reconstruction_weight = get_weight_schedule(config.training.reconstruction_weight_start, config.training.reconstruction_weight_end, max_curriculum_epochs)(epoch)
-                                
-                                # Apply the weighted reconstruction losses
-                                loss = loss + reconstruction_weight * (
-                                    visual_reconstruction_loss + 
-                                    destination_reconstruction_loss
+                                # Add reconstruction losses
+                                visual_reconstruction_loss = calculate_reconstruction_loss(
+                                    outputs["reconstructed_visual_features"], outputs["visual_context_target"]
+                                )
+                                destination_reconstruction_loss = calculate_reconstruction_loss(
+                                    outputs["reconstructed_destination_features"], dest_features
                                 )
                                 
+                                reconstruction_weight = config.training.reconstruction_weight_end
+                                loss = loss + reconstruction_weight * (
+                                    visual_reconstruction_loss + destination_reconstruction_loss
+                                )
+                                
+                                # Calculate contrastive loss if enabled
+                                if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
+                                    if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
+                                        # Extract embeddings for contrastive loss
+                                        anchor_emb = outputs['adapted_features']
+                                        positive_emb = outputs['positive_adapted_features']
+                                        negative_emb = outputs['negative_adapted_features']
+                                        
+                                        # Calculate contrastive loss
+                                        contrastive_loss = contrastive_loss_fn(anchor_emb, positive_emb, negative_emb)
+                                        
+                                        # Add weighted contrastive loss to total loss
+                                        contrastive_weight = config.training.contrastive_weight_end
+                                        loss = loss + contrastive_weight * contrastive_loss
+                            
                             val_loss += loss.item()
-
                         except Exception as e:
-                            TRAINING_FAILED = True
-                            logger.error(f"Critical error in validation batch {batch_idx}: {str(e)}")
-                            logger.error(traceback.format_exc())
-                            raise e
+                            if rank == 0:
+                                logger.error(f"Error in validation batch {batch_idx}: {str(e)}")
+                                logger.error(traceback.format_exc())
+                            continue
                 
-                # Restore original weights after validation
+                # Restore original weights
                 ema.restore()
-
-                # Synchronize validation loss across processes in distributed mode
-                if is_distributed and dist.is_initialized():
+                
+                # Average validation loss across all processes if distributed
+                if is_distributed:
                     val_loss_tensor = torch.tensor(val_loss, device=device)
                     dist.all_reduce(val_loss_tensor, op=dist.ReduceOp.SUM)
                     val_loss = val_loss_tensor.item() / dist.get_world_size()
-                val_loss /= len(val_loader)
-
+                
+                # Calculate average validation loss
+                val_loss = val_loss / len(val_loader)
+                
                 if rank == 0:
-                    logger.info(f'Validation Loss: {val_loss:.4f}')
+                    logger.info(f"Validation Loss: {val_loss:.4f}")
                     
-                    # Early stopping check
-                    if config.training.early_stopping:
-                        # Compare against best val loss first (for significant improvements)
-                        if val_loss < best_val_loss * (1.0 - config.training.early_stopping_min_delta):
-                            # Validation loss improved significantly compared to best
-                            early_stopping_counter = 0
-                            logger.info(f"Validation loss improved significantly from {best_val_loss:.4f} to {val_loss:.4f}")
-                        elif val_loss < prev_val_loss:
-                            # Not better than best, but better than previous - halve the counter
-                            early_stopping_counter = max(0, early_stopping_counter // 2)
-                            logger.info(f"Validation loss improved from previous ({prev_val_loss:.4f} to {val_loss:.4f}) but not better than best ({best_val_loss:.4f}). Counter reduced to {early_stopping_counter}.")
-                        else:
-                            # Validation loss got worse
-                            early_stopping_counter += 1
-                            logger.info(f"Validation loss did not improve. Counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
-                            
-                            if early_stopping_counter >= config.training.early_stopping_patience:
-                                logger.info(f"Early stopping triggered! No sufficient improvement for {config.training.early_stopping_patience} epochs.")
-                                early_stopping_triggered = True
-
-                    # Save best model
+                    # Check if this is the best model so far
                     if val_loss < best_val_loss:
-                        # Remove previous best model if it exists
-                        if last_best_epoch is not None:
-                            prev_best_model = os.path.join(checkpoint_dir, f'best_model_epoch_{last_best_epoch}.pt')
-                            if os.path.exists(prev_best_model):
-                                try:
-                                    os.remove(prev_best_model)
-                                    logger.info(f"Removed previous best model from epoch {last_best_epoch}")
-                                except Exception as e:
-                                    logger.warning(f"Failed to remove previous best model: {str(e)}")
-
-                        best_val_loss = val_loss
-                        last_best_epoch = epoch + 1
-
-                        # Save model with EMA weights
-                        ema.apply_shadow()  # Apply EMA weights for saving
-                        model_to_save = model.module if hasattr(model, 'module') else model
-                        torch.save({
-                            'model_state_dict': model_to_save.state_dict(),
-                            'epoch': epoch + 1,
-                            'val_loss': val_loss,
+                        improvement = (best_val_loss - val_loss) / best_val_loss * 100
+                        logger.info(f"Validation loss improved by {improvement:.2f}%")
+                        
+                        # Save best model
+                        save_dict = {
+                            'epoch': epoch,
+                            'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
-                            'scheduler_state_dict': scheduler.state_dict(),
-                            'ema': ema.state_dict()
-                        }, os.path.join(checkpoint_dir, f'best_model_epoch_{epoch + 1}.pt'))
-                        ema.restore()  # Restore original weights for training
-                        logger.info(f'New best model saved at epoch {epoch + 1} (val_loss: {val_loss:.4f})')
-
-                # Update previous validation loss for next comparison
-                prev_val_loss = val_loss
+                            'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+                            'ema': ema.state_dict(),
+                            'val_loss': val_loss,
+                            'config': config,
+                        }
+                        
+                        with CHECKPOINT_LOCK:
+                            best_model_path = os.path.join(checkpoint_dir, 'best_model.pth')
+                            torch.save(save_dict, best_model_path)
+                            logger.info(f"Saved best model to {best_model_path}")
+                        
+                        best_val_loss = val_loss
+                        last_best_epoch = epoch
+                        
+                        # Reset early stopping counter on improvement
+                        early_stopping_counter = 0
+                    else:
+                        # Check for early stopping if validation loss doesn't improve
+                        if config.training.early_stopping:
+                            # No improvement in validation loss
+                            delta = (val_loss - prev_val_loss) / prev_val_loss
+                            
+                            if abs(delta) < config.training.early_stopping_min_delta:
+                                early_stopping_counter += 1
+                                logger.info(f"Early stopping counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
+                                
+                                if early_stopping_counter >= config.training.early_stopping_patience:
+                                    logger.info("Early stopping triggered")
+                                    early_stopping_triggered = True
+                            else:
+                                # Reset counter if there's significant change
+                                early_stopping_counter = 0
                     
-                # Save periodic checkpoint
-                if (epoch + 1) % save_frequency == 0 and rank == 0:
-                    model_to_save = model.module if hasattr(model, 'module') else model
-                    torch.save({
-                        'epoch': epoch + 1,
-                        'model_state_dict': model_to_save.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'scheduler_state_dict': scheduler.state_dict(),
-                        'val_loss': val_loss,
-                        'ema': ema.state_dict()
-                    }, os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch + 1}.pt'))
-                    logger.info(f'Checkpoint saved at epoch {epoch + 1}')
-
-                # Clear cache after validation
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
+                    prev_val_loss = val_loss
+            
+            # Save checkpoint at regular intervals (only rank 0)
+            if rank == 0 and (epoch + 1) % save_frequency == 0:
+                save_dict = {
+                    'epoch': epoch,
+                    'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+                    'ema': ema.state_dict(),
+                    'val_loss': val_loss if 'val_loss' in locals() else None,
+                    'config': config,
+                }
+                
+                with CHECKPOINT_LOCK:
+                    checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch+1}.pth')
+                    torch.save(save_dict, checkpoint_path)
+                    logger.info(f"Saved checkpoint to {checkpoint_path}")
+            
+            # Step the scheduler based on validation loss if available
+            if scheduler:
+                if isinstance(scheduler, ReduceLROnPlateau):
+                    # ReduceLROnPlateau needs the validation loss
+                    if 'val_loss' in locals():
+                        scheduler.step(val_loss)
+                else:
+                    scheduler.step()
+        
+        # End of training - save final model
+        if rank == 0:
+            save_dict = {
+                'epoch': num_epochs - 1,
+                'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+                'ema': ema.state_dict(),
+                'val_loss': val_loss if 'val_loss' in locals() else None,
+                'config': config,
+            }
+            
+            with CHECKPOINT_LOCK:
+                final_model_path = os.path.join(checkpoint_dir, 'final_model.pth')
+                torch.save(save_dict, final_model_path)
+                logger.info(f"Saved final model to {final_model_path}")
+            
+            # Print training summary
+            logger.info(f"Training complete. Best validation loss: {best_val_loss:.4f} at epoch {last_best_epoch + 1}")
+                
+        return best_val_loss, last_best_epoch
+        
     except Exception as e:
+        if rank == 0:
+            logger.error(f"Training failed with exception: {str(e)}")
+            logger.error(traceback.format_exc())
+        
         TRAINING_FAILED = True
-        logger.error(f"Fatal error in training loop: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise e
+        
+        # Re-raise the exception to be handled by the caller
+        raise
 
 
 def log_gpu_memory():
