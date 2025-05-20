@@ -2,6 +2,8 @@ import argparse
 import os
 import logging
 import sys
+import random
+import json
 from contrastive_sample_generator import ContrastiveSampleGenerator
 
 def setup_logging():
@@ -18,6 +20,59 @@ def setup_logging():
     
     return logger
 
+def print_sample_examples(data_path, num_samples=2):
+    """Print random samples from the augmented dataset."""
+    logger = logging.getLogger()
+    
+    try:
+        with open(data_path, 'r') as f:
+            data = json.load(f)
+        
+        # Collect all dialog turns with contrastive samples
+        valid_dialogs = []
+        for episode in data:
+            for dialog in episode.get("dialogs", []):
+                if "contrastive_samples" in dialog:
+                    valid_dialogs.append(dialog)
+        
+        if not valid_dialogs:
+            logger.info(f"No dialogs with contrastive samples found in {data_path}")
+            return
+        
+        # Select random samples
+        samples = random.sample(valid_dialogs, min(num_samples, len(valid_dialogs)))
+        
+        logger.info(f"\n{'='*80}\nRANDOM SAMPLES FROM {os.path.basename(data_path)}\n{'='*80}")
+        
+        for i, sample in enumerate(samples):
+            question = sample.get("question", "")
+            answer = sample.get("answer", "")
+            
+            logger.info(f"\nSample {i+1}:")
+            logger.info(f"Question: {question}")
+            logger.info(f"Original Answer: {answer}")
+            
+            if "contrastive_samples" in sample:
+                # Print positive examples
+                logger.info("\nPositive Examples:")
+                for j, pos in enumerate(sample["contrastive_samples"].get("positive_examples", [])):
+                    logger.info(f"  {j+1}. {pos['text']} (similarity: {pos['similarity']:.3f}, type: {pos['type']})")
+                
+                # Print negative examples
+                logger.info("\nNegative Examples:")
+                for j, neg in enumerate(sample["contrastive_samples"].get("negative_examples", [])):
+                    logger.info(f"  {j+1}. {neg['text']} (similarity: {neg['similarity']:.3f}, type: {neg['type']})")
+            
+            if "complexity_metadata" in sample:
+                logger.info("\nComplexity Metadata:")
+                for key, value in sample["complexity_metadata"].items():
+                    logger.info(f"  {key}: {value}")
+            
+            logger.info(f"\n{'-'*80}")
+    
+    except Exception as e:
+        logger.error(f"Error printing samples from {data_path}: {str(e)}")
+
 def main():
     parser = argparse.ArgumentParser(description='Augment navigation dataset with contrastive samples')
     parser.add_argument('--train_path', type=str, required=True, help='Path to training data JSON')
@@ -32,6 +87,8 @@ def main():
                       help='Device to use for sentence embedding')
     parser.add_argument('--split', type=str, default='all', choices=['train', 'val_seen', 'val_unseen', 'all'],
                       help='Which dataset split to augment')
+    parser.add_argument('--print_samples', type=int, default=2,
+                      help='Number of random samples to print from each dataset (0 to disable)')
     
     args = parser.parse_args()
     
@@ -69,6 +126,10 @@ def main():
         )
         
         logger.info(f"Completed {name} dataset: {augmented_count} dialog turns augmented")
+        
+        # Print random samples if requested
+        if args.print_samples > 0:
+            print_sample_examples(output_path, args.print_samples)
 
 if __name__ == "__main__":
     main() 
@@ -76,14 +137,14 @@ if __name__ == "__main__":
 
 """
 Usage:
-python -m augment_dataset \
---train_path /Users/arman/Desktop/UTA/Thesis/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/train_data.json \
---val_seen_path /Users/arman/Desktop/UTA/Thesis/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/val_seen_data.json \
---val_unseen_path /Users/arman/Desktop/UTA/Thesis/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/val_unseen_data.json \
---output_dir /Users/arman/Desktop/UTA/Thesis/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/augmented_data \
+python -m AnsweringAgent.src.data.augment_dataset \
+--train_path /app/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/train_data.json \
+--val_seen_path /app/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/val_seen_data.json \
+--val_unseen_path /app/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/val_unseen_data.json \
+--output_dir /app/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/augmented_data \
 --model_name "sentence-transformers/all-mpnet-base-v2" \
 --pos_examples 2 \
 --neg_examples 3 \
---device cpu    
-  
+--device cuda \
+--print_samples 3
 """
