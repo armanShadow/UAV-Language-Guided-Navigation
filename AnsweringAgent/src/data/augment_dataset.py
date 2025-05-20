@@ -81,8 +81,10 @@ def main():
     parser.add_argument('--output_dir', type=str, required=True, help='Output directory')
     parser.add_argument('--model_name', type=str, default="sentence-transformers/all-MiniLM-L6-v2", 
                       help='Name of the sentence transformer model to use')
-    parser.add_argument('--pos_examples', type=int, default=2, help='Number of positive examples per dialog')
-    parser.add_argument('--neg_examples', type=int, default=3, help='Number of negative examples per dialog')
+    parser.add_argument('--paraphrase_model', type=str, default="tuner007/pegasus_paraphrase",
+                      help='Model to use for paraphrasing positive examples')
+    parser.add_argument('--pos_examples', type=int, default=3, help='Number of positive examples per dialog (default: 3, 1 LM-based + 2 template-based)')
+    parser.add_argument('--neg_examples', type=int, default=3, help='Number of negative examples per dialog (default: 3, 1 LM-based + 2 rule-based)')
     parser.add_argument('--device', type=str, default='cuda', choices=['cuda', 'cpu'], 
                       help='Device to use for sentence embedding')
     parser.add_argument('--split', type=str, default='all', choices=['train', 'val_seen', 'val_unseen', 'all'],
@@ -100,7 +102,11 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Initialize contrastive sample generator
-    generator = ContrastiveSampleGenerator(model_name=args.model_name, device=args.device)
+    generator = ContrastiveSampleGenerator(
+        model_name=args.model_name, 
+        paraphrase_model_name=args.paraphrase_model,
+        device=args.device
+    )
     
     # Process each dataset based on the specified split
     datasets_to_process = []
@@ -143,7 +149,8 @@ python -m AnsweringAgent.src.data.augment_dataset \
 --val_unseen_path /app/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/val_unseen_data.json \
 --output_dir /app/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/augmented_data \
 --model_name "sentence-transformers/all-mpnet-base-v2" \
---pos_examples 2 \
+--paraphrase_model "tuner007/pegasus_paraphrase" \
+--pos_examples 3 \
 --neg_examples 3 \
 --device cuda \
 --print_samples 3
