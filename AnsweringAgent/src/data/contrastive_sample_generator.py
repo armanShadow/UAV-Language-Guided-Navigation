@@ -565,7 +565,8 @@ class ContrastiveSampleGenerator:
                 # Sort by descending similarity to find the best one
                 paraphrases.sort(key=lambda x: x["similarity"], reverse=True)
                 self.logger.info(f"Successfully generated LM paraphrase (similarity: {paraphrases[0]['similarity']:.3f})")
-                return [paraphrases[0:max_paraphrases]]
+                # Return the top max_paraphrases, not nested in another list
+                return paraphrases[:max_paraphrases]
             else:
                 self.logger.warning("LM paraphraser didn't generate valid paraphrases")
         
