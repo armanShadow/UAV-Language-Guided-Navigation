@@ -129,8 +129,8 @@ class ContrastiveSampleGenerator:
             return self.generate_template_paraphrases(original_answer, n)
         
         try:
-            # Add a simple instruction for BART to understand the task better
-            paraphrase_input = f"Paraphrase this navigation instruction: {original_answer}"
+            # Use a simple, direct prompt for BART
+            paraphrase_input = original_answer
             
             # Use the paraphrasing model to generate multiple paraphrases
             self.logger.info(f"Generating paraphrases for text of length {len(original_answer.split())} words")
@@ -146,10 +146,6 @@ class ContrastiveSampleGenerator:
             # Process the generated paraphrases
             for output in model_outputs:
                 paraphrase = output['generated_text']
-                
-                # Clean up the paraphrase - remove instruction part if it was kept
-                if "Paraphrase this navigation instruction:" in paraphrase:
-                    paraphrase = paraphrase.split("Paraphrase this navigation instruction:", 1)[1].strip()
                 
                 # Skip if paraphrase is empty or too similar to original
                 if not paraphrase or paraphrase.strip() == original_answer.strip():
@@ -433,92 +429,122 @@ class ContrastiveSampleGenerator:
             return negatives
         
         try:
-            # Prepare prompt for contradiction generation
+            # Get key navigation info to help with targeted prompting
             nav_terms = self._extract_navigation_info(original_answer)
             directions = nav_terms["directions"]
-            landmarks = nav_terms["landmarks"]
             
-            # Create a shorter, more direct prompt for the BART model
-            prompt = f"Generate a contradictory navigation instruction to this: {original_answer}"
-            
-            # Use the paraphrasing model to generate contradictions
-            self.logger.info(f"Generating contradictions for text of length {len(original_answer.split())} words")
-            model_outputs = self.paraphraser(
-                prompt,
-                max_length=min(128, len(original_answer.split()) * 2),  # Reasonable length
-                num_return_sequences=n+3,  # Generate extra in case some are filtered
-                num_beams=4,  # Lower beam count
-                temperature=1.0,  # More focused outputs for contradictions
-                do_sample=True  # Enable sampling for diversity
-            )
-            
-            # Process the generated contradictions
-            for output in model_outputs:
-                contradiction = output['generated_text']
+            # For direct contradiction, use a simple reformulation task
+            if directions and len(directions) > 0:
+                # Get opposite directions to use in a targeted prompt
+                direction = directions[0]
+                opposite_dirs = self._get_opposite_direction(direction)
                 
-                # Clean up the contradiction to extract just the instruction
-                if "Generate a contradictory navigation instruction to this:" in contradiction:
-                    contradiction = contradiction.split("Generate a contradictory navigation instruction to this:", 1)[1].strip()
-                
-                # Skip if it's empty or too similar to original
-                if not contradiction or contradiction.strip() == original_answer.strip():
-                    continue
-                
-                # Calculate similarity
-                similarity = self.calculate_similarity(original_answer, contradiction)
-                
-                # Verify it's different enough but still on topic
-                if similarity < 0.85 and similarity > 0.3:
-                    negatives.append({
-                        "text": contradiction,
-                        "similarity": similarity,
-                        "type": "lm_contradiction"
-                    })
+                if opposite_dirs and len(opposite_dirs) > 0:
+                    opp_dir = opposite_dirs[0]
                     
-                    if len(negatives) >= n:
-                        break
-            
-            # If we didn't get enough good contradictions, try a more direct approach
-            if len(negatives) < n and directions:
-                # Make sure we have at least one direction before trying to access it
-                if len(directions) > 0:
-                    direction = directions[0]
-                    opposite_dirs = self._get_opposite_direction(direction)
+                    # Create a prompt that directly tells the model what to change
+                    # This works better than asking for a "contradiction"
+                    prompt = original_answer.replace(direction, opp_dir)
                     
-                    # Make sure we have at least one opposite direction
-                    if opposite_dirs and len(opposite_dirs) > 0:
-                        opp_dir = opposite_dirs[0]
-                        prompt = f"Rewrite this by replacing '{direction}' with '{opp_dir}': {original_answer}"
+                    try:
+                        self.logger.info(f"Generating negatives with direction replacement")
+                        outputs = self.paraphraser(
+                            prompt,
+                            max_length=min(128, len(original_answer.split()) * 2),
+                            num_return_sequences=n+2,
+                            temperature=0.7,
+                            do_sample=True
+                        )
                         
-                        try:
-                            outputs = self.paraphraser(
-                                prompt,
-                                max_length=min(128, len(original_answer.split()) * 2),
-                                num_return_sequences=2,
-                                temperature=0.7,
-                                do_sample=True
-                            )
+                        for output in outputs:
+                            contradiction = output['generated_text']
                             
-                            for output in outputs:
-                                contradiction = output['generated_text']
+                            # Skip if it's empty or identical to original
+                            if not contradiction or contradiction.strip() == original_answer.strip():
+                                continue
+                            
+                            similarity = self.calculate_similarity(original_answer, contradiction)
+                            
+                            if similarity < 0.9 and similarity > 0.3:
+                                negatives.append({
+                                    "text": contradiction,
+                                    "similarity": similarity,
+                                    "type": "lm_direction_flip"
+                                })
                                 
-                                # Clean up the contradiction
-                                if f"Rewrite this by replacing '{direction}' with '{opp_dir}':" in contradiction:
-                                    contradiction = contradiction.split(f"Rewrite this by replacing '{direction}' with '{opp_dir}':", 1)[1].strip()
+                                if len(negatives) >= n:
+                                    break
+                    except Exception as e:
+                        self.logger.warning(f"Error with direction-specific prompt: {str(e)}")
+            
+            # If we still need more negative examples, try general prompting
+            if len(negatives) < n:
+                # Generate random alternatives rather than trying to explicitly contradict
+                # This avoids the model repeating parts of the prompt
+                landmarks = nav_terms["landmarks"]
+                colors = nav_terms["colors"]
+                shapes = nav_terms["shapes"]
+                
+                # Generate a completely different instruction
+                alternatives = []
+                if landmarks and len(landmarks) > 0:
+                    # Swap landmark for a different one
+                    landmark = landmarks[0]
+                    other_landmarks = [l for l in self.landmark_terms if l != landmark]
+                    if other_landmarks:
+                        alt_landmark = random.choice(other_landmarks)
+                        alternatives.append(original_answer.replace(landmark, alt_landmark))
+                
+                if colors and len(colors) > 0:
+                    # Swap color for a different one
+                    color = colors[0]
+                    other_colors = [c for c in self.color_terms if c != color]
+                    if other_colors:
+                        alt_color = random.choice(other_colors)
+                        alternatives.append(original_answer.replace(color, alt_color))
+                
+                if shapes and len(shapes) > 0:
+                    # Swap shape for a different one
+                    shape = shapes[0]
+                    other_shapes = [s for s in self.shape_terms if s != shape]
+                    if other_shapes:
+                        alt_shape = random.choice(other_shapes)
+                        alternatives.append(original_answer.replace(shape, alt_shape))
+                
+                # If we have alternatives, use them as prompts
+                if alternatives:
+                    prompt = random.choice(alternatives)
+                    
+                    try:
+                        self.logger.info(f"Generating negatives with attribute replacement")
+                        outputs = self.paraphraser(
+                            prompt,
+                            max_length=min(128, len(original_answer.split()) * 2),
+                            num_return_sequences=n - len(negatives) + 2,
+                            temperature=0.8,
+                            do_sample=True
+                        )
+                        
+                        for output in outputs:
+                            contradiction = output['generated_text']
+                            
+                            # Skip if it's empty or identical to original
+                            if not contradiction or contradiction.strip() == original_answer.strip():
+                                continue
+                            
+                            similarity = self.calculate_similarity(original_answer, contradiction)
+                            
+                            if similarity < 0.9 and similarity > 0.3:
+                                negatives.append({
+                                    "text": contradiction,
+                                    "similarity": similarity,
+                                    "type": "lm_attribute_change"
+                                })
                                 
-                                similarity = self.calculate_similarity(original_answer, contradiction)
-                                
-                                if similarity < 0.9 and similarity > 0.3:
-                                    negatives.append({
-                                        "text": contradiction,
-                                        "similarity": similarity,
-                                        "type": "lm_direction_flip"
-                                    })
-                                    
-                                    if len(negatives) >= n:
-                                        break
-                        except Exception as e:
-                            self.logger.warning(f"Error with direction-specific prompt: {str(e)}")
+                                if len(negatives) >= n:
+                                    break
+                    except Exception as e:
+                        self.logger.warning(f"Error generating attribute alternatives: {str(e)}")
         
         except Exception as e:
             self.logger.warning(f"Error generating LM negatives: {str(e)}")
