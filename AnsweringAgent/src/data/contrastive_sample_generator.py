@@ -457,42 +457,53 @@ class ContrastiveSampleGenerator:
             
             # If we didn't get enough good contradictions, try a more direct approach
             if len(negatives) < n and directions:
-                # For each detected direction, create a prompt asking for the opposite
-                for direction in directions[:1]:  # Just use the first direction
+                # Make sure we have at least one direction before trying to access it
+                if len(directions) > 0:
+                    direction = directions[0]
                     opposite_dirs = self._get_opposite_direction(direction)
-                    if opposite_dirs:
+                    
+                    # Make sure we have at least one opposite direction
+                    if opposite_dirs and len(opposite_dirs) > 0:
                         opp_dir = opposite_dirs[0]
                         prompt = f"Original: \"{original_answer}\"\n\nRewrite this navigation instruction, but replace '{direction}' with '{opp_dir}':"
                         
-                        outputs = self.paraphraser(
-                            prompt,
-                            max_length=100,
-                            num_return_sequences=2,
-                            temperature=1.0
-                        )
-                        
-                        for output in outputs:
-                            contradiction = output['generated_text']
+                        try:
+                            outputs = self.paraphraser(
+                                prompt,
+                                max_length=100,
+                                num_return_sequences=2,
+                                temperature=1.0
+                            )
                             
-                            # Clean up the contradiction
-                            if ":" in contradiction:
-                                contradiction = contradiction.split(":", 1)[1].strip()
-                            
-                            similarity = self.calculate_similarity(original_answer, contradiction)
-                            
-                            if similarity < 0.9 and similarity > 0.3:
-                                negatives.append({
-                                    "text": contradiction,
-                                    "similarity": similarity,
-                                    "type": "lm_direction_flip"
-                                })
+                            for output in outputs:
+                                contradiction = output['generated_text']
                                 
-                                if len(negatives) >= n:
-                                    break
+                                # Clean up the contradiction
+                                if ":" in contradiction:
+                                    contradiction = contradiction.split(":", 1)[1].strip()
+                                
+                                similarity = self.calculate_similarity(original_answer, contradiction)
+                                
+                                if similarity < 0.9 and similarity > 0.3:
+                                    negatives.append({
+                                        "text": contradiction,
+                                        "similarity": similarity,
+                                        "type": "lm_direction_flip"
+                                    })
+                                    
+                                    if len(negatives) >= n:
+                                        break
+                        except Exception as e:
+                            self.logger.warning(f"Error with direction-specific prompt: {str(e)}")
         
         except Exception as e:
             self.logger.warning(f"Error generating LM negatives: {str(e)}")
+            # Use more detailed logging to help with debugging
+            import traceback
+            self.logger.debug(f"Exception details: {traceback.format_exc()}")
         
+        # If we couldn't generate any negative examples, return an empty list
+        # The calling code will handle this by using only rule-based negatives
         return negatives[:n]
     
     def generate_rule_based_negatives(self, original_answer, n=2):
