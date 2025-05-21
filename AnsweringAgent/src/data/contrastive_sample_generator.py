@@ -500,7 +500,7 @@ class ContrastiveSampleGenerator:
             self.logger.warning(f"Error generating LM negatives: {str(e)}")
             # Use more detailed logging to help with debugging
             import traceback
-            self.logger.debug(f"Exception details: {traceback.format_exc()}")
+            self.logger.warning(f"Exception details: {traceback.format_exc()}")
         
         # If we couldn't generate any negative examples, return an empty list
         # The calling code will handle this by using only rule-based negatives
