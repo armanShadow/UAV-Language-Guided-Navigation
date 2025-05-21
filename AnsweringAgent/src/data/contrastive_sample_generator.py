@@ -24,11 +24,21 @@ class ContrastiveSampleGenerator:
         # Initialize paraphrasing model
         self.logger.info(f"Loading paraphrasing model: {paraphrase_model_name}")
         try:
-            self.paraphraser = pipeline(
-                "text2text-generation", 
-                model=paraphrase_model_name,
-                device=0 if device == "cuda" else -1
-            )
+            # Using device_map='auto' for better memory management
+            if torch.cuda.is_available() and device == "cuda":
+                self.logger.info("Using CUDA for paraphraser with device_map='auto'")
+                self.paraphraser = pipeline(
+                    "text2text-generation", 
+                    model=paraphrase_model_name,
+                    device_map="auto"  # Automatically choose best device layout
+                )
+            else:
+                self.logger.info("Using CPU for paraphraser")
+                self.paraphraser = pipeline(
+                    "text2text-generation", 
+                    model=paraphrase_model_name,
+                    device=-1  # Use CPU
+                )
             self.has_paraphraser = True
             self.logger.info("Successfully loaded paraphrasing model")
         except Exception as e:
@@ -119,18 +129,27 @@ class ContrastiveSampleGenerator:
             return self.generate_template_paraphrases(original_answer, n)
         
         try:
+            # Add a simple instruction for BART to understand the task better
+            paraphrase_input = f"Paraphrase this navigation instruction: {original_answer}"
+            
             # Use the paraphrasing model to generate multiple paraphrases
+            self.logger.info(f"Generating paraphrases for text of length {len(original_answer.split())} words")
             model_outputs = self.paraphraser(
-                original_answer,
-                max_length=128,
+                paraphrase_input,
+                max_length=min(128, len(original_answer.split()) * 2),  # Reasonable max length 
                 num_return_sequences=n+2,  # Generate extra in case some are filtered
-                num_beams=10,
-                temperature=1.5  # Higher temperature for more diverse outputs
+                num_beams=4,  # Lower beam count for memory efficiency
+                temperature=1.2,  # Slightly reduced for more coherent outputs
+                do_sample=True  # Enable sampling for diversity
             )
             
             # Process the generated paraphrases
             for output in model_outputs:
                 paraphrase = output['generated_text']
+                
+                # Clean up the paraphrase - remove instruction part if it was kept
+                if "Paraphrase this navigation instruction:" in paraphrase:
+                    paraphrase = paraphrase.split("Paraphrase this navigation instruction:", 1)[1].strip()
                 
                 # Skip if paraphrase is empty or too similar to original
                 if not paraphrase or paraphrase.strip() == original_answer.strip():
@@ -151,6 +170,8 @@ class ContrastiveSampleGenerator:
                         break
         except Exception as e:
             self.logger.warning(f"Error generating LM paraphrases: {str(e)}")
+            import traceback
+            self.logger.debug(f"Exception details: {traceback.format_exc()}")
             self.logger.warning("Falling back to template-based paraphrasing")
             return self.generate_template_paraphrases(original_answer, n)
         
@@ -417,16 +438,18 @@ class ContrastiveSampleGenerator:
             directions = nav_terms["directions"]
             landmarks = nav_terms["landmarks"]
             
-            # Create a prompt that encourages the model to generate contradictions
-            prompt = f"Original navigation instruction: \"{original_answer}\"\n\nGenerate a navigation instruction that CONTRADICTS the original by using opposite directions, different landmarks, or incorrect spatial relationships. Make it sound natural and fluent, but ensure it would guide to a WRONG destination:"
+            # Create a shorter, more direct prompt for the BART model
+            prompt = f"Generate a contradictory navigation instruction to this: {original_answer}"
             
             # Use the paraphrasing model to generate contradictions
+            self.logger.info(f"Generating contradictions for text of length {len(original_answer.split())} words")
             model_outputs = self.paraphraser(
                 prompt,
-                max_length=150,
+                max_length=min(128, len(original_answer.split()) * 2),  # Reasonable length
                 num_return_sequences=n+3,  # Generate extra in case some are filtered
-                num_beams=10,
-                temperature=1.2  # Higher temperature for diversity
+                num_beams=4,  # Lower beam count
+                temperature=1.0,  # More focused outputs for contradictions
+                do_sample=True  # Enable sampling for diversity
             )
             
             # Process the generated contradictions
@@ -434,8 +457,8 @@ class ContrastiveSampleGenerator:
                 contradiction = output['generated_text']
                 
                 # Clean up the contradiction to extract just the instruction
-                if ":" in contradiction:
-                    contradiction = contradiction.split(":", 1)[1].strip()
+                if "Generate a contradictory navigation instruction to this:" in contradiction:
+                    contradiction = contradiction.split("Generate a contradictory navigation instruction to this:", 1)[1].strip()
                 
                 # Skip if it's empty or too similar to original
                 if not contradiction or contradiction.strip() == original_answer.strip():
@@ -465,22 +488,23 @@ class ContrastiveSampleGenerator:
                     # Make sure we have at least one opposite direction
                     if opposite_dirs and len(opposite_dirs) > 0:
                         opp_dir = opposite_dirs[0]
-                        prompt = f"Original: \"{original_answer}\"\n\nRewrite this navigation instruction, but replace '{direction}' with '{opp_dir}':"
+                        prompt = f"Rewrite this by replacing '{direction}' with '{opp_dir}': {original_answer}"
                         
                         try:
                             outputs = self.paraphraser(
                                 prompt,
-                                max_length=128,
+                                max_length=min(128, len(original_answer.split()) * 2),
                                 num_return_sequences=2,
-                                temperature=1.0
+                                temperature=0.7,
+                                do_sample=True
                             )
                             
                             for output in outputs:
                                 contradiction = output['generated_text']
                                 
                                 # Clean up the contradiction
-                                if ":" in contradiction:
-                                    contradiction = contradiction.split(":", 1)[1].strip()
+                                if f"Rewrite this by replacing '{direction}' with '{opp_dir}':" in contradiction:
+                                    contradiction = contradiction.split(f"Rewrite this by replacing '{direction}' with '{opp_dir}':", 1)[1].strip()
                                 
                                 similarity = self.calculate_similarity(original_answer, contradiction)
                                 
@@ -500,7 +524,7 @@ class ContrastiveSampleGenerator:
             self.logger.warning(f"Error generating LM negatives: {str(e)}")
             # Use more detailed logging to help with debugging
             import traceback
-            self.logger.warning(f"Exception details: {traceback.format_exc()}")
+            self.logger.debug(f"Exception details: {traceback.format_exc()}")
         
         # If we couldn't generate any negative examples, return an empty list
         # The calling code will handle this by using only rule-based negatives
