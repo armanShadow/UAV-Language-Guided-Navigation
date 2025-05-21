@@ -1214,6 +1214,368 @@ class ContrastiveSampleGenerator:
         else:
             return strategy(original_answer)
     
+    def _generate_direction_reversal_negatives(self, original_answer, directions):
+        """
+        Generate negatives by reversing or changing directions mentioned in the answer.
+        
+        Args:
+            original_answer: The original answer text
+            directions: List of direction terms found in the original answer
+            
+        Returns:
+            List of negatives with reversed directions
+        """
+        if not directions:
+            return []
+            
+        negatives = []
+        
+        # Map of directions to their opposites
+        direction_opposites = {
+            "north": "south",
+            "south": "north",
+            "east": "west",
+            "west": "east",
+            "northeast": "southwest",
+            "southwest": "northeast",
+            "northwest": "southeast",
+            "southeast": "northwest",
+            "left": "right",
+            "right": "left",
+            "forward": "backward",
+            "backward": "forward",
+            "ahead": "behind",
+            "behind": "ahead",
+            "clockwise": "counterclockwise",
+            "counterclockwise": "clockwise"
+        }
+        
+        # Get a direction from the original answer
+        direction = random.choice(directions)
+        
+        # Generate a negative with the opposite direction
+        if direction in direction_opposites:
+            opposite = direction_opposites[direction]
+            negative_text = original_answer.replace(direction, opposite)
+            
+            # Only use if it actually changed something
+            if negative_text != original_answer:
+                similarity = self.calculate_similarity(original_answer, negative_text)
+                negatives.append({
+                    "text": negative_text,
+                    "similarity": similarity,
+                    "type": "direction_reversal"
+                })
+        
+        return negatives
+    
+    def _generate_landmark_substitution_negatives(self, original_answer, landmarks):
+        """
+        Generate negatives by substituting landmarks with different ones.
+        
+        Args:
+            original_answer: The original answer text
+            landmarks: List of landmark terms found in the original answer
+            
+        Returns:
+            List of negatives with substituted landmarks
+        """
+        if not landmarks:
+            return []
+            
+        negatives = []
+        
+        # Get a landmark from the original answer
+        landmark = random.choice(landmarks)
+        
+        # Get a list of alternative landmarks not in the original answer
+        alternative_landmarks = [l for l in self.landmark_terms if l not in landmarks]
+        
+        if alternative_landmarks:
+            # Generate a negative with a different landmark
+            alternative = random.choice(alternative_landmarks)
+            negative_text = original_answer.replace(landmark, alternative)
+            
+            # Only use if it actually changed something
+            if negative_text != original_answer:
+                similarity = self.calculate_similarity(original_answer, negative_text)
+                negatives.append({
+                    "text": negative_text,
+                    "similarity": similarity,
+                    "type": "landmark_substitution"
+                })
+        
+        return negatives
+    
+    def _generate_color_substitution_negatives(self, original_answer, colors):
+        """
+        Generate negatives by substituting colors with different ones.
+        
+        Args:
+            original_answer: The original answer text
+            colors: List of color terms found in the original answer
+            
+        Returns:
+            List of negatives with substituted colors
+        """
+        if not colors:
+            return []
+            
+        negatives = []
+        
+        # Get a color from the original answer
+        color = random.choice(colors)
+        
+        # Get a list of alternative colors not in the original answer
+        alternative_colors = [c for c in self.color_terms if c not in colors]
+        
+        if alternative_colors:
+            # Generate a negative with a different color
+            alternative = random.choice(alternative_colors)
+            negative_text = original_answer.replace(color, alternative)
+            
+            # Only use if it actually changed something
+            if negative_text != original_answer:
+                similarity = self.calculate_similarity(original_answer, negative_text)
+                negatives.append({
+                    "text": negative_text,
+                    "similarity": similarity,
+                    "type": "color_substitution"
+                })
+        
+        return negatives
+    
+    def _generate_shape_substitution_negatives(self, original_answer, shapes):
+        """
+        Generate negatives by substituting shapes with different ones.
+        
+        Args:
+            original_answer: The original answer text
+            shapes: List of shape terms found in the original answer
+            
+        Returns:
+            List of negatives with substituted shapes
+        """
+        if not shapes:
+            return []
+            
+        negatives = []
+        
+        # Get a shape from the original answer
+        shape = random.choice(shapes)
+        
+        # Get a list of alternative shapes not in the original answer
+        alternative_shapes = [s for s in self.shape_terms if s not in shapes]
+        
+        if alternative_shapes:
+            # Generate a negative with a different shape
+            alternative = random.choice(alternative_shapes)
+            negative_text = original_answer.replace(shape, alternative)
+            
+            # Only use if it actually changed something
+            if negative_text != original_answer:
+                similarity = self.calculate_similarity(original_answer, negative_text)
+                negatives.append({
+                    "text": negative_text,
+                    "similarity": similarity,
+                    "type": "shape_substitution"
+                })
+        
+        return negatives
+    
+    def _generate_spatial_relation_negatives(self, original_answer, spatial_relations):
+        """
+        Generate negatives by substituting spatial relations with different ones.
+        
+        Args:
+            original_answer: The original answer text
+            spatial_relations: List of spatial relation terms found in the original answer
+            
+        Returns:
+            List of negatives with substituted spatial relations
+        """
+        if not spatial_relations:
+            return []
+            
+        negatives = []
+        
+        # Get a spatial relation from the original answer
+        relation = random.choice(spatial_relations)
+        
+        # Get a list of alternative spatial relations not in the original answer
+        alternative_relations = [r for r in self.spatial_relation_terms if r not in spatial_relations]
+        
+        if alternative_relations:
+            # Generate a negative with a different spatial relation
+            alternative = random.choice(alternative_relations)
+            negative_text = original_answer.replace(relation, alternative)
+            
+            # Only use if it actually changed something
+            if negative_text != original_answer:
+                similarity = self.calculate_similarity(original_answer, negative_text)
+                negatives.append({
+                    "text": negative_text,
+                    "similarity": similarity,
+                    "type": "spatial_relation_substitution"
+                })
+        
+        return negatives
+    
+    def _generate_size_substitution_negatives(self, original_answer, sizes):
+        """
+        Generate negatives by substituting sizes with different ones.
+        
+        Args:
+            original_answer: The original answer text
+            sizes: List of size terms found in the original answer
+            
+        Returns:
+            List of negatives with substituted sizes
+        """
+        if not sizes:
+            return []
+            
+        negatives = []
+        
+        # Get a size from the original answer
+        size = random.choice(sizes)
+        
+        # Get a list of alternative sizes not in the original answer
+        alternative_sizes = [s for s in self.size_terms if s not in sizes]
+        
+        if alternative_sizes:
+            # Generate a negative with a different size
+            alternative = random.choice(alternative_sizes)
+            negative_text = original_answer.replace(size, alternative)
+            
+            # Only use if it actually changed something
+            if negative_text != original_answer:
+                similarity = self.calculate_similarity(original_answer, negative_text)
+                negatives.append({
+                    "text": negative_text,
+                    "similarity": similarity,
+                    "type": "size_substitution"
+                })
+        
+        return negatives
+    
+    def _generate_semantic_frame_negatives(self, original_answer, directions, landmarks, colors, shapes, spatial_relations, sizes):
+        """
+        Generate negatives by changing multiple elements of the navigation instruction.
+        
+        Args:
+            original_answer: The original answer text
+            directions, landmarks, etc.: Lists of terms found in the original answer
+            
+        Returns:
+            List of negatives with multiple element changes
+        """
+        negatives = []
+        
+        # Need to have at least two types of elements to create meaningful changes
+        element_types = []
+        if directions:
+            element_types.append("directions")
+        if landmarks:
+            element_types.append("landmarks")
+        if colors:
+            element_types.append("colors")
+        if shapes:
+            element_types.append("shapes")
+        if spatial_relations:
+            element_types.append("spatial_relations")
+        if sizes:
+            element_types.append("sizes")
+        
+        if len(element_types) < 2:
+            return []
+        
+        # Select two random element types to change
+        selected_types = random.sample(element_types, 2)
+        
+        # Create a working copy of the answer
+        negative_text = original_answer
+        
+        # Apply changes for each selected element type
+        for elem_type in selected_types:
+            if elem_type == "directions" and directions:
+                direction = random.choice(directions)
+                opposite_map = {
+                    "north": "south", "south": "north", "east": "west", "west": "east",
+                    "left": "right", "right": "left", "forward": "backward", "backward": "forward"
+                }
+                if direction in opposite_map:
+                    negative_text = negative_text.replace(direction, opposite_map[direction])
+            
+            elif elem_type == "landmarks" and landmarks:
+                landmark = random.choice(landmarks)
+                alternative_landmarks = [l for l in self.landmark_terms if l not in landmarks]
+                if alternative_landmarks:
+                    negative_text = negative_text.replace(landmark, random.choice(alternative_landmarks))
+            
+            elif elem_type == "colors" and colors:
+                color = random.choice(colors)
+                alternative_colors = [c for c in self.color_terms if c not in colors]
+                if alternative_colors:
+                    negative_text = negative_text.replace(color, random.choice(alternative_colors))
+            
+            elif elem_type == "shapes" and shapes:
+                shape = random.choice(shapes)
+                alternative_shapes = [s for s in self.shape_terms if s not in shapes]
+                if alternative_shapes:
+                    negative_text = negative_text.replace(shape, random.choice(alternative_shapes))
+            
+            elif elem_type == "spatial_relations" and spatial_relations:
+                relation = random.choice(spatial_relations)
+                alternative_relations = [r for r in self.spatial_relation_terms if r not in spatial_relations]
+                if alternative_relations:
+                    negative_text = negative_text.replace(relation, random.choice(alternative_relations))
+            
+            elif elem_type == "sizes" and sizes:
+                size = random.choice(sizes)
+                alternative_sizes = [s for s in self.size_terms if s not in sizes]
+                if alternative_sizes:
+                    negative_text = negative_text.replace(size, random.choice(alternative_sizes))
+        
+        # Only add if we managed to change the text
+        if negative_text != original_answer:
+            similarity = self.calculate_similarity(original_answer, negative_text)
+            negatives.append({
+                "text": negative_text,
+                "similarity": similarity,
+                "type": "semantic_frame"
+            })
+        
+        return negatives
+    
+    def _generate_generic_opposition_negatives(self, original_answer):
+        """
+        Generate generic negatives that contradict the original answer.
+        
+        Args:
+            original_answer: The original answer text
+            
+        Returns:
+            List containing a generic contradictory negative
+        """
+        generic_oppositions = [
+            "The destination is in the opposite direction.",
+            "You need to look in a completely different location.",
+            "That's not the right place. Your target is elsewhere.",
+            "The destination is not there. You need to look in another direction.",
+            "You're facing the wrong way. The target is in the opposite direction.",
+            "That's incorrect. The landmark you should be looking for is completely different."
+        ]
+        
+        negative_text = random.choice(generic_oppositions)
+        similarity = self.calculate_similarity(original_answer, negative_text)
+        
+        return [{
+            "text": negative_text,
+            "similarity": similarity,
+            "type": "generic_opposition"
+        }]
+    
     def _generate_random_negative(self, original_answer):
         """
         Generate a random negative example as a fallback strategy.
