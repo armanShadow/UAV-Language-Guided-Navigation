@@ -604,7 +604,7 @@ class ContrastiveSampleGenerator:
     
     def generate_lm_negatives(self, original_answer, n=1):
         """
-        Generate negative examples using a language model.
+        Generate negative examples using a language model with simple negation prompts.
         
         Args:
             original_answer: Original answer to negate
@@ -621,33 +621,19 @@ class ContrastiveSampleGenerator:
         
         try:
             if self.has_negative_generator:
-                self.logger.info(f"Generating T5-based negatives for text of length {len(original_answer.split())} words")
+                self.logger.info(f"Generating T5-based negatives using direct prompts")
                 
-                # Extract navigation information to create better contradiction prompts
-                nav_info = self._extract_navigation_info(original_answer)
-                
-                # Create specialized prompts for T5
-                prompts = [
+                # Simple prompt templates for negation
+                prompt_templates = [
                     f"contradict: {original_answer}",
                     f"opposite: {original_answer}",
-                    f"negate: {original_answer}"
+                    f"negate: {original_answer}",
+                    f"generate opposite navigation instruction: {original_answer}",
+                    f"provide directions to a different location: {original_answer}"
                 ]
                 
-                # If we have specific direction/landmark information, add more targeted prompts
-                if nav_info["directions"]:
-                    direction_terms = ", ".join(nav_info["directions"][:2])  # Use first couple directions
-                    prompts.append(f"change direction {direction_terms} in: {original_answer}")
-                
-                if nav_info["landmarks"]:
-                    landmark_terms = ", ".join(nav_info["landmarks"][:2])  # Use first couple landmarks
-                    prompts.append(f"change landmark {landmark_terms} in: {original_answer}")
-                    
-                if nav_info["spatial_relations"]:
-                    spatial_terms = ", ".join(nav_info["spatial_relations"][:2])
-                    prompts.append(f"reverse relation {spatial_terms} in: {original_answer}")
-                
-                # Choose some unique prompts to try
-                selected_prompts = list(set(prompts))[:min(3, len(prompts))]
+                # Randomly select prompts to try
+                selected_prompts = random.sample(prompt_templates, min(3, len(prompt_templates)))
                 
                 for prompt in selected_prompts:
                     if len(negatives) >= n:
@@ -659,35 +645,38 @@ class ContrastiveSampleGenerator:
                             prompt,
                             max_length=min(128, len(original_answer.split()) * 2),
                             do_sample=True,
-                            temperature=1.0,
-                            num_return_sequences=1
+                            temperature=1.2,  # Slightly higher temperature for more diverse outputs
+                            num_return_sequences=2
                         )
                         
-                        negative_text = outputs[0]['generated_text'].strip()
-                        
-                        # Ensure the negative is not empty or too similar to original
-                        if not negative_text or negative_text == original_answer:
-                            continue
-                        
-                        # Calculate similarity
-                        similarity = self.calculate_similarity(original_answer, negative_text)
-                        
-                        # Only keep if reasonably different but not entirely unrelated
-                        # Ideal range: similar enough to be challenging, different enough to be negative
-                        if 0.3 <= similarity <= 0.7:
-                            negatives.append({
-                                "text": negative_text,
-                                "similarity": similarity,
-                                "type": "lm_negative"
-                            })
+                        for output in outputs:
+                            if len(negatives) >= n:
+                                break
+                                
+                            negative_text = output['generated_text'].strip()
+                            
+                            # Ensure the negative is not empty or too similar to original
+                            if not negative_text or negative_text == original_answer:
+                                continue
+                            
+                            # Calculate similarity
+                            similarity = self.calculate_similarity(original_answer, negative_text)
+                            
+                            # Only keep if reasonably different but not entirely unrelated
+                            if 0.3 <= similarity <= 0.8:
+                                negatives.append({
+                                    "text": negative_text,
+                                    "similarity": similarity,
+                                    "type": "lm_negative"
+                                })
                     
                     except Exception as e:
-                        self.logger.warning(f"Error generating T5 negative with prompt '{prompt}': {str(e)}")
+                        self.logger.warning(f"Error generating negative with prompt '{prompt}': {str(e)}")
                         continue
             
             # If we don't have a negative generator or couldn't generate any valid negatives
             if not self.has_negative_generator or not negatives:
-                self.logger.warning("Falling back to rule-based negatives (no valid LM negatives generated)")
+                self.logger.warning("Falling back to rule-based negatives")
                 return self.generate_rule_based_negatives(original_answer, n)
         
         except Exception as e:
