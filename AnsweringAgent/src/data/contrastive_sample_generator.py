@@ -10,7 +10,7 @@ from transformers import AutoTokenizer, AutoModel, pipeline
 
 class ContrastiveSampleGenerator:
     def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2", 
-                 paraphrase_model_name="tuner007/pegasus_paraphrase",
+                 paraphrase_model_name="eugenesiow/bart-paraphrase",
                  device="cuda" if torch.cuda.is_available() else "cpu"):
         """Initialize the contrastive sample generator with a sentence embedding model."""
         self.device = device
