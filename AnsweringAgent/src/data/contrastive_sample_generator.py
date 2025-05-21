@@ -122,7 +122,7 @@ class ContrastiveSampleGenerator:
             # Use the paraphrasing model to generate multiple paraphrases
             model_outputs = self.paraphraser(
                 original_answer,
-                max_length=100,
+                max_length=128,
                 num_return_sequences=n+2,  # Generate extra in case some are filtered
                 num_beams=10,
                 temperature=1.5  # Higher temperature for more diverse outputs
@@ -470,7 +470,7 @@ class ContrastiveSampleGenerator:
                         try:
                             outputs = self.paraphraser(
                                 prompt,
-                                max_length=100,
+                                max_length=128,
                                 num_return_sequences=2,
                                 temperature=1.0
                             )
