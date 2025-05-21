@@ -9,23 +9,49 @@ import logging
 from transformers import AutoTokenizer, AutoModel, pipeline
 
 class ContrastiveSampleGenerator:
+    """
+    Generator for contrastive learning samples specific to UAV navigation tasks.
+    
+    This class handles the generation of positive examples (paraphrases) and
+    negative examples (contradictions) for navigation instructions, to be used
+    in contrastive learning for UAV navigation.
+    """
+    
     def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2", 
                  paraphrase_model_name="prithivida/parrot_paraphraser_on_T5",
                  device="cuda" if torch.cuda.is_available() else "cpu"):
-        """Initialize the contrastive sample generator with a sentence embedding model."""
+        """
+        Initialize the contrastive sample generator.
+        
+        Args:
+            model_name: Name of the sentence embedding model to use
+            paraphrase_model_name: Name of the language model for paraphrasing
+            device: Device to use for models ('cuda' or 'cpu')
+        """
         self.device = device
         self.logger = logging.getLogger(__name__)
         
+        # Load sentence embedding model
         self.logger.info(f"Loading sentence embedding model: {model_name}")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name).to(device)
         self.model.eval()
         
-        # Initialize paraphrasing model
+        # Initialize language models for paraphrasing and negation
+        self._init_language_models(paraphrase_model_name)
+        
+        # Initialize navigation terminology datasets
+        self._init_navigation_terminology()
+        
+        # Store alternative answers for negative examples
+        self.alternative_answers = []
+    
+    def _init_language_models(self, paraphrase_model_name):
+        """Initialize paraphrasing and negative generation models."""
         self.logger.info(f"Loading paraphrasing model: {paraphrase_model_name}")
         try:
-            # Using device_map='auto' for better memory management
-            if torch.cuda.is_available() and device == "cuda":
+            # Set up paraphrasing model with appropriate device configuration
+            if torch.cuda.is_available() and self.device == "cuda":
                 self.logger.info("Using CUDA for paraphraser with device_map='auto'")
                 self.paraphraser = pipeline(
                     "text2text-generation", 
@@ -46,7 +72,7 @@ class ContrastiveSampleGenerator:
             try:
                 self.logger.info("Loading T5 model for negative example generation")
                 negative_model_name = "t5-base"  # T5 base model
-                if torch.cuda.is_available() and device == "cuda":
+                if torch.cuda.is_available() and self.device == "cuda":
                     self.negative_generator = pipeline(
                         "text2text-generation",
                         model=negative_model_name,
@@ -69,8 +95,10 @@ class ContrastiveSampleGenerator:
             self.logger.warning("Will fall back to template-based paraphrasing")
             self.has_paraphraser = False
             self.has_negative_generator = False
-        
-        # Enhanced navigation-specific terminology
+    
+    def _init_navigation_terminology(self):
+        """Initialize UAV navigation-specific terminology lists."""
+        # Direction-related terms
         self.direction_terms = [
             "north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest",
             "left", "right", "forward", "backward", "ahead", "behind", "clockwise",
@@ -79,6 +107,7 @@ class ContrastiveSampleGenerator:
             "7 o'clock", "8 o'clock", "9 o'clock", "10 o'clock", "11 o'clock", "12 o'clock"
         ]
         
+        # Landmark-related terms
         self.landmark_terms = [
             "building", "house", "structure", "tower", "road", "bridge", "highway", 
             "hill", "mountain", "tree", "field", "river", "lake", "landfill",
@@ -87,6 +116,7 @@ class ContrastiveSampleGenerator:
             "stadium", "park", "garden", "campus", "fence", "wall", "path", "trail"
         ]
         
+        # Visual attribute terms
         self.color_terms = [
             "red", "blue", "green", "yellow", "black", "white", "gray", "grey",
             "brown", "purple", "orange", "beige", "pink", "tan", "golden", "silver",
@@ -99,6 +129,7 @@ class ContrastiveSampleGenerator:
             "curved", "straight", "zigzag", "angled", "sloped"
         ]
         
+        # Spatial relationship terms
         self.spatial_relation_terms = [
             "above", "below", "under", "over", "on top of", "beneath", "adjacent to",
             "next to", "beside", "alongside", "in front of", "behind", "between",
@@ -108,36 +139,59 @@ class ContrastiveSampleGenerator:
             "in the middle of", "at the corner of", "at the intersection of"
         ]
         
+        # Size-related terms
         self.size_terms = [
             "large", "small", "big", "tiny", "huge", "massive", "enormous", "giant",
             "little", "medium", "medium-sized", "compact", "expansive", "long", "short",
             "wide", "narrow", "thick", "thin"
         ]
-        
+    
     def generate_embedding(self, text):
-        """Generate embedding for a text using the sentence embedding model."""
+        """
+        Generate an embedding vector for a text using the sentence embedding model.
+        
+        Args:
+            text: Input text to embed
+            
+        Returns:
+            Normalized embedding vector
+        """
+        # Tokenize and prepare inputs
         inputs = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=128).to(self.device)
+        
+        # Generate embeddings
         with torch.no_grad():
             outputs = self.model(**inputs)
         
-        # Mean pooling to get sentence embedding
+        # Apply mean pooling to get sentence embedding
         attention_mask = inputs['attention_mask']
         token_embeddings = outputs.last_hidden_state
         input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
         sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
         sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
         embeddings = sum_embeddings / sum_mask
+        
+        # Normalize the embedding vector
         return F.normalize(embeddings.squeeze(0), p=2, dim=0)
     
     def calculate_similarity(self, text1, text2):
-        """Calculate cosine similarity between two texts."""
+        """
+        Calculate cosine similarity between two texts.
+        
+        Args:
+            text1: First text
+            text2: Second text
+            
+        Returns:
+            Cosine similarity score (0-1)
+        """
         emb1 = self.generate_embedding(text1)
         emb2 = self.generate_embedding(text2)
         return float(F.cosine_similarity(emb1.unsqueeze(0), emb2.unsqueeze(0)).item())
     
-    def generate_lm_paraphrases(self, original_answer, n=2):
+    def generate_template_paraphrases(self, original_answer, n=1):
         """
-        Generate paraphrases using a language model.
+        Generate positive examples (paraphrases) using templates specific to UAV navigation.
         
         Args:
             original_answer: Original answer to paraphrase
@@ -146,67 +200,9 @@ class ContrastiveSampleGenerator:
         Returns:
             List of paraphrases with similarity scores
         """
-        paraphrases = []
-        
-        # Skip if answer is too short or if paraphraser is not available
-        if len(original_answer.split()) < 3 or not self.has_paraphraser:
-            return self.generate_template_paraphrases(original_answer, n)
-        
-        try:
-            # Format input for the T5 paraphraser (parrot model expects a 'paraphrase: ' prefix)
-            paraphrase_input = f"paraphrase: {original_answer}"
-            
-            # Use the paraphrasing model to generate multiple paraphrases
-            self.logger.info(f"Generating paraphrases for text of length {len(original_answer.split())} words")
-            model_outputs = self.paraphraser(
-                paraphrase_input,
-                max_length=min(128, len(original_answer.split()) * 2),  # Reasonable max length 
-                num_return_sequences=n+2,  # Generate extra in case some are filtered
-                num_beams=5,  # Increased beam count for better diversity with T5
-                temperature=1.0,  # Adjusted for T5 model
-                do_sample=True  # Enable sampling for diversity
-            )
-            
-            # Process the generated paraphrases
-            for output in model_outputs:
-                paraphrase = output['generated_text']
-                
-                # Skip if paraphrase is empty or too similar to original
-                if not paraphrase or paraphrase.strip() == original_answer.strip():
-                    continue
-                
-                # Calculate similarity
-                similarity = self.calculate_similarity(original_answer, paraphrase)
-                
-                # Only keep if reasonably similar (to avoid completely unrelated paraphrases)
-                if similarity > 0.6:
-                    paraphrases.append({
-                        "text": paraphrase,
-                        "similarity": similarity,
-                        "type": "lm_paraphrase"
-                    })
-                    
-                    if len(paraphrases) >= n:
-                        break
-        except Exception as e:
-            self.logger.warning(f"Error generating LM paraphrases: {str(e)}")
-            import traceback
-            self.logger.debug(f"Exception details: {traceback.format_exc()}")
-            self.logger.warning("Falling back to template-based paraphrasing")
-            return self.generate_template_paraphrases(original_answer, n)
-        
-        # If we couldn't generate enough valid paraphrases, add template-based ones
-        if len(paraphrases) < n:
-            template_paraphrases = self.generate_template_paraphrases(original_answer, n - len(paraphrases))
-            paraphrases.extend(template_paraphrases)
-        
-        return paraphrases[:n]
-    
-    def generate_template_paraphrases(self, original_answer, n=2):
-        """Generate positive examples (paraphrases) using templates based on navigation dialog patterns."""
         positives = []
         
-        # Extract key navigation information using the more comprehensive method
+        # Extract key navigation information
         extracted_info = self._extract_navigation_info(original_answer)
         directions = extracted_info["directions"]
         landmarks = extracted_info["landmarks"]
@@ -215,8 +211,86 @@ class ContrastiveSampleGenerator:
         spatial_relations = extracted_info["spatial_relations"]
         sizes = extracted_info["sizes"]
         
-        # Create a more diverse set of UAV navigation-specific templates
-        templates = [
+        # Get appropriate templates
+        templates = self._get_navigation_templates()
+        action_verbs = self._get_navigation_action_verbs()
+        clock_directions = self._get_clock_directions()
+        features = self._get_landmark_features()
+        
+        # Select usable templates based on available information
+        usable_templates = self._select_usable_templates(
+            templates, 
+            directions, 
+            landmarks, 
+            colors, 
+            shapes, 
+            spatial_relations, 
+            sizes
+        )
+        
+        # Add generic templates that don't require specific extracted elements
+        generic_templates = self._get_generic_templates()
+        usable_templates.extend(generic_templates)
+        
+        # Generate paraphrases using templates
+        paraphrase_count = 0
+        max_attempts = min(30, len(usable_templates) * 3)  # Limit attempts to avoid infinite loops
+        attempts = 0
+        
+        while attempts < max_attempts:
+            attempts += 1
+            
+            if not usable_templates:
+                break
+                
+            template = random.choice(usable_templates)
+            
+            try:
+                # Fill the template with appropriate values
+                paraphrase = self._fill_template(
+                    template,
+                    directions,
+                    landmarks,
+                    colors,
+                    shapes,
+                    spatial_relations,
+                    sizes,
+                    clock_directions,
+                    features,
+                    action_verbs
+                )
+                
+                # Calculate similarity with original answer
+                similarity = self.calculate_similarity(original_answer, paraphrase)
+                
+                # Only include if similar enough to original but not identical
+                if similarity > 0.5 and paraphrase != original_answer:
+                    # Check if this paraphrase is significantly different from previously generated ones
+                    is_unique = True
+                    for existing in positives:
+                        existing_similarity = self.calculate_similarity(existing["text"], paraphrase)
+                        if existing_similarity > 0.90:  # Very similar to existing paraphrase
+                            is_unique = False
+                            break
+                            
+                    if is_unique:
+                        positives.append({
+                            "text": paraphrase,
+                            "similarity": similarity,
+                            "type": "template_paraphrase"
+                        })
+                        paraphrase_count += 1
+                        
+            except Exception as e:
+                self.logger.warning(f"Error generating template paraphrase: {str(e)}")
+                continue
+
+        positives.sort(key=lambda x: x["similarity"], reverse=True)
+        return positives[:n]
+    
+    def _get_navigation_templates(self):
+        """Get templates for UAV navigation instructions."""
+        return [
             # Direction-focused templates
             "The destination can be found {direction}. It's {shape} and {color}.",
             "If you look {direction}, you'll see the destination which is {shape} with {color} color.",
@@ -253,62 +327,28 @@ class ContrastiveSampleGenerator:
             "Your destination is a {size} {color} structure with {shape} architecture {spatial_relation}.",
             "Move the drone to the {color} {landmark} that has {shape} features {direction} of your current position."
         ]
-        
-        # UAV-specific action verbs to create more variety
-        action_verbs = [
+    
+    def _get_navigation_action_verbs(self):
+        """Get UAV-specific action verbs for navigation templates."""
+        return [
             "fly", "navigate", "move", "head", "proceed", "travel", "hover near", 
             "go toward", "approach", "make your way to", "steer toward", "direct yourself to"
         ]
-        
-        # Clock direction references
-        clock_directions = [
+    
+    def _get_clock_directions(self):
+        """Get clock direction references for navigation templates."""
+        return [
             "1 o'clock", "2 o'clock", "3 o'clock", "4 o'clock", "5 o'clock", "6 o'clock",
             "7 o'clock", "8 o'clock", "9 o'clock", "10 o'clock", "11 o'clock", "12 o'clock"
         ]
-        
-        # Features that can describe landmarks
-        features = ["roof", "exterior", "walls", "edge", "perimeter", "facade", "structure", "design"]
-        
-        # Determine which templates we can use based on available information
-        usable_templates = []
-        for template in templates:
-            can_use = True
-            
-            # Check if template requires direction
-            if "{direction}" in template and (not directions or len(directions) == 0):
-                can_use = False
-                
-            # Check if template requires landmark
-            if "{landmark}" in template and (not landmarks or len(landmarks) == 0):
-                can_use = False
-                
-            # Check if template requires color
-            if "{color}" in template and (not colors or len(colors) == 0):
-                can_use = False
-                
-            # Check if template requires shape
-            if "{shape}" in template and (not shapes or len(shapes) == 0):
-                can_use = False
-                
-            # Check if template requires spatial relation
-            if "{spatial_relation}" in template and (not spatial_relations or len(spatial_relations) == 0):
-                can_use = False
-                
-            # Check if template requires size
-            if "{size}" in template and (not sizes or len(sizes) == 0):
-                can_use = False
-                
-            # Check if template requires clock direction
-            if "{clock_direction}" in template:
-                # For clock directions, we can generate them even if not present
-                if not directions or len(directions) == 0:
-                    can_use = False
-                    
-            if can_use:
-                usable_templates.append(template)
-        
-        # Add generic templates that don't require specific extracted elements
-        generic_templates = [
+    
+    def _get_landmark_features(self):
+        """Get features that can describe landmarks."""
+        return ["roof", "exterior", "walls", "edge", "perimeter", "facade", "structure", "design"]
+    
+    def _get_generic_templates(self):
+        """Get generic templates that don't require specific extracted elements."""
+        return [
             "Your destination is located {generic_direction}.",
             "Head {generic_direction} to find your target.",
             "The target is {generic_direction} from your current position.",
@@ -317,133 +357,123 @@ class ContrastiveSampleGenerator:
             "Your target can be found if you go {generic_direction}.",
             "To reach the destination, {generic_action} {generic_direction}."
         ]
-        usable_templates.extend(generic_templates)
+    
+    def _select_usable_templates(self, templates, directions, landmarks, colors, shapes, spatial_relations, sizes):
+        """
+        Select templates that can be used based on available information.
         
-        # Generate paraphrases using templates
-        paraphrase_count = 0
-        max_attempts = min(30, len(usable_templates) * 3)  # Limit attempts to avoid infinite loops
-        attempts = 0
+        Args:
+            templates: List of all templates
+            directions, landmarks, etc.: Extracted navigation information
+            
+        Returns:
+            List of usable templates
+        """
+        usable_templates = []
         
-        while paraphrase_count < n and attempts < max_attempts:
-            attempts += 1
+        for template in templates:
+            can_use = True
             
-            if not usable_templates:
-                break
+            # Check required elements
+            if "{direction}" in template and (not directions or len(directions) == 0):
+                can_use = False
+            if "{landmark}" in template and (not landmarks or len(landmarks) == 0):
+                can_use = False
+            if "{color}" in template and (not colors or len(colors) == 0):
+                can_use = False
+            if "{shape}" in template and (not shapes or len(shapes) == 0):
+                can_use = False
+            if "{spatial_relation}" in template and (not spatial_relations or len(spatial_relations) == 0):
+                can_use = False
+            if "{size}" in template and (not sizes or len(sizes) == 0):
+                can_use = False
+            if "{clock_direction}" in template and (not directions or len(directions) == 0):
+                can_use = False
                 
-            template = random.choice(usable_templates)
-            
-            try:
-                # Fill in the template
-                paraphrase = template
-                
-                # Replace direction placeholder
-                if "{direction}" in paraphrase:
-                    if directions and len(directions) > 0:
-                        paraphrase = paraphrase.replace("{direction}", random.choice(directions))
-                        
-                # Replace landmark placeholder
-                if "{landmark}" in paraphrase:
-                    if landmarks and len(landmarks) > 0:
-                        paraphrase = paraphrase.replace("{landmark}", random.choice(landmarks))
-                    else:
-                        paraphrase = paraphrase.replace("{landmark}", random.choice(self.landmark_terms))
-                        
-                # Replace color placeholder
-                if "{color}" in paraphrase:
-                    if colors and len(colors) > 0:
-                        paraphrase = paraphrase.replace("{color}", random.choice(colors))
-                    else:
-                        paraphrase = paraphrase.replace("{color}", random.choice(self.color_terms))
-                        
-                # Replace shape placeholder
-                if "{shape}" in paraphrase:
-                    if shapes and len(shapes) > 0:
-                        paraphrase = paraphrase.replace("{shape}", random.choice(shapes))
-                    else:
-                        paraphrase = paraphrase.replace("{shape}", random.choice(self.shape_terms))
-                        
-                # Replace spatial relation placeholder
-                if "{spatial_relation}" in paraphrase:
-                    if spatial_relations and len(spatial_relations) > 0:
-                        paraphrase = paraphrase.replace("{spatial_relation}", random.choice(spatial_relations))
-                    else:
-                        paraphrase = paraphrase.replace("{spatial_relation}", random.choice(self.spatial_relation_terms))
-                        
-                # Replace size placeholder
-                if "{size}" in paraphrase:
-                    if sizes and len(sizes) > 0:
-                        paraphrase = paraphrase.replace("{size}", random.choice(sizes))
-                    else:
-                        paraphrase = paraphrase.replace("{size}", random.choice(self.size_terms))
-                        
-                # Replace clock direction placeholder
-                if "{clock_direction}" in paraphrase:
-                    paraphrase = paraphrase.replace("{clock_direction}", random.choice(clock_directions))
-                    
-                # Replace feature placeholder
-                if "{feature}" in paraphrase:
-                    paraphrase = paraphrase.replace("{feature}", random.choice(features))
-                    
-                # Replace generic placeholders
-                if "{generic_direction}" in paraphrase:
-                    generic_direction = random.choice(self.direction_terms)
-                    paraphrase = paraphrase.replace("{generic_direction}", generic_direction)
-                    
-                if "{generic_action}" in paraphrase:
-                    generic_action = random.choice(action_verbs)
-                    paraphrase = paraphrase.replace("{generic_action}", generic_action)
-                    
-                # Calculate similarity with original answer
-                similarity = self.calculate_similarity(original_answer, paraphrase)
-                
-                # Only include if similar enough to original but not identical
-                if similarity > 0.5 and paraphrase != original_answer:
-                    # Check if this paraphrase is significantly different from previously generated ones
-                    is_unique = True
-                    for existing in positives:
-                        existing_similarity = self.calculate_similarity(existing["text"], paraphrase)
-                        if existing_similarity > 0.85:  # Very similar to existing paraphrase
-                            is_unique = False
-                            break
-                            
-                    if is_unique:
-                        positives.append({
-                            "text": paraphrase,
-                            "similarity": similarity,
-                            "type": "template_paraphrase"
-                        })
-                        paraphrase_count += 1
-                        
-            except Exception as e:
-                self.logger.warning(f"Error generating template paraphrase: {str(e)}")
-                continue
-            
-        # If we couldn't generate enough paraphrases, add simple variations
-        if len(positives) < n:
-            simple_variations = [
-                f"I believe {original_answer}",
-                f"{original_answer} That's your destination.",
-                f"Based on what I can see, {original_answer.lower()}",
-                f"From the drone's view, {original_answer.lower()}"
-            ]
-            
-            for variation in simple_variations:
-                if len(positives) >= n:
-                    break
-                    
-                similarity = self.calculate_similarity(original_answer, variation)
-                if similarity > 0.7 and variation != original_answer:
-                    positives.append({
-                        "text": variation,
-                        "similarity": similarity,
-                        "type": "simple_variation"
-                    })
+            if can_use:
+                usable_templates.append(template)
         
-        return positives[:n]
+        return usable_templates
+    
+    def _fill_template(self, template, directions, landmarks, colors, shapes, spatial_relations, sizes, 
+                     clock_directions, features, action_verbs):
+        """
+        Fill a template with appropriate values.
+        
+        Args:
+            template: Template string with placeholders
+            directions, landmarks, etc.: Navigation information and options
+            
+        Returns:
+            Filled template as a paraphrase
+        """
+        paraphrase = template
+        
+        # Replace direction placeholder
+        if "{direction}" in paraphrase:
+            if directions and len(directions) > 0:
+                paraphrase = paraphrase.replace("{direction}", random.choice(directions))
+                
+        # Replace landmark placeholder
+        if "{landmark}" in paraphrase:
+            if landmarks and len(landmarks) > 0:
+                paraphrase = paraphrase.replace("{landmark}", random.choice(landmarks))
+            else:
+                paraphrase = paraphrase.replace("{landmark}", random.choice(self.landmark_terms))
+                
+        # Replace color placeholder
+        if "{color}" in paraphrase:
+            if colors and len(colors) > 0:
+                paraphrase = paraphrase.replace("{color}", random.choice(colors))
+            else:
+                paraphrase = paraphrase.replace("{color}", random.choice(self.color_terms))
+                
+        # Replace shape placeholder
+        if "{shape}" in paraphrase:
+            if shapes and len(shapes) > 0:
+                paraphrase = paraphrase.replace("{shape}", random.choice(shapes))
+            else:
+                paraphrase = paraphrase.replace("{shape}", random.choice(self.shape_terms))
+                
+        # Replace spatial relation placeholder
+        if "{spatial_relation}" in paraphrase:
+            if spatial_relations and len(spatial_relations) > 0:
+                paraphrase = paraphrase.replace("{spatial_relation}", random.choice(spatial_relations))
+            else:
+                paraphrase = paraphrase.replace("{spatial_relation}", random.choice(self.spatial_relation_terms))
+                
+        # Replace size placeholder
+        if "{size}" in paraphrase:
+            if sizes and len(sizes) > 0:
+                paraphrase = paraphrase.replace("{size}", random.choice(sizes))
+            else:
+                paraphrase = paraphrase.replace("{size}", random.choice(self.size_terms))
+                
+        # Replace clock direction placeholder
+        if "{clock_direction}" in paraphrase:
+            paraphrase = paraphrase.replace("{clock_direction}", random.choice(clock_directions))
+            
+        # Replace feature placeholder
+        if "{feature}" in paraphrase:
+            paraphrase = paraphrase.replace("{feature}", random.choice(features))
+            
+        # Replace generic placeholders
+        if "{generic_direction}" in paraphrase:
+            generic_direction = random.choice(self.direction_terms)
+            paraphrase = paraphrase.replace("{generic_direction}", generic_direction)
+            
+        if "{generic_action}" in paraphrase:
+            generic_action = random.choice(action_verbs)
+            paraphrase = paraphrase.replace("{generic_action}", generic_action)
+            
+        return paraphrase
     
     def generate_positive_examples(self, original_answer, n=3):
         """
         Generate positive examples (paraphrases) using a hybrid approach.
+        
+        Uses both language model-based and template-based paraphrases to create
+        diverse positive examples for contrastive learning.
         
         Args:
             original_answer: The original navigation instruction to paraphrase
@@ -455,156 +485,582 @@ class ContrastiveSampleGenerator:
         self.logger.info(f"Generating {n} positive examples using hybrid approach")
         positives = []
         
-        # Skip short answers - they're difficult to paraphrase meaningfully
+        # Handle short answers specially - they're difficult to paraphrase meaningfully
         if len(original_answer.split()) < 3:
-            self.logger.warning(f"Answer too short ({len(original_answer.split())} words), using simple variations")
-            simple_variations = [
-                f"I believe {original_answer}",
-                f"{original_answer} That's your destination.",
-                f"Based on what I can see, {original_answer.lower()}"
-            ]
-            
-            for variation in simple_variations[:n]:
-                similarity = self.calculate_similarity(original_answer, variation)
-                positives.append({
-                    "text": variation,
-                    "similarity": similarity,
-                    "type": "simple_variation"
-                })
-            
-            return positives[:n]
+            return self._generate_simple_variations(original_answer, n)
         
-        # Hybrid approach:
-        # 1. Try to generate one LM-based paraphrase (higher quality but more resource-intensive)
-        # 2. Generate the rest using template-based approach (more diverse and lightweight)
+        # Step 1: Try to generate at least one high-quality LM-based paraphrase
+        if self.has_paraphraser:
+            lm_paraphrases = self._generate_lm_paraphrase(original_answer)
+            positives.extend(lm_paraphrases)
         
-        try:
-            # First attempt to generate a high-quality LM-based paraphrase
-            if self.has_paraphraser:
-                self.logger.info("Generating LM-based paraphrase")
-                lm_paraphrases = []
-                
-                try:
-                    # Use a prompt format for T5 paraphraser
-                    paraphrase_input = f"paraphrase: {original_answer}"
-                    
-                    # Generate a paraphrase
-                    outputs = self.paraphraser(
-                        paraphrase_input,
-                        max_length=min(128, len(original_answer.split()) * 2),
-                        num_return_sequences=2,  # Try a couple to increase chances of success
-                        temperature=1.0,
-                        do_sample=True
-                    )
-                    
-                    for output in outputs:
-                        paraphrase = output['generated_text'].strip()
-                        
-                        # Skip if paraphrase is empty or too similar to original
-                        if not paraphrase or paraphrase == original_answer:
-                            continue
-                        
-                        # Calculate similarity
-                        similarity = self.calculate_similarity(original_answer, paraphrase)
-                        
-                        # Only keep if reasonably similar (to avoid completely unrelated paraphrases)
-                        if similarity > 0.7:
-                            lm_paraphrases.append({
-                                "text": paraphrase,
-                                "similarity": similarity,
-                                "type": "lm_paraphrase"
-                            })
-                    
-                    # Add best LM paraphrase to our collection
-                    if lm_paraphrases:
-                        # Sort by descending similarity to find the best one
-                        lm_paraphrases.sort(key=lambda x: x["similarity"], reverse=True)
-                        positives.append(lm_paraphrases[0])
-                        self.logger.info(f"Successfully generated LM paraphrase (similarity: {lm_paraphrases[0]['similarity']:.3f})")
-                    else:
-                        self.logger.warning("LM paraphraser didn't generate valid paraphrases")
-                
-                except Exception as e:
-                    self.logger.warning(f"Error generating LM paraphrase: {str(e)}")
-                    import traceback
-                    self.logger.debug(f"LM paraphrase exception details: {traceback.format_exc()}")
-            else:
-                self.logger.warning("LM paraphraser not available, using only template approach")
-        
-        except Exception as e:
-            self.logger.warning(f"Error in LM-based phase: {str(e)}")
-        
-        # Generate the remaining examples using template-based approach
+        # Step 2: Generate the remaining examples using template-based approach
         remaining = n - len(positives)
         if remaining > 0:
             self.logger.info(f"Generating {remaining} template-based paraphrases")
             template_paraphrases = self.generate_template_paraphrases(original_answer, remaining)
             positives.extend(template_paraphrases)
         
-        # Check if we have enough examples
+        # Step 3: Fill any remaining slots with simple variations if needed
         if len(positives) < n:
             self.logger.warning(f"Generated only {len(positives)}/{n} positive examples, adding simple variations")
+            simple_variations = self._generate_simple_variations(original_answer, n - len(positives), positives)
+            positives.extend(simple_variations)
+        
+        # Return the requested number of positives
+        return positives[:n]
+    
+    def _generate_lm_paraphrase(self, original_answer, max_paraphrases=1):
+        """
+        Generate paraphrases using a language model.
+        
+        Args:
+            original_answer: Original answer to paraphrase
+            max_paraphrases: Maximum number of paraphrases to generate
             
-            # Add simple variations to reach the desired count
-            simple_variations = [
-                f"I believe {original_answer}",
-                f"{original_answer} That's your destination.",
-                f"Based on what I can see, {original_answer.lower()}",
-                f"From the drone's view, {original_answer.lower()}"
-            ]
+        Returns:
+            List of paraphrases with similarity scores
+        """
+        paraphrases = []
+        
+        if not self.has_paraphraser:
+            return paraphrases
+        
+        self.logger.info("Generating LM-based paraphrase")
+        
+        try:
+            # Format input for the T5 paraphraser
+            paraphrase_input = f"In the context of Unmanned Aerial Vehicle navigation, paraphrase: {original_answer}"
             
-            for variation in simple_variations:
-                if len(positives) >= n:
-                    break
-                    
-                # Skip if we already have something very similar
-                is_unique = True
-                for existing in positives:
+            # Generate paraphrases
+            outputs = self.paraphraser(
+                paraphrase_input,
+                max_length=min(128, len(original_answer.split()) * 2),
+                num_return_sequences=3,  # Try a couple to increase chances of success
+                temperature=1.0,
+                do_sample=True
+            )
+            
+            # Process outputs
+            for output in outputs:
+                paraphrase = output['generated_text'].strip()
+                
+                # Skip if paraphrase is empty or too similar to original
+                if not paraphrase or paraphrase == original_answer:
+                    continue
+                
+                # Calculate similarity
+                similarity = self.calculate_similarity(original_answer, paraphrase)
+                
+                # Only keep if reasonably similar to the original
+                if similarity > 0.7:
+                    paraphrases.append({
+                        "text": paraphrase,
+                        "similarity": similarity,
+                        "type": "lm_paraphrase"
+                    })
+            
+            # Add best paraphrase to our collection
+            if paraphrases:
+                # Sort by descending similarity to find the best one
+                paraphrases.sort(key=lambda x: x["similarity"], reverse=True)
+                self.logger.info(f"Successfully generated LM paraphrase (similarity: {paraphrases[0]['similarity']:.3f})")
+                return [paraphrases[0:max_paraphrases]]
+            else:
+                self.logger.warning("LM paraphraser didn't generate valid paraphrases")
+        
+        except Exception as e:
+            self.logger.warning(f"Error generating LM paraphrase: {str(e)}")
+            import traceback
+            self.logger.debug(f"LM paraphrase exception details: {traceback.format_exc()}")
+        
+        return []
+    
+    def _generate_simple_variations(self, original_answer, n, existing_positives=None):
+        """
+        Generate simple variations of the original answer as a fallback method.
+        
+        Args:
+            original_answer: Original answer text
+            n: Number of variations to generate
+            existing_positives: Existing positive examples to check for duplicates
+            
+        Returns:
+            List of simple variations with similarity scores
+        """
+        simple_variations = [
+            f"I believe {original_answer}",
+            f"{original_answer} That's your destination.",
+            f"Based on what I can see, {original_answer.lower()}",
+            f"From the drone's view, {original_answer.lower()}"
+        ]
+        
+        positives = []
+        existing_texts = set()
+        
+        # Get texts from existing positives to avoid duplicates
+        if existing_positives:
+            existing_texts = {pos["text"] for pos in existing_positives}
+        
+        # Add simple variations
+        for variation in simple_variations:
+            if len(positives) >= n:
+                break
+            
+            # Skip if already in existing positives
+            if variation in existing_texts:
+                continue
+                
+            # Check if we already have something very similar
+            is_unique = True
+            if existing_positives:
+                for existing in existing_positives:
                     if self.calculate_similarity(existing["text"], variation) > 0.9:
                         is_unique = False
                         break
-                
-                if is_unique:
-                    similarity = self.calculate_similarity(original_answer, variation)
+            
+            if is_unique:
+                similarity = self.calculate_similarity(original_answer, variation)
+                if similarity > 0.7 and variation != original_answer:
                     positives.append({
                         "text": variation,
                         "similarity": similarity,
                         "type": "simple_variation"
                     })
         
-        # Return the requested number of positives
-        return positives[:n]
+        return positives
     
     def generate_negative_examples(self, original_answer, n=3):
-        """Generate diverse negative examples using multiple strategies.
-        
-        Uses a mixed approach with LM-based and rule-based negative examples.
         """
-        # If n is less than 3, adjust the counts accordingly
-        lm_count = 1 if n >= 1 else 0
-        rule_count = n - lm_count
+        Generate diverse negative examples using multiple strategies.
         
-        # Get LM-based negative examples if paraphraser is available
-        lm_negatives = []
-        if lm_count > 0 and self.has_paraphraser:
-            try:
-                lm_negatives = self.generate_lm_negatives(original_answer, lm_count)
-            except Exception as e:
-                self.logger.warning(f"Error generating LM negatives: {str(e)}")
-                # If LM generation fails, use rule-based for all
-                rule_count = n
+        Uses exactly:
+        - 1 template-based negative
+        - 1 alternative answer from other dialog turns
+        - 1 rule-based negative
         
-        # Get rule-based negative examples
-        rule_negatives = self.generate_rule_based_negatives(original_answer, rule_count)
+        Args:
+            original_answer: Original answer to generate negatives for
+            n: Number of negatives to generate (defaults to 3 but will always return 3)
+            
+        Returns:
+            List of negative examples with similarity scores
+        """
+        negatives = []
+        similarity_threshold = 0.3  # Minimum similarity threshold for all negatives
         
-        # Combine the results
-        all_negatives = lm_negatives + rule_negatives
+        # Step 1: Try to get multiple template-based negatives and choose the best one
+        template_candidates = self.generate_template_negatives(original_answer, 3)
+        if template_candidates:
+            # Sort by similarity to find the most appropriate template negative
+            template_candidates.sort(key=lambda x: x["similarity"], reverse=True)
+            # Take the template with highest similarity above threshold
+            filtered_templates = [t for t in template_candidates if t["similarity"] >= similarity_threshold]
+            if filtered_templates:
+                negatives.append(filtered_templates[0])
+                self.logger.info(f"Selected template-based negative with similarity: {filtered_templates[0]['similarity']:.3f}")
         
-        return all_negatives[:n]
+        # Step 2: Try to get an alternative answer from other dialog turns
+        if self.alternative_answers:
+            alternative_candidates = self.generate_alternative_answer_negatives(original_answer, 3)
+            if alternative_candidates:
+                # Sort by descending similarity to find the best alternative
+                alternative_candidates.sort(key=lambda x: x["similarity"], reverse=True)
+                # Take the alternative with highest similarity above threshold
+                filtered_alternatives = [a for a in alternative_candidates if a["similarity"] >= similarity_threshold]
+                if filtered_alternatives:
+                    negatives.append(filtered_alternatives[0])
+                    self.logger.info(f"Selected alternative-answer negative with similarity: {filtered_alternatives[0]['similarity']:.3f}")
+        
+        # Step 3: Try to get multiple rule-based negatives and choose the best one
+        rule_candidates = self.generate_rule_based_negatives(original_answer, 3)
+        if rule_candidates:
+            # Sort by similarity to find the most appropriate rule-based negative
+            rule_candidates.sort(key=lambda x: x["similarity"], reverse=True)
+            # Take the rule-based with highest similarity above threshold
+            filtered_rules = [r for r in rule_candidates if r["similarity"] >= similarity_threshold]
+            if filtered_rules:
+                negatives.append(filtered_rules[0])
+                self.logger.info(f"Selected rule-based negative with similarity: {filtered_rules[0]['similarity']:.3f}")
+        
+        # If we don't have enough negatives (still < 3), add more from any category that worked
+        remaining_slots = 3 - len(negatives)
+        if remaining_slots > 0:
+            self.logger.warning(f"Only generated {len(negatives)}/3 high-quality negatives, adding fallbacks")
+            
+            # Try to fill in with any remaining alternative answers
+            if 'alternative_candidates' in locals() and len(alternative_candidates) > 1 and remaining_slots > 0:
+                for candidate in alternative_candidates[1:]:  # Skip the first one we already used
+                    if candidate not in negatives:
+                        negatives.append(candidate)
+                        remaining_slots -= 1
+                        if remaining_slots == 0:
+                            break
+
+
+            # Try to fill in with any remaining template negatives
+            if len(template_candidates) > 1 and remaining_slots > 0:
+                for candidate in template_candidates[1:]:  # Skip the first one we already used
+                    if candidate not in negatives:
+                        negatives.append(candidate)
+                        remaining_slots -= 1
+                        if remaining_slots == 0:
+                            break
+            
+            # Try to fill in with any remaining rule-based negatives
+            if len(rule_candidates) > 1 and remaining_slots > 0:
+                for candidate in rule_candidates[1:]:  # Skip the first one we already used
+                    if candidate not in negatives:
+                        negatives.append(candidate)
+                        remaining_slots -= 1
+                        if remaining_slots == 0:
+                            break
+            
+            # Last resort: generate random negatives
+            while remaining_slots > 0:
+                random_negative = self._generate_random_negative(original_answer)[0]
+                negatives.append({
+                    "text": random_negative["text"],
+                    "similarity": random_negative["similarity"],
+                    "type": "random_negative"
+                })
+                remaining_slots -= 1
+        
+        return negatives[:3]  # Always return exactly 3 negatives
     
-    def generate_lm_negatives(self, original_answer, n=1):
+    def generate_template_negatives(self, original_answer, n=3):
         """
-        Generate negative examples using a language model with simple negation prompts.
+        Generate negative examples using templates that create contradictory navigation instructions.
+        
+        Args:
+            original_answer: Original answer to generate negatives for
+            n: Number of negatives to generate
+            
+        Returns:
+            List of negative examples with similarity scores
+        """
+        negatives = []
+        
+        # Extract key navigation information
+        extracted_info = self._extract_navigation_info(original_answer)
+        directions = extracted_info["directions"]
+        landmarks = extracted_info["landmarks"]
+        colors = extracted_info["colors"] 
+        shapes = extracted_info["shapes"]
+        spatial_relations = extracted_info["spatial_relations"]
+        sizes = extracted_info["sizes"]
+        
+        # Get templates for negative examples
+        templates = self._get_negative_templates()
+        
+        # Select usable templates based on available information
+        usable_templates = []
+        for template in templates:
+            can_use = True
+            
+            # Check required elements based on template placeholders
+            if "{opposite_direction}" in template and (not directions or len(directions) == 0):
+                can_use = False
+            if "{different_landmark}" in template and (not landmarks or len(landmarks) == 0):
+                can_use = False
+            if "{different_color}" in template and (not colors or len(colors) == 0):
+                can_use = False
+            if "{different_shape}" in template and (not shapes or len(shapes) == 0):
+                can_use = False
+            
+            if can_use:
+                usable_templates.append(template)
+        
+        # Add generic negative templates that don't require specific extracted elements
+        generic_templates = self._get_generic_negative_templates()
+        usable_templates.extend(generic_templates)
+        
+        # Generate negatives using templates
+        negative_count = 0
+        max_attempts = min(30, len(usable_templates) * 3)  # Limit attempts
+        attempts = 0
+        generated_texts = set()  # Track generated texts to avoid duplicates
+        
+        while attempts < max_attempts:
+            attempts += 1
+            
+            if not usable_templates:
+                break
+                
+            template = random.choice(usable_templates)
+            
+            try:
+                # Fill the template with appropriate values
+                negative = self._fill_negative_template(
+                    template,
+                    directions,
+                    landmarks,
+                    colors,
+                    shapes,
+                    spatial_relations,
+                    sizes
+                )
+                
+                # Skip if duplicate or identical to original
+                if negative in generated_texts or negative == original_answer:
+                    continue
+                    
+                generated_texts.add(negative)
+                    
+                # Calculate similarity with original answer
+                similarity = self.calculate_similarity(original_answer, negative)
+                
+                # Only include if different enough from original but not completely unrelated
+                if 0.3 <= similarity <= 0.85:
+                    negatives.append({
+                        "text": negative,
+                        "similarity": similarity,
+                        "type": "template_negative"
+                    })
+                    negative_count += 1
+                    
+            except Exception as e:
+                self.logger.warning(f"Error generating template negative: {str(e)}")
+                continue
+        
+        self.logger.info(f"Generated {len(negatives)} template-based negatives")
+        negatives.sort(key=lambda x: x["similarity"], reverse=True)
+        return negatives[:n]
+    
+    def _get_negative_templates(self):
+        """Get templates for generating contradictory UAV navigation instructions."""
+        return [
+            # Direction reversal templates
+            "Head {opposite_direction} instead of {direction}.",
+            "Go {opposite_direction}, not {direction}.",
+            "The destination is {opposite_direction}, not {direction} as previously indicated.",
+            "You should fly {opposite_direction} to reach the destination.",
+            
+            # Landmark substitution templates
+            "Look for a {different_landmark}, not a {landmark}.",
+            "The destination is a {different_landmark}, not a {landmark}.",
+            "Your target is the {different_landmark} {direction}, not the {landmark}.",
+            
+            # Color substitution templates
+            "The landmark is {different_color}, not {color}.",
+            "Look for a {different_color} building, not a {color} one.",
+            "The {landmark} has {different_color} features, not {color}.",
+            
+            # Shape substitution templates
+            "The structure is {different_shape}, not {shape}.",
+            "The building has a {different_shape} architecture, not {shape}.",
+            
+            # Combined attribute templates
+            "Go {opposite_direction} to find a {different_color} {different_landmark}, not {direction} to the {color} {landmark}.",
+            "The target is a {different_color} {different_shape} structure {opposite_direction}, not a {color} {shape} one {direction}.",
+            "Your destination is the {different_color} {different_landmark} with {different_shape} features, not the {color} {landmark} with {shape} elements."
+        ]
+    
+    def _get_generic_negative_templates(self):
+        """Get generic negative templates that don't require specific extracted elements."""
+        return [
+            "The destination is in the completely opposite direction.",
+            "You're looking at the wrong area entirely.",
+            "That's not the target at all. Look elsewhere.",
+            "The target is not where you're currently looking.",
+            "You need to search in a different area.",
+            "The destination is nowhere near that location.",
+            "You're facing the wrong way. Turn around completely.",
+            "That's not your destination. Look in another direction.",
+            "You need to look for a completely different landmark."
+        ]
+    
+    def _fill_negative_template(self, template, directions, landmarks, colors, shapes, spatial_relations, sizes):
+        """
+        Fill a negative template with appropriate contradictory values.
+        
+        Args:
+            template: Template string with placeholders
+            directions, landmarks, etc.: Navigation information from original answer
+            
+        Returns:
+            Filled template as a negative example
+        """
+        negative = template
+        
+        # Get opposite directions
+        direction_opposites = {
+            "north": "south",
+            "south": "north",
+            "east": "west",
+            "west": "east",
+            "northeast": "southwest",
+            "southwest": "northeast",
+            "northwest": "southeast",
+            "southeast": "northwest",
+            "left": "right",
+            "right": "left",
+            "forward": "backward",
+            "backward": "forward",
+            "ahead": "behind",
+            "behind": "ahead",
+            "clockwise": "counterclockwise",
+            "counterclockwise": "clockwise"
+        }
+        
+        # Replace direction placeholders
+        if "{direction}" in negative and directions and len(directions) > 0:
+            direction = random.choice(directions)
+            negative = negative.replace("{direction}", direction)
+            
+            # Replace opposite direction placeholder
+            if "{opposite_direction}" in negative:
+                if direction in direction_opposites:
+                    opposite = direction_opposites[direction]
+                else:
+                    # For directions without clear opposites, use a different direction
+                    available_opposites = [d for d in self.direction_terms if d != direction]
+                    opposite = random.choice(available_opposites)
+                negative = negative.replace("{opposite_direction}", opposite)
+        elif "{opposite_direction}" in negative:
+            # Just pick a random direction if no specific directions in original
+            negative = negative.replace("{opposite_direction}", random.choice(self.direction_terms))
+            
+        # Replace landmark placeholders
+        if "{landmark}" in negative and landmarks and len(landmarks) > 0:
+            landmark = random.choice(landmarks)
+            negative = negative.replace("{landmark}", landmark)
+            
+            # Replace different landmark placeholder
+            if "{different_landmark}" in negative:
+                available_alternatives = [l for l in self.landmark_terms if l not in landmarks]
+                if available_alternatives:
+                    negative = negative.replace("{different_landmark}", random.choice(available_alternatives))
+                else:
+                    negative = negative.replace("{different_landmark}", "different structure")
+        elif "{different_landmark}" in negative:
+            negative = negative.replace("{different_landmark}", random.choice(self.landmark_terms))
+            
+        # Replace color placeholders
+        if "{color}" in negative and colors and len(colors) > 0:
+            color = random.choice(colors)
+            negative = negative.replace("{color}", color)
+            
+            # Replace different color placeholder
+            if "{different_color}" in negative:
+                available_alternatives = [c for c in self.color_terms if c not in colors]
+                if available_alternatives:
+                    negative = negative.replace("{different_color}", random.choice(available_alternatives))
+                else:
+                    negative = negative.replace("{different_color}", "differently colored")
+        elif "{different_color}" in negative:
+            negative = negative.replace("{different_color}", random.choice(self.color_terms))
+            
+        # Replace shape placeholders
+        if "{shape}" in negative and shapes and len(shapes) > 0:
+            shape = random.choice(shapes)
+            negative = negative.replace("{shape}", shape)
+            
+            # Replace different shape placeholder
+            if "{different_shape}" in negative:
+                available_alternatives = [s for s in self.shape_terms if s not in shapes]
+                if available_alternatives:
+                    negative = negative.replace("{different_shape}", random.choice(available_alternatives))
+                else:
+                    negative = negative.replace("{different_shape}", "differently shaped")
+        elif "{different_shape}" in negative:
+            negative = negative.replace("{different_shape}", random.choice(self.shape_terms))
+            
+        return negative
+    
+    def generate_alternative_answer_negatives(self, original_answer, n=3):
+        """
+        Generate negative examples using answers from other dialog turns.
+        
+        Args:
+            original_answer: Original answer to generate negatives for
+            n: Number of negatives to generate
+            
+        Returns:
+            List of negative examples with similarity scores
+        """
+        negatives = []
+        
+        if not self.alternative_answers:
+            return negatives
+            
+        # Filter out answers too similar to original
+        filtered_alternatives = []
+        for alt_answer in self.alternative_answers:
+            if alt_answer != original_answer:
+                similarity = self.calculate_similarity(original_answer, alt_answer)
+                # Only use as negative if it's different enough but not completely unrelated
+                if 0.3 <= similarity <= 0.7:
+                    filtered_alternatives.append({
+                        "text": alt_answer,
+                        "similarity": similarity
+                    })
+        
+        # Sort by ascending similarity (we want the more different ones first)
+        filtered_alternatives.sort(key=lambda x: x["similarity"])
+        
+        # Take the most different alternatives up to n
+        for i in range(min(n, len(filtered_alternatives))):
+            negatives.append({
+                "text": filtered_alternatives[i]["text"],
+                "similarity": filtered_alternatives[i]["similarity"],
+                "type": "alternative_answer"
+            })
+            
+        self.logger.info(f"Generated {len(negatives)} alternative-answer negatives")
+        return negatives
+    
+    def _extract_navigation_info(self, text):
+        """
+        Extract key navigation information from text.
+        
+        Identifies directions, landmarks, colors, shapes, spatial relations, and sizes
+        present in the provided text.
+        
+        Args:
+            text: Input text to analyze
+            
+        Returns:
+            Dictionary containing lists of extracted terms by category
+        """
+        text_lower = text.lower()
+        
+        # Extract each type of navigation information
+        directions = self._extract_terms(text_lower, self.direction_terms)
+        landmarks = self._extract_terms(text_lower, self.landmark_terms)
+        colors = self._extract_terms(text_lower, self.color_terms)
+        shapes = self._extract_terms(text_lower, self.shape_terms)
+        spatial_relations = self._extract_terms(text_lower, self.spatial_relation_terms)
+        sizes = self._extract_terms(text_lower, self.size_terms)
+        
+        return {
+            "directions": directions,
+            "landmarks": landmarks,
+            "colors": colors,
+            "shapes": shapes,
+            "spatial_relations": spatial_relations,
+            "sizes": sizes
+        }
+    
+    def _extract_terms(self, text, term_list):
+        """
+        Extract terms from text that match items in a list.
+        
+        Args:
+            text: Text to search in
+            term_list: List of terms to search for
+            
+        Returns:
+            List of matching terms found in the text
+        """
+        return [term for term in term_list if term in text]
+    
+    def generate_rule_based_negatives(self, original_answer, n=2):
+        """
+        Generate negative examples using rule-based methods focused on navigation elements.
+        
+        This method applies various transformation strategies to create semantically
+        opposite navigation instructions.
         
         Args:
             original_answer: Original answer to negate
@@ -615,166 +1071,30 @@ class ContrastiveSampleGenerator:
         """
         negatives = []
         
-        # Skip if answer is too short
-        if len(original_answer.split()) < 3:
-            return self._generate_random_negative(original_answer)
-        
-        try:
-            if self.has_negative_generator:
-                self.logger.info(f"Generating T5-based negatives using direct prompts")
-                
-                # Simple prompt templates for negation
-                prompt_templates = [
-                    f"contradict: {original_answer}",
-                    f"opposite: {original_answer}",
-                    f"negate: {original_answer}",
-                    f"generate opposite navigation instruction: {original_answer}",
-                    f"provide directions to a different location: {original_answer}"
-                ]
-                
-                # Randomly select prompts to try
-                selected_prompts = random.sample(prompt_templates, min(3, len(prompt_templates)))
-                
-                for prompt in selected_prompts:
-                    if len(negatives) >= n:
-                        break
-                        
-                    try:
-                        # Generate contradiction using T5
-                        outputs = self.negative_generator(
-                            prompt,
-                            max_length=min(128, len(original_answer.split()) * 2),
-                            do_sample=True,
-                            temperature=1.2,  # Slightly higher temperature for more diverse outputs
-                            num_return_sequences=2
-                        )
-                        
-                        for output in outputs:
-                            if len(negatives) >= n:
-                                break
-                                
-                            negative_text = output['generated_text'].strip()
-                            
-                            # Ensure the negative is not empty or too similar to original
-                            if not negative_text or negative_text == original_answer:
-                                continue
-                            
-                            # Calculate similarity
-                            similarity = self.calculate_similarity(original_answer, negative_text)
-                            
-                            # Only keep if reasonably different but not entirely unrelated
-                            if 0.3 <= similarity <= 0.8:
-                                negatives.append({
-                                    "text": negative_text,
-                                    "similarity": similarity,
-                                    "type": "lm_negative"
-                                })
-                    
-                    except Exception as e:
-                        self.logger.warning(f"Error generating negative with prompt '{prompt}': {str(e)}")
-                        continue
-            
-            # If we don't have a negative generator or couldn't generate any valid negatives
-            if not self.has_negative_generator or not negatives:
-                self.logger.warning("Falling back to rule-based negatives")
-                return self.generate_rule_based_negatives(original_answer, n)
-        
-        except Exception as e:
-            self.logger.warning(f"Error in LM negative generation: {str(e)}")
-            import traceback
-            self.logger.debug(f"Exception details: {traceback.format_exc()}")
-            self.logger.warning("Falling back to rule-based negatives")
-            return self.generate_rule_based_negatives(original_answer, n)
-        
-        # If we couldn't generate enough valid negatives, add rule-based ones
-        if len(negatives) < n:
-            rule_based_negatives = self.generate_rule_based_negatives(original_answer, n - len(negatives))
-            negatives.extend(rule_based_negatives)
-        
-        return negatives[:n]
-    
-    def generate_rule_based_negatives(self, original_answer, n=2):
-        """Generate negative examples using rule-based methods focused on navigation elements."""
-        negatives = []
-        
         # Extract navigation elements from the original answer
         extracted_info = self._extract_navigation_info(original_answer)
-        directions = extracted_info["directions"]
-        landmarks = extracted_info["landmarks"]
-        colors = extracted_info["colors"]
-        shapes = extracted_info["shapes"]
-        spatial_relations = extracted_info["spatial_relations"]
-        sizes = extracted_info["sizes"]
         
-        # Prioritize different strategies based on available information
-        strategies = []
-        
-        # Strategy 1: Direction reversal/substitution
-        if directions and len(directions) > 0:
-            strategies.append(self._generate_direction_reversal_negatives)
-        
-        # Strategy 2: Landmark substitution  
-        if landmarks and len(landmarks) > 0:
-            strategies.append(self._generate_landmark_substitution_negatives)
-        
-        # Strategy 3: Color negation
-        if colors and len(colors) > 0:
-            strategies.append(self._generate_color_substitution_negatives)
-        
-        # Strategy 4: Shape negation
-        if shapes and len(shapes) > 0:
-            strategies.append(self._generate_shape_substitution_negatives)
-        
-        # Strategy 5: Spatial relation reversal
-        if spatial_relations and len(spatial_relations) > 0:
-            strategies.append(self._generate_spatial_relation_negatives)
-        
-        # Strategy 6: Size substitution
-        if sizes and len(sizes) > 0:
-            strategies.append(self._generate_size_substitution_negatives)
-        
-        # Strategy 7: Semantic frame alterations (combined contradictions)
-        if (directions or landmarks or colors or shapes) and len(strategies) >= 2:
-            strategies.append(self._generate_semantic_frame_negatives)
-        
-        # Strategy 8: Generic opposition (fallback)
-        strategies.append(self._generate_generic_opposition_negatives)
-        
-        # Strategy 9: Random negative (last resort)
-        strategies.append(self._generate_random_negative)
+        # Create a list of applicable strategies based on available information
+        strategies = self._get_applicable_negative_strategies(extracted_info)
         
         # Ensure we have enough strategies
         while len(strategies) < n:
             strategies.append(random.choice(strategies))
         
-        # Use different strategies to generate varied negative examples
-        random.shuffle(strategies)  # Randomize strategy order
+        # Randomize strategy order for diversity
+        random.shuffle(strategies)
         
-        # Keep track of generated texts to avoid duplicates
-        generated_texts = set()
+        # Generate negatives using different strategies
+        generated_texts = set()  # Track generated texts to avoid duplicates
         strategy_idx = 0
         max_attempts = 10  # Avoid infinite loop if strategies keep failing
         
         while len(negatives) < n and strategy_idx < len(strategies) and max_attempts > 0:
             strategy = strategies[strategy_idx]
             try:
-                # Call the strategy with the original answer and extracted elements
-                if strategy == self._generate_semantic_frame_negatives:
-                    new_negatives = strategy(original_answer, directions, landmarks, colors, shapes, spatial_relations, sizes)
-                elif strategy == self._generate_landmark_substitution_negatives:
-                    new_negatives = strategy(original_answer, landmarks)
-                elif strategy == self._generate_direction_reversal_negatives:
-                    new_negatives = strategy(original_answer, directions)
-                elif strategy == self._generate_spatial_relation_negatives:
-                    new_negatives = strategy(original_answer, spatial_relations)
-                elif strategy == self._generate_color_substitution_negatives:
-                    new_negatives = strategy(original_answer, colors)
-                elif strategy == self._generate_shape_substitution_negatives:
-                    new_negatives = strategy(original_answer, shapes)
-                elif strategy == self._generate_size_substitution_negatives:
-                    new_negatives = strategy(original_answer, sizes)
-                else:
-                    new_negatives = strategy(original_answer)
+                # Call the strategy with appropriate parameters
+                new_negatives = self._apply_negative_strategy(
+                    strategy, original_answer, extracted_info)
                 
                 # Add new negatives if they're not duplicates
                 for neg in new_negatives:
@@ -813,484 +1133,97 @@ class ContrastiveSampleGenerator:
         
         return negatives[:n]
     
-    def _generate_color_substitution_negatives(self, original_answer, colors):
-        """Generate negatives by substituting colors with opposite/different colors."""
-        negatives = []
+    def _get_applicable_negative_strategies(self, extracted_info):
+        """
+        Get a list of applicable negative generation strategies based on available information.
         
-        # Start with original text
-        text = original_answer
-        
-        # Define color opposites and groups
-        color_opposites = {
-            "red": ["blue", "green"],
-            "blue": ["red", "orange"],
-            "green": ["red", "purple"],
-            "yellow": ["blue", "purple"],
-            "black": ["white", "light"],
-            "white": ["black", "dark"],
-            "gray": ["colorful", "vibrant"],
-            "grey": ["colorful", "vibrant"],
-            "brown": ["white", "blue"],
-            "purple": ["yellow", "green"],
-            "orange": ["blue", "green"],
-            "beige": ["dark", "black"],
-            "pink": ["green", "brown"],
-            "tan": ["gray", "blue"],
-            "golden": ["silver", "dark"],
-            "silver": ["golden", "dark"],
-            "dark": ["light", "bright"],
-            "light": ["dark", "dim"],
-            "bright": ["dull", "dark"],
-            "dull": ["bright", "vibrant"],
-            "vibrant": ["dull", "gray"]
-        }
-        
-        # Try to replace each color with its opposite
-        for color in colors:
-            if color in color_opposites:
-                opposite_colors = color_opposites[color]
-                opposite_color = random.choice(opposite_colors)
-                
-                # Create a new text with the opposite color
-                new_text = text.replace(color, opposite_color)
-                
-                # Only add if the text actually changed
-                if new_text != text:
-                    similarity = self.calculate_similarity(original_answer, new_text)
-                    negatives.append({
-                        "text": new_text,
-                        "similarity": similarity,
-                        "type": "color_negation"
-                    })
-                    
-                    # Return early if we have at least one negative
-                    if negatives:
-                        break
-        
-        # If no color-specific negatives were generated, use a generic approach
-        if not negatives:
-            # Replace all detected colors with random different ones
-            all_colors = list(self.color_terms)
-            new_text = text
+        Args:
+            extracted_info: Dictionary containing extracted navigation information
             
-            for color in colors:
-                different_colors = [c for c in all_colors if c != color]
-                if different_colors:
-                    different_color = random.choice(different_colors)
-                    new_text = new_text.replace(color, different_color)
+        Returns:
+            List of applicable strategy methods
+        """
+        strategies = []
+        
+        # Add strategies based on available information
+        if extracted_info["directions"]:
+            strategies.append(self._generate_direction_reversal_negatives)
             
-            # Only add if the text actually changed
-            if new_text != text:
-                similarity = self.calculate_similarity(original_answer, new_text)
-                negatives.append({
-                    "text": new_text,
-                    "similarity": similarity,
-                    "type": "color_substitution"
-                })
-        
-        # If we still don't have any negatives, explicitly state a different color
-        if not negatives and colors:
-            first_color = colors[0]
-            different_colors = [c for c in self.color_terms if c != first_color]
-            if different_colors:
-                different_color = random.choice(different_colors)
-                
-                # Create a more explicit contradiction about the color
-                if "landmark" in original_answer.lower() or any(landmark in original_answer.lower() for landmark in self.landmark_terms):
-                    new_text = f"The landmark is {different_color}, not {first_color}."
-                else:
-                    new_text = f"The destination is {different_color}, not {first_color}."
-                    
-                similarity = self.calculate_similarity(original_answer, new_text)
-                negatives.append({
-                    "text": new_text,
-                    "similarity": similarity,
-                    "type": "explicit_color_negation"
-                })
-        
-        # Return what we have, or empty list if nothing worked
-        return negatives
-    
-    def _generate_shape_substitution_negatives(self, original_answer, shapes):
-        """Generate negatives by substituting shapes with different shapes."""
-        negatives = []
-        
-        # Start with original text
-        text = original_answer
-        
-        # Define shape opposites
-        shape_opposites = {
-            "square": ["round", "circular", "oval"],
-            "rectangular": ["circular", "oval", "round"],
-            "round": ["square", "rectangular", "triangular"],
-            "circular": ["square", "rectangular", "triangular"],
-            "oval": ["square", "rectangular", "triangular"],
-            "triangular": ["square", "round", "oval"],
-            "dome": ["flat", "square", "rectangular"],
-            "L-shaped": ["straight", "rectangular", "square"],
-            "U-shaped": ["straight", "rectangular", "triangular"],
-            "flat": ["dome", "tall", "curved"],
-            "tall": ["short", "flat", "wide"],
-            "short": ["tall", "high", "long"],
-            "wide": ["narrow", "thin", "tall"],
-            "narrow": ["wide", "broad", "expansive"],
-            "curved": ["straight", "angled", "flat"],
-            "straight": ["curved", "zigzag", "angled"],
-            "zigzag": ["straight", "curved", "flat"],
-            "angled": ["curved", "straight", "flat"],
-            "sloped": ["flat", "level", "straight"]
-        }
-        
-        # Try to replace each shape with its opposite
-        for shape in shapes:
-            if shape in shape_opposites:
-                opposite_shapes = shape_opposites[shape]
-                opposite_shape = random.choice(opposite_shapes)
-                
-                # Create a new text with the opposite shape
-                new_text = text.replace(shape, opposite_shape)
-                
-                # Only add if the text actually changed
-                if new_text != text:
-                    similarity = self.calculate_similarity(original_answer, new_text)
-                    negatives.append({
-                        "text": new_text,
-                        "similarity": similarity,
-                        "type": "shape_negation"
-                    })
-                    
-                    # Return early if we have at least one negative
-                    if negatives:
-                        break
-        
-        # If no shape-specific negatives were generated, use a generic approach
-        if not negatives:
-            # Replace all detected shapes with random different ones
-            all_shapes = list(self.shape_terms)
-            new_text = text
+        if extracted_info["landmarks"]:
+            strategies.append(self._generate_landmark_substitution_negatives)
             
-            for shape in shapes:
-                different_shapes = [s for s in all_shapes if s != shape]
-                if different_shapes:
-                    different_shape = random.choice(different_shapes)
-                    new_text = new_text.replace(shape, different_shape)
+        if extracted_info["colors"]:
+            strategies.append(self._generate_color_substitution_negatives)
             
-            # Only add if the text actually changed
-            if new_text != text:
-                similarity = self.calculate_similarity(original_answer, new_text)
-                negatives.append({
-                    "text": new_text,
-                    "similarity": similarity,
-                    "type": "shape_substitution"
-                })
-        
-        # If we still don't have any negatives, explicitly state a different shape
-        if not negatives and shapes:
-            first_shape = shapes[0]
-            different_shapes = [s for s in self.shape_terms if s != first_shape]
-            if different_shapes:
-                different_shape = random.choice(different_shapes)
-                
-                # Create a more explicit contradiction about the shape
-                if "landmark" in original_answer.lower() or any(landmark in original_answer.lower() for landmark in self.landmark_terms):
-                    new_text = f"The landmark is {different_shape}, not {first_shape}."
-                else:
-                    new_text = f"The destination is {different_shape}, not {first_shape}."
-                    
-                similarity = self.calculate_similarity(original_answer, new_text)
-                negatives.append({
-                    "text": new_text,
-                    "similarity": similarity,
-                    "type": "explicit_shape_negation"
-                })
-        
-        # Return what we have, or empty list if nothing worked
-        return negatives
-    
-    def _generate_size_substitution_negatives(self, original_answer, sizes):
-        """Generate negatives by substituting sizes with opposite sizes."""
-        negatives = []
-        
-        # Start with original text
-        text = original_answer
-        
-        # Define size opposites
-        size_opposites = {
-            "large": ["small", "tiny", "little"],
-            "small": ["large", "big", "huge"],
-            "big": ["small", "tiny", "little"],
-            "tiny": ["big", "large", "huge"],
-            "huge": ["small", "tiny", "little"],
-            "massive": ["small", "tiny", "compact"],
-            "enormous": ["small", "tiny", "compact"],
-            "giant": ["small", "little", "compact"],
-            "little": ["big", "large", "huge"],
-            "medium": ["tiny", "huge", "enormous"],
-            "medium-sized": ["tiny", "huge", "enormous"],
-            "compact": ["massive", "enormous", "expansive"],
-            "expansive": ["compact", "tiny", "small"],
-            "long": ["short", "tiny", "small"],
-            "short": ["long", "massive", "enormous"],
-            "wide": ["narrow", "thin", "small"],
-            "narrow": ["wide", "expansive", "large"],
-            "thick": ["thin", "narrow", "small"],
-            "thin": ["thick", "wide", "massive"]
-        }
-        
-        # Try to replace each size with its opposite
-        for size in sizes:
-            if size in size_opposites:
-                opposite_sizes = size_opposites[size]
-                opposite_size = random.choice(opposite_sizes)
-                
-                # Create a new text with the opposite size
-                new_text = text.replace(size, opposite_size)
-                
-                # Only add if the text actually changed
-                if new_text != text:
-                    similarity = self.calculate_similarity(original_answer, new_text)
-                    negatives.append({
-                        "text": new_text,
-                        "similarity": similarity,
-                        "type": "size_negation"
-                    })
-                    
-                    # Return early if we have at least one negative
-                    if negatives:
-                        break
-        
-        # If no size-specific negatives were generated, use a generic approach
-        if not negatives:
-            # Replace all detected sizes with random different ones
-            all_sizes = list(self.size_terms)
-            new_text = text
+        if extracted_info["shapes"]:
+            strategies.append(self._generate_shape_substitution_negatives)
             
-            for size in sizes:
-                different_sizes = [s for s in all_sizes if s != size]
-                if different_sizes:
-                    different_size = random.choice(different_sizes)
-                    new_text = new_text.replace(size, different_size)
+        if extracted_info["spatial_relations"]:
+            strategies.append(self._generate_spatial_relation_negatives)
             
-            # Only add if the text actually changed
-            if new_text != text:
-                similarity = self.calculate_similarity(original_answer, new_text)
-                negatives.append({
-                    "text": new_text,
-                    "similarity": similarity,
-                    "type": "size_substitution"
-                })
-        
-        # Return what we have, or empty list if nothing worked
-        return negatives
-    
-    def _extract_navigation_info(self, text):
-        """Extract key navigation information from text."""
-        text_lower = text.lower()
-        
-        # Find directions
-        directions = []
-        for term in self.direction_terms:
-            if term in text_lower:
-                directions.append(term)
-                
-        # Find landmarks
-        landmarks = []
-        for term in self.landmark_terms:
-            if term in text_lower:
-                landmarks.append(term)
-                
-        # Find colors
-        colors = []
-        for term in self.color_terms:
-            if term in text_lower:
-                colors.append(term)
-                
-        # Find shapes
-        shapes = []
-        for term in self.shape_terms:
-            if term in text_lower:
-                shapes.append(term)
-        
-        # Find spatial relations
-        spatial_relations = []
-        for term in self.spatial_relation_terms:
-            if term in text_lower:
-                spatial_relations.append(term)
-        
-        # Find sizes
-        sizes = []
-        for term in self.size_terms:
-            if term in text_lower:
-                sizes.append(term)
-                
-        return {
-            "directions": directions,
-            "landmarks": landmarks,
-            "colors": colors,
-            "shapes": shapes,
-            "spatial_relations": spatial_relations,
-            "sizes": sizes
-        }
-    
-    def _generate_semantic_frame_negatives(self, original_answer, directions, landmarks, colors, shapes, spatial_relations, sizes):
-        """Generate negatives by transforming semantic frames."""
-        negatives = []
-        
-        # Try direction transformation first
-        if directions:
-            for direction in directions:
-                opposite_directions = self._get_opposite_direction(direction)
-                for opposite in opposite_directions:
-                    # Replace the direction with its opposite
-                    negative_text = original_answer.lower().replace(direction, opposite)
-                    
-                    # Only add if it's different enough
-                    similarity = self.calculate_similarity(original_answer, negative_text)
-                    if similarity < 0.95:  # Avoid near-duplicates
-                        negatives.append({
-                            "text": negative_text,
-                            "similarity": similarity,
-                            "type": "semantic_frame_direction"
-                        })
-        
-        # Try landmark transformation
-        if landmarks:
-            for landmark in landmarks:
-                # Pick a random different landmark
-                other_landmarks = [l for l in self.landmark_terms if l != landmark]
-                if other_landmarks:
-                    wrong_landmark = random.choice(other_landmarks)
-                    negative_text = original_answer.lower().replace(landmark, wrong_landmark)
-                    
-                    similarity = self.calculate_similarity(original_answer, negative_text)
-                    if similarity < 0.95:
-                        negatives.append({
-                            "text": negative_text,
-                            "similarity": similarity,
-                            "type": "semantic_frame_landmark"
-                        })
-        
-        # Try color transformation
-        if colors:
-            for color in colors:
-                # Pick a random different color
-                other_colors = [c for c in self.color_terms if c != color]
-                if other_colors:
-                    wrong_color = random.choice(other_colors)
-                    negative_text = original_answer.lower().replace(color, wrong_color)
-                    
-                    similarity = self.calculate_similarity(original_answer, negative_text)
-                    if similarity < 0.95:
-                        negatives.append({
-                            "text": negative_text,
-                            "similarity": similarity,
-                            "type": "semantic_frame_color"
-                        })
-        
-        return negatives
-    
-    def _generate_landmark_substitution_negatives(self, original_answer, landmarks):
-        """Generate negatives by substituting landmarks with their opposites."""
-        negatives = []
-        
-        if landmarks:
-            for landmark in landmarks:
-                # Get opposite landmark pairs (e.g., building → lake)
-                opposite_landmarks = self._get_opposite_landmark(landmark)
-                for opposite in opposite_landmarks:
-                    negative_text = original_answer.lower().replace(landmark, opposite)
-                    
-                    similarity = self.calculate_similarity(original_answer, negative_text)
-                    if similarity < 0.95:
-                        negatives.append({
-                            "text": negative_text,
-                            "similarity": similarity,
-                            "type": "landmark_substitution"
-                        })
-        
-        return negatives
-    
-    def _generate_direction_reversal_negatives(self, original_answer, directions):
-        """Generate negatives by reversing directions."""
-        negatives = []
-        
-        for direction in directions:
-            # Get reversed direction
-            reversed_directions = self._get_opposite_direction(direction)
+        if extracted_info["sizes"]:
+            strategies.append(self._generate_size_substitution_negatives)
             
-            # Generate complex direction reversal by transforming multiple parts
-            text_parts = original_answer.split()
-            for i, part in enumerate(text_parts):
-                part_lower = part.lower().strip('.,!?;:"\'')
-                if part_lower == direction or direction in part_lower:
-                    for reversed_dir in reversed_directions:
-                        # Create a copy and modify just this one part
-                        new_parts = text_parts.copy()
-                        new_parts[i] = part.replace(direction, reversed_dir)
-                        negative_text = ' '.join(new_parts)
-                        
-                        similarity = self.calculate_similarity(original_answer, negative_text)
-                        if similarity < 0.95:
-                            negatives.append({
-                                "text": negative_text,
-                                "similarity": similarity,
-                                "type": "direction_reversal"
-                            })
+        # Add semantic frame strategy if we have multiple elements to combine
+        has_multiple_elements = sum(1 for elements in extracted_info.values() if elements) >= 2
+        if has_multiple_elements:
+            strategies.append(self._generate_semantic_frame_negatives)
+            
+        # Always add these fallback strategies
+        strategies.append(self._generate_generic_opposition_negatives)
+        strategies.append(self._generate_random_negative)
         
-        return negatives
+        return strategies
     
-    def _generate_spatial_relation_negatives(self, original_answer, spatial_relations):
-        """Generate negatives by swapping spatial relations."""
-        negatives = []
+    def _apply_negative_strategy(self, strategy, original_answer, extracted_info):
+        """
+        Apply a negative generation strategy with appropriate parameters.
         
-        for relation in spatial_relations:
-            # Get opposite spatial relation
-            opposite_relations = self._get_opposite_spatial_relation(relation)
-            for opposite in opposite_relations:
-                negative_text = original_answer.lower().replace(relation, opposite)
-                
-                similarity = self.calculate_similarity(original_answer, negative_text)
-                if similarity < 0.95:
-                    negatives.append({
-                        "text": negative_text,
-                        "similarity": similarity,
-                        "type": "spatial_relation_swap"
-                    })
-        
-        return negatives
-    
-    def _generate_generic_opposition_negatives(self, original_answer):
-        """Generate generic negation by semantic opposition."""
-        negatives = []
-        
-        # Add negation
-        if not any(neg in original_answer.lower() for neg in ["not", "don't", "doesn't", "isn't", "aren't", "can't"]):
-            # Insert negation before the main verb or directive
-            for verb in ["go", "head", "turn", "proceed", "continue", "move", "follow", "take"]:
-                if verb in original_answer.lower():
-                    negative_text = original_answer.lower().replace(verb, f"don't {verb}")
-                    similarity = self.calculate_similarity(original_answer, negative_text)
-                    negatives.append({
-                        "text": negative_text,
-                        "similarity": similarity,
-                        "type": "generic_opposition_negation"
-                    })
-                    break
-        
-        # Complete reversal of instruction
-        negative_text = f"Do the opposite of what was instructed: {original_answer}"
-        similarity = self.calculate_similarity(original_answer, negative_text)
-        negatives.append({
-            "text": negative_text,
-            "similarity": similarity,
-            "type": "generic_opposition_reversal"
-        })
-        
-        return negatives
+        Args:
+            strategy: The strategy method to apply
+            original_answer: The original answer text
+            extracted_info: Dictionary of extracted navigation information
+            
+        Returns:
+            List of generated negatives
+        """
+        # Call strategies with the appropriate arguments
+        if strategy == self._generate_semantic_frame_negatives:
+            return strategy(
+                original_answer,
+                extracted_info["directions"],
+                extracted_info["landmarks"],
+                extracted_info["colors"],
+                extracted_info["shapes"],
+                extracted_info["spatial_relations"],
+                extracted_info["sizes"]
+            )
+        elif strategy == self._generate_landmark_substitution_negatives:
+            return strategy(original_answer, extracted_info["landmarks"])
+        elif strategy == self._generate_direction_reversal_negatives:
+            return strategy(original_answer, extracted_info["directions"])
+        elif strategy == self._generate_spatial_relation_negatives:
+            return strategy(original_answer, extracted_info["spatial_relations"])
+        elif strategy == self._generate_color_substitution_negatives:
+            return strategy(original_answer, extracted_info["colors"])
+        elif strategy == self._generate_shape_substitution_negatives:
+            return strategy(original_answer, extracted_info["shapes"])
+        elif strategy == self._generate_size_substitution_negatives:
+            return strategy(original_answer, extracted_info["sizes"])
+        else:
+            return strategy(original_answer)
     
     def _generate_random_negative(self, original_answer):
-        """Generate a random negative if all else fails."""
-        # Generate random navigation instruction
+        """
+        Generate a random negative example as a fallback strategy.
+        
+        Args:
+            original_answer: Original answer to compare against
+            
+        Returns:
+            List containing a single random negative example
+        """
+        # Generate random navigation instruction from templates
         templates = [
             "Head {direction} until you reach the {color} {landmark}.",
             "Make a {direction} turn and go towards the {size} {landmark}.",
@@ -1300,6 +1233,7 @@ class ContrastiveSampleGenerator:
             "Turn to {time} o'clock direction and proceed to the {landmark}."
         ]
         
+        # Select a template and fill in random values
         template = random.choice(templates)
         direction = random.choice(self.direction_terms)
         landmark = random.choice(self.landmark_terms)
@@ -1321,94 +1255,11 @@ class ContrastiveSampleGenerator:
         
         similarity = self.calculate_similarity(original_answer, negative_text)
         
-        return {
+        return [{
             "text": negative_text,
             "similarity": similarity,
             "type": "random_negative"
-        }
-    
-    def _get_opposite_direction(self, direction):
-        """Get opposite(s) of a direction term."""
-        opposites = {
-            "north": ["south"],
-            "south": ["north"],
-            "east": ["west"],
-            "west": ["east"],
-            "northeast": ["southwest"],
-            "northwest": ["southeast"],
-            "southeast": ["northwest"],
-            "southwest": ["northeast"],
-            "left": ["right"],
-            "right": ["left"],
-            "forward": ["backward", "behind"],
-            "backward": ["forward", "ahead"],
-            "ahead": ["behind", "backward"],
-            "behind": ["ahead", "forward"],
-            "clockwise": ["counterclockwise"],
-            "counterclockwise": ["clockwise"],
-            "1 o'clock": ["7 o'clock"],
-            "2 o'clock": ["8 o'clock"],
-            "3 o'clock": ["9 o'clock"],
-            "4 o'clock": ["10 o'clock"],
-            "5 o'clock": ["11 o'clock"],
-            "6 o'clock": ["12 o'clock"],
-            "7 o'clock": ["1 o'clock"],
-            "8 o'clock": ["2 o'clock"],
-            "9 o'clock": ["3 o'clock"],
-            "10 o'clock": ["4 o'clock"],
-            "11 o'clock": ["5 o'clock"],
-            "12 o'clock": ["6 o'clock"]
-        }
-        
-        # Handle shortened forms
-        for hour in range(1, 13):
-            opposites[f"{hour}o'clock"] = [f"{(hour + 6) % 12 or 12}o'clock"]
-            opposites[f"{hour} o'clock"] = [f"{(hour + 6) % 12 or 12} o'clock"]
-        
-        return opposites.get(direction.lower(), ["opposite direction"])
-    
-    def _get_opposite_landmark(self, landmark):
-        """Get semantically opposite landmark types."""
-        opposites = {
-            "building": ["field", "lake", "river", "mountain"],
-            "house": ["park", "lake", "forest"],
-            "tower": ["pond", "field", "ground"],
-            "road": ["river", "lake", "field"],
-            "bridge": ["tunnel", "valley", "river"],
-            "hill": ["valley", "plain", "hole"],
-            "mountain": ["valley", "plain", "lake"],
-            "tree": ["rock", "building", "structure"],
-            "field": ["city", "building", "structure"],
-            "river": ["road", "path", "building"],
-            "lake": ["mountain", "hill", "building"]
-        }
-        
-        return opposites.get(landmark.lower(), ["different place"])
-    
-    def _get_opposite_spatial_relation(self, relation):
-        """Get opposite spatial relation."""
-        opposites = {
-            "above": ["below", "under", "beneath"],
-            "below": ["above", "over"],
-            "under": ["above", "over"],
-            "over": ["under", "below"],
-            "on top of": ["under", "beneath"],
-            "beneath": ["above", "on top of"],
-            "adjacent to": ["far from", "distant from"],
-            "next to": ["far from", "away from"],
-            "beside": ["far from", "separate from"],
-            "in front of": ["behind"],
-            "behind": ["in front of"],
-            "inside": ["outside"],
-            "outside": ["inside"],
-            "near": ["far from", "distant from"],
-            "far": ["near", "close to"],
-            "close to": ["far from", "distant from"],
-            "across from": ["beside", "next to"],
-            "opposite to": ["alongside", "next to"]
-        }
-        
-        return opposites.get(relation.lower(), ["differently located"])
+        }]
     
     def analyze_complexity(self, instruction, answer):
         """Analyze the complexity of a dialog turn for curriculum learning."""
@@ -1448,10 +1299,28 @@ class ContrastiveSampleGenerator:
             "overall_complexity": float(overall_complexity)  # Ensure it's a native Python float for JSON serialization
         }
 
-    def augment_dialog_turn(self, question, answer, num_positives=2, num_negatives=3):
-        """Generate contrastive samples for a dialog turn."""
+    def augment_dialog_turn(self, question, answer, num_positives=2, num_negatives=3, dialog_answers=None):
+        """
+        Generate contrastive samples for a dialog turn.
+        
+        Args:
+            question: The question from the dialog turn
+            answer: The answer to generate contrastive samples for
+            num_positives: Number of positive examples to generate
+            num_negatives: Number of negative examples to generate
+            dialog_answers: List of answers from other dialog turns to use as potential negatives
+            
+        Returns:
+            Dictionary with contrastive samples and complexity metadata
+        """
         if not answer:
             return None
+        
+        # Store alternative answers for negative generation
+        if dialog_answers:
+            self.alternative_answers = [a for a in dialog_answers if a != answer]
+        else:
+            self.alternative_answers = []
         
         contrastive_samples = {
             "positive_examples": self.generate_positive_examples(answer, num_positives),
@@ -1466,7 +1335,18 @@ class ContrastiveSampleGenerator:
         }
     
     def augment_dataset(self, input_json_path, output_json_path, num_positives=2, num_negatives=3):
-        """Augment an entire dataset with contrastive samples."""
+        """
+        Augment an entire dataset with contrastive samples.
+        
+        Args:
+            input_json_path: Path to input JSON dataset
+            output_json_path: Path to output augmented JSON dataset
+            num_positives: Number of positive examples per dialog
+            num_negatives: Number of negative examples per dialog
+            
+        Returns:
+            Number of augmented dialog turns
+        """
         # Load dataset
         self.logger.info(f"Loading dataset from {input_json_path}")
         with open(input_json_path, 'r') as f:
@@ -1479,14 +1359,23 @@ class ContrastiveSampleGenerator:
         
         # Process each episode
         for episode in tqdm.tqdm(data, desc="Augmenting episodes"):
+            # Collect all answers in this episode for use as potential negatives
+            episode_answers = []
+            for dialog in episode["dialogs"]:
+                if dialog.get("answer"):
+                    episode_answers.append(dialog["answer"])
+            
+            # Process each dialog
             for dialog in episode["dialogs"]:
                 total_dialogs += 1
                 if dialog.get("question") is not None and dialog.get("answer") is not None:
+                    # Pass other answers from the episode as potential negatives
                     augmentation = self.augment_dialog_turn(
                         dialog["question"], 
                         dialog["answer"],
                         num_positives=num_positives,
-                        num_negatives=num_negatives
+                        num_negatives=num_negatives,
+                        dialog_answers=episode_answers
                     )
                     
                     if augmentation:
