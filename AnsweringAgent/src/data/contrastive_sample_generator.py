@@ -53,11 +53,11 @@ class ContrastiveSampleGenerator:
         try:
             # Set up paraphrasing model with appropriate device configuration
             if torch.cuda.is_available() and self.device == "cuda":
-                self.logger.info("Using CUDA for paraphraser with device_map='auto'")
+                self.logger.info("Using CUDA for paraphraser")
                 self.paraphraser = pipeline(
                     "text2text-generation", 
                     model=paraphrase_model_name,
-                    device_map="auto"  # Automatically choose best device layout
+                    device=0  # Use first CUDA device
                 )
             else:
                 self.logger.info("Using CPU for paraphraser")
@@ -77,7 +77,7 @@ class ContrastiveSampleGenerator:
                     self.negative_generator = pipeline(
                         "text2text-generation",
                         model=negative_model_name,
-                        device_map="auto"
+                        device=0  # Use first CUDA device
                     )
                 else:
                     self.negative_generator = pipeline(
