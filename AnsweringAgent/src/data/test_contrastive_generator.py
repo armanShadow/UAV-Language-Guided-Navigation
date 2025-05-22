@@ -14,6 +14,9 @@ import logging
 sys.path.append('AnsweringAgent')
 
 from contrastive_sample_generator import ContrastiveSampleGenerator
+# Import config to use proper paths
+sys.path.append('../')
+from config import Config
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -118,10 +121,13 @@ def collect_episode_answers(data, target_episode_idx):
 def test_contrastive_generator():
     """Test the contrastive sample generator with a random dialog turn."""
     
-    # Try to load train data from different possible locations
+    # Initialize config to get proper paths
+    config = Config()
+    
+    # Try to load train data from config paths
     train_data_paths = [
-        "AnsweringAgent/src/data/processed_data/train_data.json",
-        "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json"
+        config.data.train_json_path,
+        "/app/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/train_data.json"  # Alternative AVDN path
     ]
     
     data = None
@@ -133,7 +139,7 @@ def test_contrastive_generator():
                 break
     
     if not data:
-        logger.error("Could not load train data from any of the expected locations")
+        logger.error(f"Could not load train data from any of the expected locations: {train_data_paths}")
         return
     
     # Extract all dialog turns
