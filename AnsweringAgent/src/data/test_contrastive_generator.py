@@ -13,7 +13,7 @@ import logging
 # Add the AnsweringAgent path to sys.path
 sys.path.append('AnsweringAgent')
 
-from src.data.contrastive_sample_generator import ContrastiveSampleGenerator
+from contrastive_sample_generator import ContrastiveSampleGenerator
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
