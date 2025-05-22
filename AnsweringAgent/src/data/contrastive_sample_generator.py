@@ -624,76 +624,37 @@ class ContrastiveSampleGenerator:
             
         return paraphrase
     
-    def generate_positive_examples(self, original_answer, n=3):
+    def generate_positive_examples(self, original_answer, n=2):
         """
-        Generate positive examples (paraphrases) using a hybrid approach optimized for UAV navigation.
-        
-        Uses both language model-based and template-based paraphrases to create
-        diverse positive examples for contrastive learning, with special handling
-        for UAV navigation instructions from the AVDN dataset.
+        Generate positive examples (paraphrases) using only language model-based approach.
         
         Args:
             original_answer: The original navigation instruction to paraphrase
-            n: Number of positive examples to generate (default: 3)
+            n: Number of positive examples to generate (default: 2)
             
         Returns:
             List of positive examples with similarity scores and type labels
         """
-        self.logger.info(f"Generating {n} positive examples using hybrid approach")
+        self.logger.info(f"Generating {n} positive examples using language model approach")
         positives = []
         
         # Handle short answers specially - they're difficult to paraphrase meaningfully
         if len(original_answer.split()) < 3:
             return self._generate_simple_variations(original_answer, n)
         
-        # Check if this is a UAV navigation instruction with specific patterns
-        is_uav_instruction = self._is_uav_navigation_instruction(original_answer)
         
-        # Check if this is a multi-step instruction
-        is_multi_step = self._is_multi_step_instruction(original_answer)
-        
-        # Step 1: For multi-step instructions, prioritize the language model approach
-        # as it better preserves the sequential nature of instructions
-        if is_multi_step and self.has_paraphraser:
-            # Generate more LM paraphrases for multi-step instructions
+        elif self.has_paraphraser:
             lm_paraphrases = self._generate_lm_paraphrase(
-                original_answer, 
-                max_paraphrases=min(n, 2),  # Try to get at least 2 LM paraphrases
-                context="UAV multi-step navigation"
+                original_answer,
+                context="UAV navigation",
+                max_paraphrases=n,
+                similarity_range=(0.7, 0.9)  # Target similarity between 70-90%
             )
             positives.extend(lm_paraphrases)
-        # For non-multi-step instructions, use standard approach
-        elif self.has_paraphraser:
-            # For UAV instructions, add context to help the paraphraser
-            if is_uav_instruction:
-                lm_paraphrases = self._generate_lm_paraphrase(original_answer, context="UAV navigation")
-            else:
-                lm_paraphrases = self._generate_lm_paraphrase(original_answer)
-            positives.extend(lm_paraphrases)
         
-        # Step 2: Generate template-based paraphrases with priority for UAV instructions
-        remaining = n - len(positives)
-        if remaining > 0:
-            self.logger.info(f"Generating {remaining} template-based paraphrases")
-            # For multi-step instructions, use more templates to get better variety
-            if is_multi_step:
-                template_paraphrases = self.generate_template_paraphrases(original_answer, remaining + 2)
-                # Sort by similarity and take the most appropriate ones
-                template_paraphrases.sort(key=lambda x: x["similarity"], reverse=True)
-                positives.extend(template_paraphrases[:remaining])
-            # For UAV instructions, use more templates to get better variety
-            elif is_uav_instruction:
-                template_paraphrases = self.generate_template_paraphrases(original_answer, remaining + 2)
-                # Sort by similarity and take the most appropriate ones
-                template_paraphrases.sort(key=lambda x: x["similarity"], reverse=True)
-                positives.extend(template_paraphrases[:remaining])
-            else:
-                template_paraphrases = self.generate_template_paraphrases(original_answer, remaining)
-                positives.extend(template_paraphrases)
-        
-        # Step 3: Fill any remaining slots with simple variations if needed
+        # If we still don't have enough positives, add simple variations
         if len(positives) < n:
-            self.logger.warning(f"Generated only {len(positives)}/{n} positive examples, adding simple variations")
+            self.logger.warning(f"Generated only {len(positives)}/{n} positive examples using LM, adding simple variations")
             simple_variations = self._generate_simple_variations(original_answer, n - len(positives), positives)
             positives.extend(simple_variations)
         
@@ -731,7 +692,7 @@ class ContrastiveSampleGenerator:
         # If it has clock references, degree turns, or multiple navigation indicators, it's likely a UAV instruction
         return clock_references or degree_turns or indicator_count >= 2
     
-    def _generate_lm_paraphrase(self, original_answer, max_paraphrases=1, context=None):
+    def _generate_lm_paraphrase(self, original_answer, max_paraphrases=1, context=None, similarity_range=None):
         """
         Generate paraphrases using a language model.
         
@@ -739,6 +700,7 @@ class ContrastiveSampleGenerator:
             original_answer: Original answer to paraphrase
             max_paraphrases: Maximum number of paraphrases to generate
             context: Optional context to add to the paraphrase input
+            similarity_range: Optional range for similarity threshold
             
         Returns:
             List of paraphrases with similarity scores
@@ -779,8 +741,8 @@ class ContrastiveSampleGenerator:
                 
                 # For UAV navigation, we want to ensure key directional information is preserved
                 # so we use a higher similarity threshold
-                min_similarity = 0.75 if context == "UAV navigation" else 0.7
-                max_similarity = 0.95 if context == "UAV navigation" else 0.90
+                min_similarity = similarity_range[0] if similarity_range else 0.75 if context == "UAV navigation" else 0.7
+                max_similarity = similarity_range[1] if similarity_range else 0.95 if context == "UAV navigation" else 0.90
                 
                 # Only keep if reasonably similar to the original
                 if min_similarity <= similarity <= max_similarity:
@@ -881,101 +843,71 @@ class ContrastiveSampleGenerator:
     
     def generate_negative_examples(self, original_answer, n=3):
         """
-        Generate diverse negative examples using multiple strategies.
-        
-        Uses exactly:
-        - 1 template-based negative
-        - 1 alternative answer from other dialog turns
-        - 1 rule-based negative
+        Generate negative examples using other dialog turns with controlled similarity.
         
         Args:
             original_answer: Original answer to generate negatives for
-            n: Number of negatives to generate (defaults to 3 but will always return 3)
+            n: Number of negatives to generate (default: 3)
             
         Returns:
             List of negative examples with similarity scores
         """
         negatives = []
-        similarity_threshold = 0.3  # Minimum similarity threshold for all negatives
         
-        # Step 1: Try to get multiple template-based negatives and choose the best one
-        template_candidates = self.generate_template_negatives(original_answer, 3)
-        if template_candidates:
-            # Sort by similarity to find the most appropriate template negative
-            template_candidates.sort(key=lambda x: x["similarity"], reverse=True)
-            # Take the template with highest similarity above threshold
-            filtered_templates = [t for t in template_candidates if t["similarity"] >= similarity_threshold]
-            if filtered_templates:
-                negatives.append(filtered_templates[0])
-                self.logger.info(f"Selected template-based negative with similarity: {filtered_templates[0]['similarity']:.3f}")
-        
-        # Step 2: Try to get an alternative answer from other dialog turns
+        # Step 1: Try to get alternative answers from other dialog turns
         if self.alternative_answers:
-            alternative_candidates = self.generate_alternative_answer_negatives(original_answer, 3)
+            alternative_candidates = self.generate_alternative_answer_negatives(original_answer, n*2)
             if alternative_candidates:
-                # Sort by descending similarity to find the best alternative
+                # Sort by similarity (descending) to find alternatives in our target range
                 alternative_candidates.sort(key=lambda x: x["similarity"], reverse=True)
-                # Take the alternative with highest similarity above threshold
-                filtered_alternatives = [a for a in alternative_candidates if a["similarity"] >= similarity_threshold]
-                if filtered_alternatives:
-                    negatives.append(filtered_alternatives[0])
-                    self.logger.info(f"Selected alternative-answer negative with similarity: {filtered_alternatives[0]['similarity']:.3f}")
+                
+                # Target similarity range (40-70%)
+                min_similarity = 0.4
+                max_similarity = 0.7
+                margin = 0.05  # 5% margin between examples
+                
+                # Filter alternatives that are in our target range
+                filtered_alternatives = [a for a in alternative_candidates 
+                                        if min_similarity <= a["similarity"] <= max_similarity]
+                
+                # Select examples with sufficient diversity (using margin)
+                selected_alternatives = []
+                for alt in filtered_alternatives:
+                    # Check if this example is different enough from already selected ones
+                    if all(abs(alt["similarity"] - sel["similarity"]) >= margin 
+                           for sel in selected_alternatives):
+                        selected_alternatives.append(alt)
+                        if len(selected_alternatives) >= n:
+                            break
+                
+                negatives.extend(selected_alternatives)
         
-        # Step 3: Try to get multiple rule-based negatives and choose the best one
-        rule_candidates = self.generate_rule_based_negatives(original_answer, 3)
-        if rule_candidates:
-            # Sort by similarity to find the most appropriate rule-based negative
-            rule_candidates.sort(key=lambda x: x["similarity"], reverse=True)
-            # Take the rule-based with highest similarity above threshold
-            filtered_rules = [r for r in rule_candidates if r["similarity"] >= similarity_threshold]
-            if filtered_rules:
-                negatives.append(filtered_rules[0])
-                self.logger.info(f"Selected rule-based negative with similarity: {filtered_rules[0]['similarity']:.3f}")
+        # If we don't have enough negatives, add rule-based negatives
+        if len(negatives) < n:
+            remaining = n - len(negatives)
+            self.logger.warning(f"Only generated {len(negatives)}/{n} negatives from alternative answers, adding rule-based")
+            
+            # Generate rule-based negatives
+            rule_candidates = self.generate_rule_based_negatives(original_answer, remaining*2)
+            if rule_candidates:
+                # Sort by similarity to find appropriate rule-based negatives
+                rule_candidates.sort(key=lambda x: x["similarity"], reverse=True)
+                
+                # Filter by our target similarity range
+                filtered_rules = [r for r in rule_candidates if 0.4 <= r["similarity"] <= 0.7]
+                negatives.extend(filtered_rules[:remaining])
         
-        # If we don't have enough negatives (still < 3), add more from any category that worked
-        remaining_slots = 3 - len(negatives)
-        if remaining_slots > 0:
-            self.logger.warning(f"Only generated {len(negatives)}/3 high-quality negatives, adding fallbacks")
-            
-            # Try to fill in with any remaining alternative answers
-            if 'alternative_candidates' in locals() and len(alternative_candidates) > 1 and remaining_slots > 0:
-                for candidate in alternative_candidates[1:]:  # Skip the first one we already used
-                    if candidate not in negatives:
-                        negatives.append(candidate)
-                        remaining_slots -= 1
-                        if remaining_slots == 0:
-                            break
-
-
-            # Try to fill in with any remaining template negatives
-            if len(template_candidates) > 1 and remaining_slots > 0:
-                for candidate in template_candidates[1:]:  # Skip the first one we already used
-                    if candidate not in negatives:
-                        negatives.append(candidate)
-                        remaining_slots -= 1
-                        if remaining_slots == 0:
-                            break
-            
-            # Try to fill in with any remaining rule-based negatives
-            if len(rule_candidates) > 1 and remaining_slots > 0:
-                for candidate in rule_candidates[1:]:  # Skip the first one we already used
-                    if candidate not in negatives:
-                        negatives.append(candidate)
-                        remaining_slots -= 1
-                        if remaining_slots == 0:
-                            break
-            
-            # Last resort: generate random negatives
-            while remaining_slots > 0:
-                random_negative = self._generate_random_negative(original_answer)[0]
+        # Last resort: generate random negatives
+        while len(negatives) < n:
+            random_negative = self._generate_random_negative(original_answer)[0]
+            if 0.3 <= random_negative["similarity"] <= 0.7:
                 negatives.append({
                     "text": random_negative["text"],
                     "similarity": random_negative["similarity"],
                     "type": "random_negative"
                 })
-                remaining_slots -= 1
         
-        return negatives[:3]  # Always return exactly 3 negatives
+        return negatives[:n]
     
     def generate_template_negatives(self, original_answer, n=3):
         """
@@ -1233,28 +1165,27 @@ class ContrastiveSampleGenerator:
         if not self.alternative_answers:
             return negatives
             
-        # Filter out answers too similar to original
+        # Filter answers based on target similarity range (40-70%)
+        min_similarity = 0.4
+        max_similarity = 0.7
+        
         filtered_alternatives = []
         for alt_answer in self.alternative_answers:
             if alt_answer != original_answer:
                 similarity = self.calculate_similarity(original_answer, alt_answer)
-                # Only use as negative if it's different enough but not completely unrelated
-                if 0.3 <= similarity <= 0.7:
+                # Only use as negative if it's in our target similarity range
+                if min_similarity <= similarity <= max_similarity:
                     filtered_alternatives.append({
                         "text": alt_answer,
-                        "similarity": similarity
+                        "similarity": similarity,
+                        "type": "alternative_answer"
                     })
         
-        # Sort by ascending similarity (we want the more different ones first)
-        filtered_alternatives.sort(key=lambda x: x["similarity"])
+        # Sort by descending similarity
+        filtered_alternatives.sort(key=lambda x: x["similarity"], reverse=True)
         
-        # Take the most different alternatives up to n
-        for i in range(min(n, len(filtered_alternatives))):
-            negatives.append({
-                "text": filtered_alternatives[i]["text"],
-                "similarity": filtered_alternatives[i]["similarity"],
-                "type": "alternative_answer"
-            })
+        # Take up to n alternatives
+        negatives = filtered_alternatives[:n]
             
         self.logger.info(f"Generated {len(negatives)} alternative-answer negatives")
         return negatives
@@ -2336,6 +2267,15 @@ class ContrastiveSampleGenerator:
         Returns:
             List of paraphrases with similarity scores
         """
-        # For now, fall back to standard template paraphrasing
-        # This is a simplified implementation that will be improved later
-        return self.generate_template_paraphrases(original_answer, n)
+        # Since we're moving away from template-based paraphrasing, this will simply
+        # call the language model paraphraser with specific context for multi-step instructions
+        if self.has_paraphraser:
+            return self._generate_lm_paraphrase(
+                original_answer,
+                max_paraphrases=n,
+                context="UAV multi-step navigation",
+                similarity_range=(0.7, 0.9)
+            )
+        else:
+            # Fallback to simple variations if no paraphraser is available
+            return self._generate_simple_variations(original_answer, n)
