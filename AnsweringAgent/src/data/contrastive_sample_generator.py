@@ -97,12 +97,20 @@ class ContrastiveSampleGenerator:
             self.has_negative_generator = False
     
     def _init_navigation_terminology(self):
-        """Initialize UAV navigation-specific terminology lists."""
+        """Initialize UAV navigation-specific terminology lists based on AVDN dataset."""
         # Direction-related terms
         self.direction_terms = [
             "north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest",
             "left", "right", "forward", "backward", "ahead", "behind", "clockwise",
             "counterclockwise", "turn", "rotate", "face", "head", "proceed", "continue", "go", "move",
+            "1 o'clock", "2 o'clock", "3 o'clock", "4 o'clock", "5 o'clock", "6 o'clock", 
+            "7 o'clock", "8 o'clock", "9 o'clock", "10 o'clock", "11 o'clock", "12 o'clock",
+            "straight", "straight ahead", "opposite direction", "180 degrees", "90 degrees",
+            "upposit", "opposite", "around"
+        ]
+        
+        # Store clock directions separately for special handling
+        self.clock_direction_terms = [
             "1 o'clock", "2 o'clock", "3 o'clock", "4 o'clock", "5 o'clock", "6 o'clock", 
             "7 o'clock", "8 o'clock", "9 o'clock", "10 o'clock", "11 o'clock", "12 o'clock"
         ]
@@ -113,20 +121,23 @@ class ContrastiveSampleGenerator:
             "hill", "mountain", "tree", "field", "river", "lake", "landfill",
             "rooftop", "parking lot", "intersection", "corner", "entrance", "exit",
             "area", "zone", "region", "block", "neighborhood", "complex", "facility",
-            "stadium", "park", "garden", "campus", "fence", "wall", "path", "trail"
+            "stadium", "park", "garden", "campus", "fence", "wall", "path", "trail",
+            "destination", "target", "location", "container", "containers", "cargo",
+            "cargo containers", "island", "dirt", "island of dirt", "row", "white container",
+            "blue containers", "small containers", "long row"
         ]
         
         # Visual attribute terms
         self.color_terms = [
             "red", "blue", "green", "yellow", "black", "white", "gray", "grey",
             "brown", "purple", "orange", "beige", "pink", "tan", "golden", "silver",
-            "dark", "light", "bright", "dull", "vibrant", "colorful"
+            "dark", "light", "bright", "dull", "vibrant", "colorful", "lighter", "darker"
         ]
         
         self.shape_terms = [
             "square", "rectangular", "round", "circular", "oval", "triangular", 
             "dome", "L-shaped", "U-shaped", "flat", "tall", "short", "wide", "narrow",
-            "curved", "straight", "zigzag", "angled", "sloped"
+            "curved", "straight", "zigzag", "angled", "sloped", "long", "row"
         ]
         
         # Spatial relationship terms
@@ -136,14 +147,37 @@ class ContrastiveSampleGenerator:
             "among", "surrounding", "inside", "outside", "within", "near", "far",
             "close to", "distant from", "across from", "opposite to", "parallel to",
             "perpendicular to", "diagonal from", "at the edge of", "in the center of",
-            "in the middle of", "at the corner of", "at the intersection of"
+            "in the middle of", "at the corner of", "at the intersection of",
+            "bisecting", "few feet", "very close"
         ]
         
         # Size-related terms
         self.size_terms = [
             "large", "small", "big", "tiny", "huge", "massive", "enormous", "giant",
             "little", "medium", "medium-sized", "compact", "expansive", "long", "short",
-            "wide", "narrow", "thick", "thin"
+            "wide", "narrow", "thick", "thin", "many"
+        ]
+        
+        # Sequencing terms (useful for multi-step instructions)
+        self.sequence_terms = [
+            "first", "second", "third", "then", "next", "after", "before", "finally",
+            "once", "when", "until", "while", "and"
+        ]
+        
+        # Position-related terms
+        self.position_terms = [
+            "first", "last", "middle", "center", "edge", "corner", "end", "beginning", "top", "bottom"
+        ]
+        
+        # UAV-specific instruction patterns from AVDN dataset
+        self.uav_instruction_patterns = [
+            "turn {direction} degrees",
+            "go straight until",
+            "fly to your {direction}",
+            "turn around",
+            "that is your destination",
+            "you are {spatial_relation} your destination",
+            "you will be right on top of your destination"
         ]
     
     def generate_embedding(self, text):
@@ -211,10 +245,18 @@ class ContrastiveSampleGenerator:
         spatial_relations = extracted_info["spatial_relations"]
         sizes = extracted_info["sizes"]
         
+        # Special handling for clock directions
+        if "clock_directions" in extracted_info:
+            clock_directions = extracted_info["clock_directions"]
+        else:
+            clock_directions = self._get_clock_directions()
+            
+        # Check if there are clock directions in the original text
+        contains_clock = any("o'clock" in original_answer.lower() or "oclock" in original_answer.lower())
+        
         # Get appropriate templates
         templates = self._get_navigation_templates()
         action_verbs = self._get_navigation_action_verbs()
-        clock_directions = self._get_clock_directions()
         features = self._get_landmark_features()
         
         # Select usable templates based on available information
@@ -228,6 +270,15 @@ class ContrastiveSampleGenerator:
             sizes
         )
         
+        # If original has clock directions, prioritize clock direction templates
+        if contains_clock:
+            clock_templates = [t for t in usable_templates if "{clock_direction}" in t]
+            if clock_templates:
+                # Move clock templates to the front of the list
+                for t in clock_templates:
+                    usable_templates.remove(t)
+                usable_templates = clock_templates + usable_templates
+        
         # Add generic templates that don't require specific extracted elements
         generic_templates = self._get_generic_templates()
         usable_templates.extend(generic_templates)
@@ -236,6 +287,9 @@ class ContrastiveSampleGenerator:
         paraphrase_count = 0
         max_attempts = min(30, len(usable_templates) * 3)  # Limit attempts to avoid infinite loops
         attempts = 0
+        
+        # Track similarity to ensure we get diverse paraphrases
+        similarity_threshold = 0.6  # Minimum similarity to be considered a good paraphrase
         
         while attempts < max_attempts:
             attempts += 1
@@ -264,7 +318,7 @@ class ContrastiveSampleGenerator:
                 similarity = self.calculate_similarity(original_answer, paraphrase)
                 
                 # Only include if similar enough to original but not identical
-                if similarity > 0.5 and paraphrase != original_answer:
+                if similarity > similarity_threshold and paraphrase != original_answer:
                     # Check if this paraphrase is significantly different from previously generated ones
                     is_unique = True
                     for existing in positives:
@@ -289,16 +343,45 @@ class ContrastiveSampleGenerator:
         return positives[:n]
     
     def _get_navigation_templates(self):
-        """Get templates for UAV navigation instructions."""
+        """Get templates for UAV navigation instructions based on AVDN dataset."""
         return [
-            # Direction-focused templates
-            "The destination can be found {direction}. It's {shape} and {color}.",
+            # Direction-focused templates (simple)
+            "The destination is {direction}. It's {shape} and {color}.",
             "If you look {direction}, you'll see the destination which is {shape} with {color} color.",
             "Your destination is {direction} from your position. Look for a {color} {shape} structure.",
             "Head {direction} to reach your destination. It's {color} and {shape}.",
             "{direction} is where you'll find your destination. It's a {color} {shape} building.",
             "Fly {direction} to find your target. The {color} {shape} structure is your destination.",
             "Move your drone {direction} and look for a {color} {shape} landmark.",
+            
+            # AVDN-specific templates
+            "Destination is a {shape} {landmark} {spatial_relation} at your {clock_direction} direction.",
+            "Turn {direction} degrees. Go straight until you are over a {color} {landmark}. That is your destination.",
+            "Yes, you are {spatial_relation} your destination. Turn to your {clock_direction} and go straight forward from there.",
+            "{direction}, fly to your {direction} and turn around and go the {direction} direction just a few feet to your destination.",
+            "You are very close to your destination. Turn to your {clock_direction} and you will be right on top of your destination.",
+            
+            # Clock direction templates (preserving exact clock direction)
+            "Your destination is at {clock_direction}. It's the {color} {landmark}.",
+            "If you go {clock_direction}, you'll see the {landmark} that is your destination.",
+            "Head towards {clock_direction} to find your destination.", 
+            "Go to {clock_direction} and you'll find your destination - {size} {landmark}.",
+            "At {clock_direction} you'll see the {landmark} which is your destination.",
+            "Your target is at {clock_direction} - it's the {color} {landmark} you'll see.",
+            "If you look at {clock_direction}, that {color} {landmark} is your target.",
+            "Please go to the {direction} direction at {clock_direction}. The destination is {color} {landmark}.",
+            
+            # Multi-step instructions
+            "First, {action_verb} {direction}, then you'll see your destination - a {color} {landmark}.",
+            "{action_verb} {direction} until you reach the {landmark}, that's your destination.",
+            "Once you {action_verb} {direction}, look for the {color} {landmark} which is your target.",
+            "{action_verb} {direction} and {sequence} look for the {landmark} as your destination.",
+            "Turn {direction} degrees. Go straight until you are over a {color} {landmark}. That is your destination.",
+            
+            # Position-based templates
+            "Your destination is the {position} {landmark} in the {direction}.",
+            "The {position} {landmark} that you see {direction} is your target.",
+            "Look for the {position} {color} {landmark} {direction}, that's your destination.",
             
             # Landmark-focused templates
             "Look for a {color} {landmark} {direction} from your current position.",
@@ -309,15 +392,6 @@ class ContrastiveSampleGenerator:
             "The {color} {landmark} is your destination. It's {direction} from where you are now.",
             "Your destination is the {size} {landmark} with {color} features that you can see {direction}.",
             
-            # Clock direction templates
-            "Your destination is at {clock_direction}, it's the {color} {shape} {landmark}.",
-            "If you turn to {clock_direction}, you'll see a {size} {color} {landmark}.",
-            "The {color} {landmark} at your {clock_direction} is the destination.",
-            "Look towards your {clock_direction} for a {color} {shape} {landmark}.",
-            "Rotate to {clock_direction} and you'll find the {color} {landmark}.",
-            "The {size} {landmark} at {clock_direction} position is your target.",
-            "If you orient yourself to {clock_direction}, you'll see your destination - a {color} {shape} structure.",
-            
             # Combined attribute templates
             "The {size} {landmark} with {color} {feature} {spatial_relation} is your target.",
             "Head to the {size} {color} {shape} structure {direction} of your position.",
@@ -325,7 +399,15 @@ class ContrastiveSampleGenerator:
             "Navigate to the {color} {landmark} that appears {spatial_relation} your view area.",
             "Fly towards the {size} {landmark} with {color} exteriors located {direction}.",
             "Your destination is a {size} {color} structure with {shape} architecture {spatial_relation}.",
-            "Move the drone to the {color} {landmark} that has {shape} features {direction} of your current position."
+            "Move the drone to the {color} {landmark} that has {shape} features {direction} of your current position.",
+            
+            # AVDN dialog-specific templates
+            "Yes, you are {spatial_relation} your destination.",
+            "Turn {direction} degrees.",
+            "Go straight until you are over a {color} {landmark}.",
+            "That is your destination.",
+            "You will be right on top of your destination.",
+            "You are very close to your destination."
         ]
     
     def _get_navigation_action_verbs(self):
@@ -355,7 +437,18 @@ class ContrastiveSampleGenerator:
             "Navigate {generic_direction} to reach your destination.",
             "{generic_action} {generic_direction} to arrive at your destination.",
             "Your target can be found if you go {generic_direction}.",
-            "To reach the destination, {generic_action} {generic_direction}."
+            "To reach the destination, {generic_action} {generic_direction}.",
+            
+            # AVDN-specific generic templates
+            "Turn {generic_direction} and go straight.",
+            "You are very close to your destination.",
+            "That is your destination.",
+            "You will be right on top of your destination.",
+            "Turn around completely.",
+            "Turn 180 degrees.",
+            "Go straight until you reach your destination.",
+            "Yes, you are near the destination.",
+            "You are on the right track."
         ]
     
     def _select_usable_templates(self, templates, directions, landmarks, colors, shapes, spatial_relations, sizes):
@@ -370,12 +463,33 @@ class ContrastiveSampleGenerator:
             List of usable templates
         """
         usable_templates = []
+        extracted_info = {
+            "directions": directions,
+            "landmarks": landmarks,
+            "colors": colors,
+            "shapes": shapes,
+            "spatial_relations": spatial_relations,
+            "sizes": sizes
+        }
         
+        # Calculate template complexity score
+        template_complexity = {}
+        for template in templates:
+            # Count total placeholders as a rough complexity measure
+            score = 0
+            for key in extracted_info:
+                placeholder = f"{{{key[:-1]}}}"  # Convert "directions" to "{direction}" etc.
+                if placeholder in template:
+                    score += 1
+            template_complexity[template] = score
+            
         for template in templates:
             can_use = True
             
             # Check required elements
             if "{direction}" in template and (not directions or len(directions) == 0):
+                can_use = False
+            if "{clock_direction}" in template and (not extracted_info.get("clock_directions") or len(extracted_info.get("clock_directions", [])) == 0):
                 can_use = False
             if "{landmark}" in template and (not landmarks or len(landmarks) == 0):
                 can_use = False
@@ -387,18 +501,25 @@ class ContrastiveSampleGenerator:
                 can_use = False
             if "{size}" in template and (not sizes or len(sizes) == 0):
                 can_use = False
-            if "{clock_direction}" in template and (not directions or len(directions) == 0):
+            if "{sequence}" in template and (not extracted_info.get("sequences") or len(extracted_info.get("sequences", [])) == 0):
+                can_use = False
+            if "{position}" in template and (not extracted_info.get("positions") or len(extracted_info.get("positions", [])) == 0):
                 can_use = False
                 
             if can_use:
                 usable_templates.append(template)
+        
+        # Sort usable templates by complexity score (higher complexity first)
+        # This makes us prefer more complex templates when available
+        if usable_templates:
+            usable_templates.sort(key=lambda t: template_complexity.get(t, 0), reverse=True)
         
         return usable_templates
     
     def _fill_template(self, template, directions, landmarks, colors, shapes, spatial_relations, sizes, 
                      clock_directions, features, action_verbs):
         """
-        Fill a template with appropriate values.
+        Fill a template with appropriate values, preserving original information when possible.
         
         Args:
             template: Template string with placeholders
@@ -409,10 +530,29 @@ class ContrastiveSampleGenerator:
         """
         paraphrase = template
         
+        # Extract specific clock directions from the original text
+        extracted_clock_directions = []
+        for direction in directions:
+            if any(clock in direction for clock in ["o'clock", "oclock"]):
+                extracted_clock_directions.append(direction)
+        
+        # Replace clock direction placeholder with EXACT clock direction from original if available
+        if "{clock_direction}" in paraphrase and extracted_clock_directions:
+            # Use the exact clock direction from the original text
+            paraphrase = paraphrase.replace("{clock_direction}", random.choice(extracted_clock_directions))
+        elif "{clock_direction}" in paraphrase:
+            # If no clock direction in original, use a random one
+            paraphrase = paraphrase.replace("{clock_direction}", random.choice(clock_directions))
+            
         # Replace direction placeholder
         if "{direction}" in paraphrase:
             if directions and len(directions) > 0:
-                paraphrase = paraphrase.replace("{direction}", random.choice(directions))
+                # Filter out clock directions which should be handled separately
+                non_clock_directions = [d for d in directions if not any(clock in d for clock in ["o'clock", "oclock"])]
+                if non_clock_directions:
+                    paraphrase = paraphrase.replace("{direction}", random.choice(non_clock_directions))
+                else:
+                    paraphrase = paraphrase.replace("{direction}", random.choice(directions))
                 
         # Replace landmark placeholder
         if "{landmark}" in paraphrase:
@@ -449,9 +589,23 @@ class ContrastiveSampleGenerator:
             else:
                 paraphrase = paraphrase.replace("{size}", random.choice(self.size_terms))
                 
-        # Replace clock direction placeholder
-        if "{clock_direction}" in paraphrase:
-            paraphrase = paraphrase.replace("{clock_direction}", random.choice(clock_directions))
+        # Replace sequence placeholder
+        if "{sequence}" in paraphrase:
+            if hasattr(self, 'sequence_terms'):
+                paraphrase = paraphrase.replace("{sequence}", random.choice(self.sequence_terms))
+            else:
+                paraphrase = paraphrase.replace("{sequence}", "then")
+                
+        # Replace position placeholder
+        if "{position}" in paraphrase:
+            if hasattr(self, 'position_terms'):
+                paraphrase = paraphrase.replace("{position}", random.choice(self.position_terms))
+            else:
+                paraphrase = paraphrase.replace("{position}", "first")
+        
+        # Replace action verb placeholder
+        if "{action_verb}" in paraphrase:
+            paraphrase = paraphrase.replace("{action_verb}", random.choice(action_verbs))
             
         # Replace feature placeholder
         if "{feature}" in paraphrase:
@@ -470,10 +624,11 @@ class ContrastiveSampleGenerator:
     
     def generate_positive_examples(self, original_answer, n=3):
         """
-        Generate positive examples (paraphrases) using a hybrid approach.
+        Generate positive examples (paraphrases) using a hybrid approach optimized for UAV navigation.
         
         Uses both language model-based and template-based paraphrases to create
-        diverse positive examples for contrastive learning.
+        diverse positive examples for contrastive learning, with special handling
+        for UAV navigation instructions from the AVDN dataset.
         
         Args:
             original_answer: The original navigation instruction to paraphrase
@@ -489,17 +644,31 @@ class ContrastiveSampleGenerator:
         if len(original_answer.split()) < 3:
             return self._generate_simple_variations(original_answer, n)
         
+        # Check if this is a UAV navigation instruction with specific patterns
+        is_uav_instruction = self._is_uav_navigation_instruction(original_answer)
+        
         # Step 1: Try to generate at least one high-quality LM-based paraphrase
         if self.has_paraphraser:
-            lm_paraphrases = self._generate_lm_paraphrase(original_answer)
+            # For UAV instructions, add context to help the paraphraser
+            if is_uav_instruction:
+                lm_paraphrases = self._generate_lm_paraphrase(original_answer, context="UAV navigation")
+            else:
+                lm_paraphrases = self._generate_lm_paraphrase(original_answer)
             positives.extend(lm_paraphrases)
         
-        # Step 2: Generate the remaining examples using template-based approach
+        # Step 2: Generate template-based paraphrases with priority for UAV instructions
         remaining = n - len(positives)
         if remaining > 0:
             self.logger.info(f"Generating {remaining} template-based paraphrases")
-            template_paraphrases = self.generate_template_paraphrases(original_answer, remaining)
-            positives.extend(template_paraphrases)
+            # For UAV instructions, use more templates to get better variety
+            if is_uav_instruction:
+                template_paraphrases = self.generate_template_paraphrases(original_answer, remaining + 2)
+                # Sort by similarity and take the most appropriate ones
+                template_paraphrases.sort(key=lambda x: x["similarity"], reverse=True)
+                positives.extend(template_paraphrases[:remaining])
+            else:
+                template_paraphrases = self.generate_template_paraphrases(original_answer, remaining)
+                positives.extend(template_paraphrases)
         
         # Step 3: Fill any remaining slots with simple variations if needed
         if len(positives) < n:
@@ -510,13 +679,45 @@ class ContrastiveSampleGenerator:
         # Return the requested number of positives
         return positives[:n]
     
-    def _generate_lm_paraphrase(self, original_answer, max_paraphrases=1):
+    def _is_uav_navigation_instruction(self, text):
+        """
+        Check if the text is a UAV navigation instruction based on patterns from AVDN dataset.
+        
+        Args:
+            text: Text to check
+            
+        Returns:
+            Boolean indicating if this is likely a UAV navigation instruction
+        """
+        text_lower = text.lower()
+        
+        # Check for UAV navigation patterns
+        navigation_indicators = [
+            "destination", "target", "direction", "o'clock", "turn", "degrees",
+            "container", "straight", "fly", "navigate", "go", "move", "head",
+            "left", "right", "north", "south", "east", "west"
+        ]
+        
+        # Check for clock position references (common in AVDN)
+        clock_references = any(f"{i} o'clock" in text_lower for i in range(1, 13))
+        
+        # Check for degree turn instructions (common in AVDN)
+        degree_turns = any(f"{i} degree" in text_lower for i in [90, 180, 270, 360])
+        
+        # Count navigation indicators
+        indicator_count = sum(1 for indicator in navigation_indicators if indicator in text_lower)
+        
+        # If it has clock references, degree turns, or multiple navigation indicators, it's likely a UAV instruction
+        return clock_references or degree_turns or indicator_count >= 2
+    
+    def _generate_lm_paraphrase(self, original_answer, max_paraphrases=1, context=None):
         """
         Generate paraphrases using a language model.
         
         Args:
             original_answer: Original answer to paraphrase
             max_paraphrases: Maximum number of paraphrases to generate
+            context: Optional context to add to the paraphrase input
             
         Returns:
             List of paraphrases with similarity scores
@@ -529,14 +730,17 @@ class ContrastiveSampleGenerator:
         self.logger.info("Generating LM-based paraphrase")
         
         try:
-            # Format input for the T5 paraphraser
-            paraphrase_input = f"In the context of Unmanned Aerial Vehicle navigation, paraphrase: {original_answer}"
+            # Format input for the T5 paraphraser with context if provided
+            if context == "UAV navigation":
+                paraphrase_input = f"In the context of Unmanned Aerial Vehicle navigation instructions, paraphrase: {original_answer}"
+            else:
+                paraphrase_input = f"Paraphrase: {original_answer}"
             
             # Generate paraphrases
             outputs = self.paraphraser(
                 paraphrase_input,
                 max_length=min(128, len(original_answer.split()) * 2),
-                num_return_sequences=3,  # Try a couple to increase chances of success
+                num_return_sequences=5,  # Try a couple to increase chances of success
                 temperature=1.0,
                 do_sample=True
             )
@@ -552,8 +756,13 @@ class ContrastiveSampleGenerator:
                 # Calculate similarity
                 similarity = self.calculate_similarity(original_answer, paraphrase)
                 
+                # For UAV navigation, we want to ensure key directional information is preserved
+                # so we use a higher similarity threshold
+                min_similarity = 0.75 if context == "UAV navigation" else 0.7
+                max_similarity = 0.95 if context == "UAV navigation" else 0.90
+                
                 # Only keep if reasonably similar to the original
-                if similarity > 0.7:
+                if min_similarity <= similarity <= max_similarity:
                     paraphrases.append({
                         "text": paraphrase,
                         "similarity": similarity,
@@ -589,12 +798,30 @@ class ContrastiveSampleGenerator:
         Returns:
             List of simple variations with similarity scores
         """
-        simple_variations = [
-            f"I believe {original_answer}",
-            f"{original_answer} That's your destination.",
-            f"Based on what I can see, {original_answer.lower()}",
-            f"From the drone's view, {original_answer.lower()}"
-        ]
+        # Check if this is likely a UAV navigation instruction
+        is_uav_instruction = self._is_uav_navigation_instruction(original_answer)
+        
+        # Create variations based on the content type
+        if is_uav_instruction:
+            simple_variations = [
+                f"I believe {original_answer}",
+                f"{original_answer} That's your destination.",
+                f"Based on what I can see, {original_answer.lower()}",
+                f"From the drone's view, {original_answer.lower()}",
+                f"Yes, {original_answer.lower()}",
+                f"Looking at the aerial view, {original_answer.lower()}",
+                f"From this position, {original_answer.lower()}",
+                f"According to the UAV camera, {original_answer.lower()}",
+                f"The drone should {original_answer.lower().replace('turn', '').replace('go', '').strip()}",
+                f"To reach the destination, {original_answer.lower().replace('your destination is', '').replace('the destination is', '').strip()}"
+            ]
+        else:
+            simple_variations = [
+                f"I believe {original_answer}",
+                f"{original_answer} That's your destination.",
+                f"Based on what I can see, {original_answer.lower()}",
+                f"From the drone's view, {original_answer.lower()}"
+            ]
         
         positives = []
         existing_texts = set()
@@ -1028,19 +1255,31 @@ class ContrastiveSampleGenerator:
         
         # Extract each type of navigation information
         directions = self._extract_terms(text_lower, self.direction_terms)
+        
+        # Special handling for clock directions - they need exact match
+        clock_directions = []
+        for clock in self.clock_direction_terms:
+            if clock in text_lower:
+                clock_directions.append(clock)
+        
         landmarks = self._extract_terms(text_lower, self.landmark_terms)
         colors = self._extract_terms(text_lower, self.color_terms)
         shapes = self._extract_terms(text_lower, self.shape_terms)
         spatial_relations = self._extract_terms(text_lower, self.spatial_relation_terms)
         sizes = self._extract_terms(text_lower, self.size_terms)
+        sequences = self._extract_terms(text_lower, self.sequence_terms)
+        positions = self._extract_terms(text_lower, self.position_terms)
         
         return {
             "directions": directions,
+            "clock_directions": clock_directions,
             "landmarks": landmarks,
             "colors": colors,
             "shapes": shapes,
             "spatial_relations": spatial_relations,
-            "sizes": sizes
+            "sizes": sizes,
+            "sequences": sequences,
+            "positions": positions
         }
     
     def _extract_terms(self, text, term_list):
@@ -1664,7 +1903,7 @@ class ContrastiveSampleGenerator:
 
     def augment_dialog_turn(self, question, answer, num_positives=2, num_negatives=3, dialog_answers=None):
         """
-        Generate contrastive samples for a dialog turn.
+        Generate contrastive samples for a dialog turn from AVDN dataset.
         
         Args:
             question: The question from the dialog turn
@@ -1679,15 +1918,32 @@ class ContrastiveSampleGenerator:
         if not answer:
             return None
         
+        # Extract instruction from question if it follows AVDN format
+        # In AVDN, questions often contain "[QUE]" and answers contain "[INS]"
+        extracted_instruction = None
+        if question and "[INS]" in question:
+            # Extract instruction part from the question
+            ins_start = question.find("[INS]")
+            if ins_start >= 0:
+                extracted_instruction = question[ins_start+5:].strip()
+        
         # Store alternative answers for negative generation
         if dialog_answers:
             self.alternative_answers = [a for a in dialog_answers if a != answer]
         else:
             self.alternative_answers = []
         
+        # If we have an extracted instruction, use it to enhance the answer context
+        enhanced_answer = answer
+        if extracted_instruction:
+            # Check if the instruction provides additional context not in the answer
+            if self.calculate_similarity(extracted_instruction, answer) < 0.8:
+                # Combine instruction with answer for better contrastive samples
+                enhanced_answer = f"{extracted_instruction} {answer}"
+        
         contrastive_samples = {
             "positive_examples": self.generate_positive_examples(answer, num_positives),
-            "negative_examples": self.generate_negative_examples(answer, num_negatives)
+            "negative_examples": self.generate_negative_examples(enhanced_answer, num_negatives)
         }
         
         complexity_metadata = self.analyze_complexity(question, answer)
@@ -1724,26 +1980,92 @@ class ContrastiveSampleGenerator:
         for episode in tqdm.tqdm(data, desc="Augmenting episodes"):
             # Collect all answers in this episode for use as potential negatives
             episode_answers = []
-            for dialog in episode["dialogs"]:
-                if dialog.get("answer"):
-                    episode_answers.append(dialog["answer"])
             
-            # Process each dialog
-            for dialog in episode["dialogs"]:
-                total_dialogs += 1
-                if dialog.get("question") is not None and dialog.get("answer") is not None:
-                    # Pass other answers from the episode as potential negatives
-                    augmentation = self.augment_dialog_turn(
-                        dialog["question"], 
-                        dialog["answer"],
-                        num_positives=num_positives,
-                        num_negatives=num_negatives,
-                        dialog_answers=episode_answers
-                    )
+            # Check for AVDN dataset format
+            is_avdn_format = False
+            if "pre_dialogs" in episode or "instructions" in episode:
+                is_avdn_format = True
+            
+            if is_avdn_format:
+                # AVDN format - extract instructions from the episode
+                if "instructions" in episode:
+                    instruction = episode["instructions"]
+                    if isinstance(instruction, str) and "[INS]" in instruction:
+                        # Extract the instruction part
+                        ins_start = instruction.find("[INS]")
+                        if ins_start >= 0:
+                            answer = instruction[ins_start+5:].strip()
+                            episode_answers.append(answer)
+                
+                # Process pre_dialogs if available
+                if "pre_dialogs" in episode and isinstance(episode["pre_dialogs"], list):
+                    for dialog in episode["pre_dialogs"]:
+                        if isinstance(dialog, str) and "[INS]" in dialog:
+                            # Extract the instruction part
+                            ins_start = dialog.find("[INS]")
+                            if ins_start >= 0:
+                                answer = dialog[ins_start+5:].strip()
+                                episode_answers.append(answer)
+                
+                # For AVDN format, we augment the current instruction
+                if "instructions" in episode and isinstance(episode["instructions"], str):
+                    total_dialogs += 1
+                    instruction = episode["instructions"]
                     
-                    if augmentation:
-                        dialog.update(augmentation)
-                        augmented_count += 1
+                    # Extract question and answer parts
+                    question = None
+                    answer = None
+                    
+                    if "[QUE]" in instruction and "[INS]" in instruction:
+                        # Split into question and answer
+                        que_start = instruction.find("[QUE]")
+                        ins_start = instruction.find("[INS]")
+                        
+                        if que_start >= 0 and ins_start >= 0:
+                            question = instruction[que_start+5:ins_start].strip()
+                            answer = instruction[ins_start+5:].strip()
+                    elif "[INS]" in instruction:
+                        # Only instruction part
+                        ins_start = instruction.find("[INS]")
+                        if ins_start >= 0:
+                            answer = instruction[ins_start+5:].strip()
+                    
+                    if answer:
+                        # Augment this dialog turn
+                        augmentation = self.augment_dialog_turn(
+                            question=question,
+                            answer=answer,
+                            num_positives=num_positives,
+                            num_negatives=num_negatives,
+                            dialog_answers=episode_answers
+                        )
+                        
+                        if augmentation:
+                            # Add augmentation to the episode
+                            episode["contrastive_augmentation"] = augmentation
+                            augmented_count += 1
+            else:
+                # Standard format with dialogs list
+                for dialog in episode.get("dialogs", []):
+                    if dialog.get("answer"):
+                        episode_answers.append(dialog["answer"])
+                
+                # Process each dialog
+                for dialog in episode.get("dialogs", []):
+                    total_dialogs += 1
+                    if dialog.get("question") is not None and dialog.get("answer") is not None:
+                        # Pass other answers from the episode as potential negatives
+                        augmentation = self.augment_dialog_turn(
+                            dialog["question"], 
+                            dialog["answer"],
+                            num_positives=num_positives,
+                            num_negatives=num_negatives,
+                            dialog_answers=episode_answers
+                        )
+                        
+                        if augmentation:
+                            dialog.update(augmentation)
+                            augmented_count += 1
         
         self.logger.info(f"Augmented {augmented_count} out of {total_dialogs} dialog turns")
         
@@ -1752,4 +2074,112 @@ class ContrastiveSampleGenerator:
         with open(output_json_path, 'w') as f:
             json.dump(data, f)
         
-        return augmented_count 
+        return augmented_count
+    
+    def process_avdn_episode(self, episode, num_positives=2, num_negatives=3):
+        """
+        Process an AVDN dataset episode to extract and augment instructions.
+        
+        Args:
+            episode: AVDN dataset episode
+            num_positives: Number of positive examples to generate
+            num_negatives: Number of negative examples to generate
+            
+        Returns:
+            Tuple of (augmented_count, total_dialogs, episode_answers)
+        """
+        augmented_count = 0
+        total_dialogs = 0
+        episode_answers = []
+        
+        # Extract instructions from the episode
+        if "instructions" in episode:
+            instruction = episode["instructions"]
+            if isinstance(instruction, str) and "[INS]" in instruction:
+                # Extract the instruction part
+                ins_start = instruction.find("[INS]")
+                if ins_start >= 0:
+                    answer = instruction[ins_start+5:].strip()
+                    episode_answers.append(answer)
+        
+        # Process pre_dialogs if available
+        if "pre_dialogs" in episode and isinstance(episode["pre_dialogs"], list):
+            for dialog in episode["pre_dialogs"]:
+                if isinstance(dialog, str) and "[INS]" in dialog:
+                    # Extract the instruction part
+                    ins_start = dialog.find("[INS]")
+                    if ins_start >= 0:
+                        answer = dialog[ins_start+5:].strip()
+                        episode_answers.append(answer)
+        
+        # For AVDN format, we augment the current instruction
+        if "instructions" in episode and isinstance(episode["instructions"], str):
+            total_dialogs += 1
+            instruction = episode["instructions"]
+            
+            # Extract question and answer parts
+            question = None
+            answer = None
+            
+            if "[QUE]" in instruction and "[INS]" in instruction:
+                # Split into question and answer
+                que_start = instruction.find("[QUE]")
+                ins_start = instruction.find("[INS]")
+                
+                if que_start >= 0 and ins_start >= 0:
+                    question = instruction[que_start+5:ins_start].strip()
+                    answer = instruction[ins_start+5:].strip()
+            elif "[INS]" in instruction:
+                # Only instruction part
+                ins_start = instruction.find("[INS]")
+                if ins_start >= 0:
+                    answer = instruction[ins_start+5:].strip()
+            
+            if answer:
+                # Augment this dialog turn
+                augmentation = self.augment_dialog_turn(
+                    question=question,
+                    answer=answer,
+                    num_positives=num_positives,
+                    num_negatives=num_negatives,
+                    dialog_answers=episode_answers
+                )
+                
+                if augmentation:
+                    # Add augmentation to the episode
+                    episode["contrastive_augmentation"] = augmentation
+                    augmented_count += 1
+        
+        return augmented_count, total_dialogs, episode_answers
+    
+    def extract_avdn_instructions(self, episode):
+        """
+        Extract instructions from an AVDN dataset episode.
+        
+        Args:
+            episode: AVDN dataset episode
+            
+        Returns:
+            List of extracted instructions
+        """
+        instructions = []
+        
+        # Extract main instruction
+        if "instructions" in episode and isinstance(episode["instructions"], str):
+            instruction = episode["instructions"]
+            if "[INS]" in instruction:
+                ins_start = instruction.find("[INS]")
+                if ins_start >= 0:
+                    answer = instruction[ins_start+5:].strip()
+                    instructions.append(answer)
+        
+        # Extract from pre_dialogs
+        if "pre_dialogs" in episode and isinstance(episode["pre_dialogs"], list):
+            for dialog in episode["pre_dialogs"]:
+                if isinstance(dialog, str) and "[INS]" in dialog:
+                    ins_start = dialog.find("[INS]")
+                    if ins_start >= 0:
+                        answer = dialog[ins_start+5:].strip()
+                        instructions.append(answer)
+        
+        return instructions

@@ -413,7 +413,7 @@ class AnsweringAgentNormalizer:
             destination_view, dest_coords = self.process_coordinates_to_image(
                 episode['destination'], map_name, image_dir, gps_botm_left, gps_top_right,
                 lat_ratio, lng_ratio, output_size, False  # No augmentation for destination
-            )
+                )
             result['destination_image'] = torch.tensor(destination_view)
             result['destination_coords'] = dest_coords
         
@@ -452,15 +452,15 @@ class AnsweringAgentNormalizer:
                 dialog_context, 
                 max_length=max_length,
                 padding="max_length",
-                truncation=True,
+            truncation=True,
                 return_tensors="pt"
-            )
-            
+        )
+
             result['tokenized_answer'] = self.tokenizer(
                 answer,
                 max_length=max_length,
                 padding="max_length",
-                truncation=True,
+            truncation=True,
                 return_tensors="pt"
             )
         

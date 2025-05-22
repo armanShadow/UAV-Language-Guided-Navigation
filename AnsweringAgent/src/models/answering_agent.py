@@ -330,14 +330,14 @@ class AnsweringAgent(nn.Module):
             
             # Reshape back to [batch, num_prev, hidden]
             prev_features = all_prev_features.view(batch_size, num_prev, -1)
-        else:
+                else:
             # Default to empty tensor if no previous views
             prev_features = torch.zeros(batch_size, 1, self.config.model.hidden_size,
                                       device=device)
-
+        
         # Apply temporal encoding to incorporate previous views
         visual_context = self.temporal_encoder(current_features, prev_features)
-        
+
         # Process destination image if provided (for curriculum learning)
         dest_features = None
         if destination_view is not None and curriculum_ratio > 0:
@@ -359,7 +359,7 @@ class AnsweringAgent(nn.Module):
             attention_mask=text_input["attention_mask"],
             return_dict=True
         )
-        
+
         # --- Cross-Modal Fusion ---
         # Visual tokens need to be the same dimension as T5's hidden states
         # Project visual context to create multiple visual tokens
@@ -372,17 +372,17 @@ class AnsweringAgent(nn.Module):
         
         # Get text features from encoder
         text_features = encoder_outputs.last_hidden_state
-        
+
         # Apply cross-modal fusion between text and visual features
         fused_features = self.fusion_module(
             text_features=text_features,
             visual_features=visual_ctx_expanded,
             text_mask=text_input["attention_mask"]
         )
-        
+            
         # Adapt the fused features to work with T5 decoder
         encoder_hidden_states = self.t5_adapter(fused_features)
-        
+
         # --- Create reconstruction targets for additional training signal ---
         visual_context_target = visual_context.detach()  # Stop gradients
         reconstructed_visual_features = self.visual_reconstruction_head(encoder_hidden_states.mean(dim=1))
@@ -394,7 +394,7 @@ class AnsweringAgent(nn.Module):
             reconstructed_destination_features = self.destination_reconstruction_head(
                 encoder_hidden_states.mean(dim=1)
             )
-
+        
         # --- Decoder Processing ---
         # Calculate logits or generate text
         if not generate:
@@ -410,7 +410,7 @@ class AnsweringAgent(nn.Module):
             
             # Get logits for token prediction
             logits = self.t5_model.lm_head(decoder_outputs.last_hidden_state)
-            
+                
             # Create output dictionary
             outputs = {
                 "logits": logits,

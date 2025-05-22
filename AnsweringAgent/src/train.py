@@ -395,20 +395,20 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Add feature regularization with weight 0.0001
                         reg_loss = 0.0001 * feature_norm
                         loss = ce_loss_weight * ce_loss + reg_loss
-                        
+
                         # Calculate distribution similarity loss
                         distribution_similarity_loss = calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, label_attention_mask.reshape(-1), model, device)
-                        
+
                         # Add weighted distribution similarity loss
                         distribution_similarity_weight = get_weight_schedule(config.training.distribution_loss_weight_start, config.training.distribution_loss_weight_end, max_curriculum_epochs)(epoch)
                         loss = loss + distribution_similarity_weight * distribution_similarity_loss
-                        
+                            
                         # Add destination loss if destination view is available
                         destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
                         
                         destination_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
                         loss = loss + destination_weight * destination_cosine_loss
-                        
+
                         # Add reconstruction losses
                         visual_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_visual_features"], outputs["visual_context_target"])
                         destination_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_destination_features"], dest_features)
@@ -441,8 +441,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 total_contrastive_loss += contrastive_loss.item()
                 
                     # Apply gradient accumulation: normalize loss
-                    loss = loss / config.training.gradient_accumulation_steps
-                    
+                        loss = loss / config.training.gradient_accumulation_steps
+
                     # Accumulate statistics
                     total_ce_loss += ce_loss.item()
                     total_distribution_similarity_loss += distribution_similarity_loss.item()
@@ -457,7 +457,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     if ((batch_idx + 1) % config.training.gradient_accumulation_steps == 0) or (batch_idx + 1 == len(train_loader)):
                         # Unscale gradients to apply custom gradient operations (like clipping)
                         scaler.unscale_(optimizer)
-                        
+
                         # Add gradient clipping
                         torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.gradient_clip)
                         
@@ -468,37 +468,37 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         
                         # Update EMA
                         ema.update()
-                    
+
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
-                    
+                
                     # Only have rank 0 log progress
                     if rank == 0 and batch_idx % log_frequency == 0:
                         avg_loss = total_loss / (batch_idx + 1)
                         logger.info(f"Epoch {epoch+1}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | "
                                   f"Loss: {avg_loss:.4f} | CE: {total_ce_loss/(batch_idx+1):.4f} | "
                                   f"Dist: {total_distribution_similarity_loss/(batch_idx+1):.4f}")
-                        
+                    
                         # Log GPU memory usage
                         if torch.cuda.is_available():
                             logger.info(f"GPU Memory: {log_gpu_memory()}")
-                
+                    
                 except Exception as e:
                     # Log and continue in case of batch failure
                     if rank == 0:
                         logger.error(f"Error in batch {batch_idx}: {str(e)}")
-                        logger.error(traceback.format_exc())
+                    logger.error(traceback.format_exc())
                     
                     # Zero out gradients to avoid accumulation
                     optimizer.zero_grad(set_to_none=True)
                     continue
-            
+
             # Calculate average losses across distributed processes
             if is_distributed:
                 # Gather losses from all processes
                 world_size = dist.get_world_size()
                 
                 loss_tensor = torch.tensor(total_loss, device=device)
-                total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)
+                total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)   
                 total_distribution_similarity_loss_tensor = torch.tensor(total_distribution_similarity_loss, device=device)
                 total_destination_loss_tensor = torch.tensor(total_destination_loss, device=device)
                 total_visual_reconstruction_loss_tensor = torch.tensor(total_visual_reconstruction_loss, device=device)
@@ -519,7 +519,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 total_ce_loss = total_ce_loss_tensor.item() / dist.get_world_size()
                 total_distribution_similarity_loss = total_distribution_similarity_loss_tensor.item() / dist.get_world_size()
                 total_destination_loss = total_destination_loss_tensor.item() / dist.get_world_size()
-                total_visual_reconstruction_loss = total_visual_reconstruction_loss_tensor.item() / dist.get_world_size()
+                total_visual_reconstruction_loss = total_visual_reconstruction_loss_tensor.item() / dist.get_world_size()   
                 total_destination_reconstruction_loss = total_destination_reconstruction_loss_tensor.item() / dist.get_world_size()
                 total_contrastive_loss = total_contrastive_loss_tensor.item() / dist.get_world_size()
             
@@ -543,14 +543,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                           f"Time: {epoch_time:.1f}s")
             
             # Validation step
-            val_loss = 0
-            
+                val_loss = 0
+                
             if (epoch + 1) % config.training.eval_freq == 0 or epoch == num_epochs - 1:
                 model.eval()
                 
                 # Apply EMA for validation
                 ema.apply_shadow()
-                
+
                 with torch.no_grad():
                     for batch_idx, batch in enumerate(val_loader):
                         try:
@@ -610,9 +610,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 
                                 # Add destination loss if available
                                 if 'destination_image' in batch and dest_features is not None:
-                                    destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
+                                destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
                                     destination_weight = config.training.destination_loss_weight_end
-                                    loss = loss + destination_weight * destination_cosine_loss
+                                loss = loss + destination_weight * destination_cosine_loss
                                 
                                 # Add reconstruction losses
                                 visual_reconstruction_loss = calculate_reconstruction_loss(
@@ -646,12 +646,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         except Exception as e:
                             if rank == 0:
                                 logger.error(f"Error in validation batch {batch_idx}: {str(e)}")
-                                logger.error(traceback.format_exc())
+                            logger.error(traceback.format_exc())
                             continue
                 
                 # Restore original weights
                 ema.restore()
-                
+
                 # Average validation loss across all processes if distributed
                 if is_distributed:
                     val_loss_tensor = torch.tensor(val_loss, device=device)
@@ -660,7 +660,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 
                 # Calculate average validation loss
                 val_loss = val_loss / len(val_loader)
-                
+
                 if rank == 0:
                     logger.info(f"Validation Loss: {val_loss:.4f}")
                     
@@ -689,20 +689,20 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         last_best_epoch = epoch
                         
                         # Reset early stopping counter on improvement
-                        early_stopping_counter = 0
-                    else:
+                            early_stopping_counter = 0
+                        else:
                         # Check for early stopping if validation loss doesn't improve
                         if config.training.early_stopping:
                             # No improvement in validation loss
                             delta = (val_loss - prev_val_loss) / prev_val_loss
                             
                             if abs(delta) < config.training.early_stopping_min_delta:
-                                early_stopping_counter += 1
+                            early_stopping_counter += 1
                                 logger.info(f"Early stopping counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
-                                
-                                if early_stopping_counter >= config.training.early_stopping_patience:
+                            
+                            if early_stopping_counter >= config.training.early_stopping_patience:
                                     logger.info("Early stopping triggered")
-                                    early_stopping_triggered = True
+                                early_stopping_triggered = True
                             else:
                                 # Reset counter if there's significant change
                                 early_stopping_counter = 0
@@ -714,7 +714,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 save_dict = {
                     'epoch': epoch,
                     'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
                     'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
                     'ema': ema.state_dict(),
                     'val_loss': val_loss if 'val_loss' in locals() else None,
@@ -740,7 +740,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             save_dict = {
                 'epoch': num_epochs - 1,
                 'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
                 'ema': ema.state_dict(),
                 'val_loss': val_loss if 'val_loss' in locals() else None,
@@ -751,16 +751,16 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 final_model_path = os.path.join(checkpoint_dir, 'final_model.pth')
                 torch.save(save_dict, final_model_path)
                 logger.info(f"Saved final model to {final_model_path}")
-            
+
             # Print training summary
             logger.info(f"Training complete. Best validation loss: {best_val_loss:.4f} at epoch {last_best_epoch + 1}")
                 
         return best_val_loss, last_best_epoch
-        
+
     except Exception as e:
         if rank == 0:
             logger.error(f"Training failed with exception: {str(e)}")
-            logger.error(traceback.format_exc())
+        logger.error(traceback.format_exc())
         
         TRAINING_FAILED = True
         

@@ -254,7 +254,7 @@ class AnsweringDataset(Dataset):
             # Instead of zero padding, replicate the current view for padding
             padding = [current_view.clone() for _ in range(self.max_prev_views - len(previous_views))]
             previous_views.extend(padding)
-            
+        
         # Stack the views into a single tensor
         previous_views_tensor = torch.stack(previous_views, dim=0)
         

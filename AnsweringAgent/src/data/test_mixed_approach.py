@@ -3,6 +3,7 @@ import json
 import sys
 import logging
 import random
+import os
 from pprint import pprint
 from contrastive_sample_generator import ContrastiveSampleGenerator
 
@@ -12,6 +13,52 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
+
+def find_dataset_files():
+    """Find AVDN dataset files in the workspace."""
+    possible_paths = [
+        "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations",
+        "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations",
+        "../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations",
+        "datasets/AVDN/annotations"
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            dataset_files = []
+            for filename in ["train_data.json", "val_seen_data.json", "val_unseen_data.json", "test_unseen_data.json"]:
+                full_path = os.path.join(path, filename)
+                if os.path.exists(full_path):
+                    dataset_files.append(full_path)
+            
+            if dataset_files:
+                return dataset_files
+    
+    return []
+
+def extract_instructions_from_episode(episode):
+    """Extract instructions from an AVDN dataset episode."""
+    instructions = []
+    
+    # Extract main instruction
+    if "instructions" in episode and isinstance(episode["instructions"], str):
+        instruction = episode["instructions"]
+        if "[INS]" in instruction:
+            ins_start = instruction.find("[INS]")
+            if ins_start >= 0:
+                answer = instruction[ins_start+5:].strip()
+                instructions.append(answer)
+    
+    # Extract from pre_dialogs
+    if "pre_dialogs" in episode and isinstance(episode["pre_dialogs"], list):
+        for dialog in episode["pre_dialogs"]:
+            if isinstance(dialog, str) and "[INS]" in dialog:
+                ins_start = dialog.find("[INS]")
+                if ins_start >= 0:
+                    answer = dialog[ins_start+5:].strip()
+                    instructions.append(answer)
+    
+    return instructions
 
 def test_mixed_approach():
     """Test the mixed approach with both language model and rule/template-based examples."""
@@ -30,6 +77,8 @@ def test_mixed_approach():
         "Head to the gray oval-shaped building across from the lake."
     ]
     
+    # Test with hardcoded examples first
+    logger.info("\nTesting with hardcoded examples:")
     for i, instruction in enumerate(sample_instructions):
         logger.info(f"\n{'='*80}\nTesting instruction {i+1}:\n{instruction}\n{'-'*80}")
         
@@ -49,29 +98,52 @@ def test_mixed_approach():
             logger.info(f"Negative {j+1} ({neg['type']}, similarity: {neg['similarity']:.3f})")
             logger.info(f"  {neg['text']}")
     
-    # Test with a real sample from the dataset
+    # Test with real samples from the dataset
     try:
         logger.info(f"\n{'='*80}\nTesting with real examples from dataset\n{'-'*80}")
-        with open("processed_data/val_seen_data.json", "r") as f:
+        
+        # Find dataset files
+        dataset_files = find_dataset_files()
+        
+        if not dataset_files:
+            logger.error("No dataset files found. Skipping dataset testing.")
+            return
+            
+        logger.info(f"Found dataset files: {dataset_files}")
+        
+        # Select a random dataset file
+        dataset_path = random.choice(dataset_files)
+        logger.info(f"Using dataset: {dataset_path}")
+        
+        with open(dataset_path, "r") as f:
             data = json.load(f)
             
-            # Find a good dialog turn with an answer
-            real_answer = None
-            for episode in data[:10]:  # Check first 10 episodes
-                for dialog in episode.get("dialogs", []):
-                    if dialog.get("answer") and len(dialog["answer"]) > 20:
-                        real_answer = dialog["answer"]
-                        break
-                if real_answer:
-                    break
+            # Select 3 random episodes
+            if len(data) > 3:
+                selected_episodes = random.sample(data, 3)
+            else:
+                selected_episodes = data
+                
+            logger.info(f"Selected {len(selected_episodes)} random episodes for testing")
             
-            if real_answer:
-                logger.info(f"\nReal answer from dataset:\n{real_answer}\n{'-'*80}")
+            # Process each selected episode
+            for episode_idx, episode in enumerate(selected_episodes):
+                # Extract instructions from the episode
+                instructions = extract_instructions_from_episode(episode)
+                
+                if not instructions:
+                    logger.warning(f"No instructions found in episode {episode_idx+1}")
+                    continue
+                
+                # Select a random instruction
+                instruction = random.choice(instructions)
+                
+                logger.info(f"\n{'='*80}\nTesting with real instruction {episode_idx+1}:\n{instruction}\n{'-'*80}")
                 
                 # Generate full augmentation
                 augmentation = generator.augment_dialog_turn(
                     question=None,  # Question not needed for this test
-                    answer=real_answer,
+                    answer=instruction,
                     num_positives=3,
                     num_negatives=3
                 )
@@ -97,6 +169,8 @@ def test_mixed_approach():
     
     except Exception as e:
         logger.error(f"Error testing with real examples: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 if __name__ == "__main__":
     test_mixed_approach() 
