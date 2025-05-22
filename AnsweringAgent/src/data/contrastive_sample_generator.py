@@ -677,13 +677,10 @@ class ContrastiveSampleGenerator:
             self.logger.info(f"Generating {remaining} template-based paraphrases")
             # For multi-step instructions, use more templates to get better variety
             if is_multi_step:
-                template_paraphrases = self._generate_multi_step_paraphrases(original_answer, remaining + 1)
-                if template_paraphrases:
-                    positives.extend(template_paraphrases[:remaining])
-                else:
-                    # Fall back to standard templates if multi-step handling fails
-                    template_paraphrases = self.generate_template_paraphrases(original_answer, remaining)
-                    positives.extend(template_paraphrases)
+                template_paraphrases = self.generate_template_paraphrases(original_answer, remaining + 2)
+                # Sort by similarity and take the most appropriate ones
+                template_paraphrases.sort(key=lambda x: x["similarity"], reverse=True)
+                positives.extend(template_paraphrases[:remaining])
             # For UAV instructions, use more templates to get better variety
             elif is_uav_instruction:
                 template_paraphrases = self.generate_template_paraphrases(original_answer, remaining + 2)
