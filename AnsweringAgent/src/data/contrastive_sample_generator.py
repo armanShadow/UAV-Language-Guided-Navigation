@@ -675,7 +675,7 @@ class ContrastiveSampleGenerator:
         remaining = n - len(positives)
         if remaining > 0:
             self.logger.info(f"Generating {remaining} template-based paraphrases")
-            # For multi-step instructions, use special handling
+            # For multi-step instructions, use more templates to get better variety
             if is_multi_step:
                 template_paraphrases = self._generate_multi_step_paraphrases(original_answer, remaining + 1)
                 if template_paraphrases:
@@ -2327,3 +2327,18 @@ class ContrastiveSampleGenerator:
             return True
             
         return False
+    
+    def _generate_multi_step_paraphrases(self, original_answer, n=1):
+        """
+        Generate paraphrases for multi-step navigation instructions.
+        
+        Args:
+            original_answer: Original multi-step instruction
+            n: Number of paraphrases to generate
+            
+        Returns:
+            List of paraphrases with similarity scores
+        """
+        # For now, fall back to standard template paraphrasing
+        # This is a simplified implementation that will be improved later
+        return self.generate_template_paraphrases(original_answer, n)
