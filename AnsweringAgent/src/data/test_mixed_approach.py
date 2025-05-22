@@ -4,6 +4,7 @@ import sys
 import logging
 import random
 import os
+import re
 from pprint import pprint
 from contrastive_sample_generator import ContrastiveSampleGenerator
 
@@ -69,7 +70,7 @@ def test_mixed_approach():
     # Note: Language model generation will only work if you have the required models
     generator = ContrastiveSampleGenerator(device="cpu")
     
-    # Sample navigation instructions
+    # Sample navigation instructions from AVDN dataset
     sample_instructions = [
         "Turn right and head towards the large blue building in front of you.",
         "Go north until you see a red-roofed structure, then turn left.",
@@ -77,12 +78,20 @@ def test_mixed_approach():
         "Head to the gray oval-shaped building across from the lake."
     ]
     
-    # Test with hardcoded examples first
-    logger.info("\nTesting with hardcoded examples:")
-    for i, instruction in enumerate(sample_instructions):
-        logger.info(f"\n{'='*80}\nTesting instruction {i+1}:\n{instruction}\n{'-'*80}")
+    # Add realistic multi-step navigation instructions from AVDN
+    avdn_instructions = [
+        "Turn to 3 PM and go forward. You should come to a white rooftop in the direction of 9 AM. Keep going forward. Pass over the first section of blue roof top, keep going forward, but when you hit the second, stop. You have arrived.",
+        "Northeast, fly to your right and turn around and go the opposite direction just a few feet to your destination.",
+        "Turn 180 degrees. Go straight until you are over a white container. That is your destination.",
+        "Yes, you are very close to your destination. Turn to your 5 o'clock and go straight forward from there and you will be right on top of your destination."
+    ]
+    
+    # Test with AVDN examples first
+    logger.info("\nTesting with realistic AVDN examples:")
+    for i, instruction in enumerate(avdn_instructions):
+        logger.info(f"\n{'='*80}\nTesting AVDN instruction {i+1}:\n{instruction}\n{'-'*80}")
         
-        # Generate 3 positive examples (1 LM-based, 2 template-based)
+        # Generate 3 positive examples
         logger.info("\nGenerating positive examples:")
         positives = generator.generate_positive_examples(instruction, n=3)
         
@@ -90,7 +99,28 @@ def test_mixed_approach():
             logger.info(f"Positive {j+1} ({pos['type']}, similarity: {pos['similarity']:.3f})")
             logger.info(f"  {pos['text']}")
         
-        # Generate 3 negative examples (1 LM-based, 2 rule-based)
+        # Generate 3 negative examples
+        logger.info("\nGenerating negative examples:")
+        negatives = generator.generate_negative_examples(instruction, n=3)
+        
+        for j, neg in enumerate(negatives):
+            logger.info(f"Negative {j+1} ({neg['type']}, similarity: {neg['similarity']:.3f})")
+            logger.info(f"  {neg['text']}")
+    
+    # Test with hardcoded examples
+    logger.info("\nTesting with hardcoded examples:")
+    for i, instruction in enumerate(sample_instructions):
+        logger.info(f"\n{'='*80}\nTesting instruction {i+1}:\n{instruction}\n{'-'*80}")
+        
+        # Generate 3 positive examples
+        logger.info("\nGenerating positive examples:")
+        positives = generator.generate_positive_examples(instruction, n=3)
+        
+        for j, pos in enumerate(positives):
+            logger.info(f"Positive {j+1} ({pos['type']}, similarity: {pos['similarity']:.3f})")
+            logger.info(f"  {pos['text']}")
+        
+        # Generate 3 negative examples
         logger.info("\nGenerating negative examples:")
         negatives = generator.generate_negative_examples(instruction, n=3)
         

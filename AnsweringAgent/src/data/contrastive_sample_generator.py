@@ -7,6 +7,7 @@ import os
 import tqdm
 import logging
 from transformers import AutoTokenizer, AutoModel, pipeline
+import re
 
 class ContrastiveSampleGenerator:
     """
@@ -648,8 +649,21 @@ class ContrastiveSampleGenerator:
         # Check if this is a UAV navigation instruction with specific patterns
         is_uav_instruction = self._is_uav_navigation_instruction(original_answer)
         
-        # Step 1: Try to generate at least one high-quality LM-based paraphrase
-        if self.has_paraphraser:
+        # Check if this is a multi-step instruction
+        is_multi_step = self._is_multi_step_instruction(original_answer)
+        
+        # Step 1: For multi-step instructions, prioritize the language model approach
+        # as it better preserves the sequential nature of instructions
+        if is_multi_step and self.has_paraphraser:
+            # Generate more LM paraphrases for multi-step instructions
+            lm_paraphrases = self._generate_lm_paraphrase(
+                original_answer, 
+                max_paraphrases=min(n, 2),  # Try to get at least 2 LM paraphrases
+                context="UAV multi-step navigation"
+            )
+            positives.extend(lm_paraphrases)
+        # For non-multi-step instructions, use standard approach
+        elif self.has_paraphraser:
             # For UAV instructions, add context to help the paraphraser
             if is_uav_instruction:
                 lm_paraphrases = self._generate_lm_paraphrase(original_answer, context="UAV navigation")
@@ -661,8 +675,17 @@ class ContrastiveSampleGenerator:
         remaining = n - len(positives)
         if remaining > 0:
             self.logger.info(f"Generating {remaining} template-based paraphrases")
+            # For multi-step instructions, use special handling
+            if is_multi_step:
+                template_paraphrases = self._generate_multi_step_paraphrases(original_answer, remaining + 1)
+                if template_paraphrases:
+                    positives.extend(template_paraphrases[:remaining])
+                else:
+                    # Fall back to standard templates if multi-step handling fails
+                    template_paraphrases = self.generate_template_paraphrases(original_answer, remaining)
+                    positives.extend(template_paraphrases)
             # For UAV instructions, use more templates to get better variety
-            if is_uav_instruction:
+            elif is_uav_instruction:
                 template_paraphrases = self.generate_template_paraphrases(original_answer, remaining + 2)
                 # Sort by similarity and take the most appropriate ones
                 template_paraphrases.sort(key=lambda x: x["similarity"], reverse=True)
@@ -2184,3 +2207,123 @@ class ContrastiveSampleGenerator:
                         instructions.append(answer)
         
         return instructions
+    
+    def _preserve_multi_step_structure(self, original_text):
+        """
+        Analyze and preserve multi-step structure in navigation instructions.
+        
+        Args:
+            original_text: Original navigation instruction text
+            
+        Returns:
+            Dictionary with identified steps and their components
+        """
+        # Check if text contains multiple steps (indicated by periods, commas, or sequence terms)
+        original_lower = original_text.lower()
+        sentences = []
+        
+        # First try to split by periods
+        if "." in original_text:
+            # Split by periods but preserve them
+            raw_sentences = original_text.split(".")
+            sentences = [s.strip() + "." for s in raw_sentences if s.strip()]
+            # Remove period from last sentence if it doesn't end with one
+            if sentences and not original_text.endswith("."):
+                sentences[-1] = sentences[-1][:-1]
+        # If no periods, try commas
+        elif "," in original_text:
+            raw_sentences = original_text.split(",")
+            sentences = [s.strip() + "," for s in raw_sentences if s.strip()]
+            # Remove comma from last sentence if it doesn't end with one
+            if sentences and not original_text.endswith(","):
+                sentences[-1] = sentences[-1][:-1]
+        # If no clear sentence breaks, check for sequence terms
+        else:
+            for term in ["then", "after", "next", "when", "until"]:
+                if term in original_lower:
+                    parts = re.split(f"({term})", original_text, flags=re.IGNORECASE)
+                    if len(parts) > 1:
+                        sentences = []
+                        for i in range(0, len(parts)-1, 2):
+                            if i+1 < len(parts):
+                                sentences.append(f"{parts[i].strip()}")
+                                sentences.append(f"{parts[i+1]} {parts[i+2].strip()}")
+                        break
+        
+        # If still no clear structure, treat as single instruction
+        if not sentences:
+            sentences = [original_text]
+            
+        # Extract key components from each step
+        steps = []
+        for i, sentence in enumerate(sentences):
+            step_info = {
+                "text": sentence,
+                "index": i,
+                "has_direction": False,
+                "has_landmark": False,
+                "has_clock": False,
+                "has_action": False,
+                "is_destination": "destination" in sentence.lower() or "arrived" in sentence.lower()
+            }
+            
+            # Check for directions
+            for direction in self.direction_terms:
+                if direction in sentence.lower():
+                    step_info["has_direction"] = True
+                    break
+                    
+            # Check for landmarks
+            for landmark in self.landmark_terms:
+                if landmark in sentence.lower():
+                    step_info["has_landmark"] = True
+                    break
+                    
+            # Check for clock references
+            step_info["has_clock"] = any(clock in sentence.lower() for clock in ["o'clock", "oclock", "am", "pm"])
+            
+            # Check for action verbs
+            for verb in self._get_navigation_action_verbs():
+                if verb in sentence.lower():
+                    step_info["has_action"] = True
+                    break
+                    
+            steps.append(step_info)
+            
+        return {
+            "original_text": original_text,
+            "steps": steps,
+            "is_multi_step": len(steps) > 1
+        }
+    
+    def _is_multi_step_instruction(self, text):
+        """
+        Check if the text contains multiple navigation steps.
+        
+        Args:
+            text: Text to analyze
+            
+        Returns:
+            Boolean indicating if this is a multi-step instruction
+        """
+        text_lower = text.lower()
+        
+        # Check for multiple sentences (periods)
+        if text.count('.') > 1:
+            return True
+            
+        # Check for sequence terms that indicate multiple steps
+        sequence_indicators = ["then", "after", "next", "first", "second", "finally", "when", "until"]
+        for indicator in sequence_indicators:
+            if indicator in text_lower:
+                return True
+                
+        # Check for multiple landmarks or directions
+        landmark_count = sum(1 for landmark in self.landmark_terms if landmark in text_lower)
+        direction_count = sum(1 for direction in self.direction_terms if direction in text_lower)
+        
+        # If text has multiple landmarks and directions, likely multi-step
+        if landmark_count > 1 and direction_count > 1:
+            return True
+            
+        return False
