@@ -252,7 +252,8 @@ class ContrastiveSampleGenerator:
             clock_directions = self._get_clock_directions()
             
         # Check if there are clock directions in the original text
-        contains_clock = any("o'clock" in original_answer.lower() or "oclock" in original_answer.lower())
+        original_answer_lower = original_answer.lower()
+        contains_clock = "o'clock" in original_answer_lower or "oclock" in original_answer_lower
         
         # Get appropriate templates
         templates = self._get_navigation_templates()
