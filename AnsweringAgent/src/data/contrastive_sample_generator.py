@@ -857,7 +857,7 @@ class ContrastiveSampleGenerator:
             min_similarity = 0.3
             max_similarity = 0.6
             margin = 0.05  # 5% margin between examples
-            negatives = self.generate_alternative_answer_negatives(original_answer, n-1, min_similarity, max_similarity, margin)
+            negatives = self.generate_alternative_answer_negatives(original_answer, n, min_similarity, max_similarity, margin)
             
         # If we don't have enough negatives, add rule-based negatives
         if len(negatives) < n:
