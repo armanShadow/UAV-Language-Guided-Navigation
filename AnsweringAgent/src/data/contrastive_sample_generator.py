@@ -713,11 +713,8 @@ class ContrastiveSampleGenerator:
         self.logger.info("Generating LM-based paraphrase")
         
         try:
-            # Format input for the T5 paraphraser with context if provided
-            if context == "UAV navigation":
-                paraphrase_input = f"In the context of Unmanned Aerial Vehicle navigation instructions, paraphrase: {original_answer}"
-            else:
-                paraphrase_input = f"Paraphrase: {original_answer}"
+           
+            paraphrase_input = f"In the context of {context}, paraphrase: {original_answer}"
             
             # Generate paraphrases
             outputs = self.paraphraser(
