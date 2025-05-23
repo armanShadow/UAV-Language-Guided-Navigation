@@ -858,9 +858,9 @@ class ContrastiveSampleGenerator:
                 # Sort by similarity (descending) to find alternatives in our target range
                 alternative_candidates.sort(key=lambda x: x["similarity"], reverse=True)
                 
-                # Target similarity range (40-70%)
-                min_similarity = 0.4
-                max_similarity = 0.7
+                # Target similarity range (30-60%)
+                min_similarity = 0.3
+                max_similarity = 0.6
                 margin = 0.05  # 5% margin between examples
                 
                 # Filter alternatives that are in our target range
