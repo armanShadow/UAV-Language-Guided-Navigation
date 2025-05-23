@@ -857,7 +857,7 @@ class ContrastiveSampleGenerator:
             min_similarity = 0.3
             max_similarity = 0.6
             margin = 0.05  # 5% margin between examples
-            negatives = self.generate_alternative_answer_negatives(original_answer, n, min_similarity, max_similarity, margin)
+            negatives = self.generate_alternative_answer_negatives(original_answer, n-1, min_similarity, max_similarity, margin)
             
         # If we don't have enough negatives, add rule-based negatives
         if len(negatives) < n:
@@ -865,19 +865,19 @@ class ContrastiveSampleGenerator:
             self.logger.warning(f"Only generated {len(negatives)}/{n} negatives from alternative answers, adding rule-based")
             
             # Generate rule-based negatives
-            rule_candidates = self.generate_rule_based_negatives(original_answer, remaining*2)
+            rule_candidates = self.generate_rule_based_negatives(original_answer, remaining*3)
             if rule_candidates:
                 # Sort by similarity to find appropriate rule-based negatives
                 rule_candidates.sort(key=lambda x: x["similarity"], reverse=True)
                 
                 # Filter by our target similarity range
-                filtered_rules = [r for r in rule_candidates if 0.4 <= r["similarity"] <= 0.7]
+                filtered_rules = [r for r in rule_candidates if min_similarity <= r["similarity"] <= max_similarity]
                 negatives.extend(filtered_rules[:remaining])
         
         # Last resort: generate random negatives
         while len(negatives) < n:
             random_negative = self._generate_random_negative(original_answer)[0]
-            if 0.3 <= random_negative["similarity"] <= 0.7:
+            if min_similarity <= random_negative["similarity"] <= max_similarity:
                 negatives.append({
                     "text": random_negative["text"],
                     "similarity": random_negative["similarity"],
@@ -1126,7 +1126,7 @@ class ContrastiveSampleGenerator:
             
         return negative
     
-    def generate_alternative_answer_negatives(self, original_answer, n=3, min_similarity=0.3, max_similarity=0.6, margin=0.05):
+    def generate_alternative_answer_negatives(self, original_answer, n=3, min_similarity=0.3, max_similarity=0.5, margin=0.05):
         """
         Generate negative examples using answers from other dialog turns.
         
