@@ -853,35 +853,12 @@ class ContrastiveSampleGenerator:
         
         # Step 1: Try to get alternative answers from other dialog turns
         if self.alternative_answers:
-
             # Target similarity range (30-60%)
             min_similarity = 0.3
             max_similarity = 0.6
             margin = 0.05  # 5% margin between examples
-
-            alternative_candidates = self.generate_alternative_answer_negatives(original_answer, n*2, min_similarity, max_similarity)
-            if alternative_candidates:
-                # Sort by similarity (descending) to find alternatives in our target range
-                alternative_candidates.sort(key=lambda x: x["similarity"], reverse=True)
-                
-                
-                
-                # Filter alternatives that are in our target range
-                filtered_alternatives = [a for a in alternative_candidates 
-                                        if min_similarity <= a["similarity"] <= max_similarity]
-                
-                # Select examples with sufficient diversity (using margin)
-                selected_alternatives = []
-                for alt in filtered_alternatives:
-                    # Check if this example is different enough from already selected ones
-                    if all(abs(alt["similarity"] - sel["similarity"]) >= margin 
-                           for sel in selected_alternatives):
-                        selected_alternatives.append(alt)
-                        if len(selected_alternatives) >= n:
-                            break
-                
-                negatives.extend(selected_alternatives)
-        
+            negatives = self.generate_alternative_answer_negatives(original_answer, n, min_similarity, max_similarity, margin)
+            
         # If we don't have enough negatives, add rule-based negatives
         if len(negatives) < n:
             remaining = n - len(negatives)
@@ -1149,7 +1126,7 @@ class ContrastiveSampleGenerator:
             
         return negative
     
-    def generate_alternative_answer_negatives(self, original_answer, n=3, min_similarity=0.3, max_similarity=0.6):
+    def generate_alternative_answer_negatives(self, original_answer, n=3, min_similarity=0.3, max_similarity=0.6, margin=0.05):
         """
         Generate negative examples using answers from other dialog turns.
         
@@ -1177,12 +1154,19 @@ class ContrastiveSampleGenerator:
                         "similarity": similarity,
                         "type": "alternative_answer"
                     })
+
+        selected_alternatives = []
+        for alt in filtered_alternatives:
+            # Check if this example is different enough from already selected ones
+            if all(abs(alt["similarity"] - sel["similarity"]) >= margin 
+                    for sel in selected_alternatives):
+                selected_alternatives.append(alt)
         
         # Sort by descending similarity
-        filtered_alternatives.sort(key=lambda x: x["similarity"], reverse=True)
+        selected_alternatives.sort(key=lambda x: x["similarity"], reverse=True)
         
         # Take up to n alternatives
-        negatives = filtered_alternatives[:n]
+        negatives = selected_alternatives[:n]
             
         self.logger.info(f"Generated {len(negatives)} alternative-answer negatives")
         return negatives
