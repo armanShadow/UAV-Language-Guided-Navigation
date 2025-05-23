@@ -165,7 +165,7 @@ def test_contrastive_generator():
     # Collect alternative answers from other episodes for negative generation
     alternative_answers = []
     other_episodes = [i for i in range(len(data)) if i != random_turn['episode_idx']]
-    sample_episodes = random.sample(other_episodes, min(100, len(other_episodes)))
+    sample_episodes = random.sample(other_episodes, min(300, len(other_episodes)))
     
     for ep_idx in sample_episodes:
         ep_answers = collect_episode_answers(data, ep_idx)
