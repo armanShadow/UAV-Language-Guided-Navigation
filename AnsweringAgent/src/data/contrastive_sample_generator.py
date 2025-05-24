@@ -747,8 +747,8 @@ Paraphrase this navigation instruction while preserving ALL directional referenc
             outputs = self.paraphraser(
                 paraphrase_input,
                 max_length=min(128, len(original_answer.split()) * 2),
-                num_return_sequences=5,  # Try a couple to increase chances of success
-                temperature=1.0,
+                num_return_sequences=10,  # Try a couple to increase chances of success
+                temperature=1.2,
                 do_sample=True
             )
             
@@ -763,10 +763,8 @@ Paraphrase this navigation instruction while preserving ALL directional referenc
                 # Calculate similarity
                 similarity = self.calculate_similarity(original_answer, paraphrase)
                 
-                # For UAV navigation, we want to ensure key directional information is preserved
-                # so we use a higher similarity threshold
-                min_similarity = similarity_range[0] if similarity_range else 0.75 if context == "UAV navigation" else 0.7
-                max_similarity = similarity_range[1] if similarity_range else 0.95 if context == "UAV navigation" else 0.90
+                min_similarity = 0.7
+                max_similarity = 0.9
                 
                 # Only keep if reasonably similar to the original
                 if min_similarity <= similarity <= max_similarity:
