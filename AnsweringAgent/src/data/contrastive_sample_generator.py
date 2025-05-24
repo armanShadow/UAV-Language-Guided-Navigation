@@ -714,41 +714,35 @@ class ContrastiveSampleGenerator:
         
         try:
            
-            # Comprehensive AVDN dataset context based on analysis of 100+ samples
-            paraphrase_input = f"""You are paraphrasing Unmanned Aerial Vehicle (UAV) navigation instructions from the AVDN dataset.
+            # Simple few-shot prompt for T5 paraphrasing using real AVDN examples
+            paraphrase_input = f"""Paraphrase these UAV navigation instructions. Keep directions, landmarks, and colors exactly the same:
 
-CRITICAL FORMATTING RULES (based on 100 sample analysis):
-- Clock directions: MUST use exact format "2 o'clock", "6 o'clock", "3 o'clock" (most frequent)
-- NEVER use: "2 hours", "6 hours", "20 minutes", "2pm" - these are WRONG
-- Special formats: "9.30 o'clock", "two o'clock", "8'o clock" occasionally appear
-- 92% of instructions contain action verbs: head, turn, go, move, fly, pass, cross
+Example 1:
+Original: Destination is a short rectangular building parallel with the highway at your three o'clock.
+Paraphrase: Your target is a short rectangular building running parallel to the highway at your three o'clock.
 
-DATASET VOCABULARY FREQUENCY (preserve exactly):
-- Landmarks: destination (146×), building (120×), road (38×), field (15×), area (7×)
-- Colors: gray/grey (31×), red (15×), brown (10×), green (7×), black (7×), white (4×)
-- Sizes: small (14×), large (14×), big (5×)
-- Shapes: rectangle (7×), square (5×), round (5×)
-- Directions: east (20×), north (17×), forward (17×), left (17×), right (16×), south (15×)
-- Spatial: pass (25×), near (23×), over (8×), cross (7×), "next to" (5×)
+Example 2: 
+Original: Head into your 10 o'clock direction until you cross a road.
+Paraphrase: Move towards your 10 o'clock direction until you pass over a road.
 
-COMMON INSTRUCTION PATTERNS:
-- "head forward towards X o'clock direction"
-- "move toward X o'clock direction, turn towards Y o'clock direction"
-- "pass by/over [landmark] until you reach [destination]"
-- "You have arrived at your destination"
-- "you will see/find [description]"
-- "go [direction] and pass [landmark]"
+Example 3:
+Original: Turn at 3 o'clock and head to a large flat-roofed building.
+Paraphrase: Turn towards 3 o'clock and proceed to a large flat-roofed building.
 
-DIALOG MARKERS: [QUE] for questions, [INS] for instructions - preserve if present
+Example 4:
+Original: Your destination is a gray colored building surrounded by trees.
+Paraphrase: Your target is a gray colored building encircled by trees.
 
-Paraphrase this navigation instruction while preserving ALL directional references, landmark types, colors, and spatial relationships exactly: {original_answer}"""
+Now paraphrase:
+Original: {original_answer}
+Paraphrase:"""
             
             # Generate paraphrases
             outputs = self.paraphraser(
                 paraphrase_input,
                 max_length=min(128, len(original_answer.split()) * 2),
-                num_return_sequences=10,  # Try a couple to increase chances of success
-                temperature=1.2,
+                num_return_sequences=5,  # Reduced from 10
+                temperature=0.7,  # Lowered from 1.2
                 do_sample=True
             )
             
