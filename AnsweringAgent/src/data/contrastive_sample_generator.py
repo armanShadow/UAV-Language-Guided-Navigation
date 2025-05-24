@@ -714,7 +714,34 @@ class ContrastiveSampleGenerator:
         
         try:
            
-            paraphrase_input = f"In the context of {context}, paraphrase: {original_answer}"
+            # Comprehensive AVDN dataset context based on analysis of 100+ samples
+            paraphrase_input = f"""You are paraphrasing Unmanned Aerial Vehicle (UAV) navigation instructions from the AVDN dataset.
+
+CRITICAL FORMATTING RULES (based on 100 sample analysis):
+- Clock directions: MUST use exact format "2 o'clock", "6 o'clock", "3 o'clock" (most frequent)
+- NEVER use: "2 hours", "6 hours", "20 minutes", "2pm" - these are WRONG
+- Special formats: "9.30 o'clock", "two o'clock", "8'o clock" occasionally appear
+- 92% of instructions contain action verbs: head, turn, go, move, fly, pass, cross
+
+DATASET VOCABULARY FREQUENCY (preserve exactly):
+- Landmarks: destination (146×), building (120×), road (38×), field (15×), area (7×)
+- Colors: gray/grey (31×), red (15×), brown (10×), green (7×), black (7×), white (4×)
+- Sizes: small (14×), large (14×), big (5×)
+- Shapes: rectangle (7×), square (5×), round (5×)
+- Directions: east (20×), north (17×), forward (17×), left (17×), right (16×), south (15×)
+- Spatial: pass (25×), near (23×), over (8×), cross (7×), "next to" (5×)
+
+COMMON INSTRUCTION PATTERNS:
+- "head forward towards X o'clock direction"
+- "move toward X o'clock direction, turn towards Y o'clock direction"
+- "pass by/over [landmark] until you reach [destination]"
+- "You have arrived at your destination"
+- "you will see/find [description]"
+- "go [direction] and pass [landmark]"
+
+DIALOG MARKERS: [QUE] for questions, [INS] for instructions - preserve if present
+
+Paraphrase this navigation instruction while preserving ALL directional references, landmark types, colors, and spatial relationships exactly: {original_answer}"""
             
             # Generate paraphrases
             outputs = self.paraphraser(
