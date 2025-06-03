@@ -209,8 +209,63 @@ def test_contrastive_generator():
                 print(f"  Text: {neg['text']}")
                 print(f"  Similarity: {neg['similarity']:.3f}")
                 print(f"  Type: {neg['type']}")
+                
+                # Show detailed information for enhanced spatial negatives
+                if neg['type'] == 'clock_shift':
+                    print(f"  Clock Shift: {neg['original_hour']} o'clock -> {neg['new_hour']} o'clock ({neg['shift_degrees']}°)")
+                elif neg['type'] == 'enhanced_direction_reversal':
+                    print(f"  Direction Change: {neg['original_direction']} -> {neg['new_direction']}")
+                elif neg['type'] == 'enhanced_spatial_relation':
+                    print(f"  Spatial Relation Change: {neg['original_relation']} -> {neg['new_relation']}")
+                elif neg['type'] == 'contextual_landmark':
+                    print(f"  Landmark Change: {neg['original_landmark']} -> {neg['new_landmark']}")
+                elif neg['type'] == 'multi_element_spatial':
+                    print(f"  Multi-element Changes: {', '.join(neg['changes'])}")
+                    print(f"  Combination: {neg['combination']}")
         else:
             print("  No negative examples generated")
+        
+        # Test spatial information extraction
+        print(f"\nSPATIAL INFORMATION EXTRACTION:")
+        spatial_info = generator._extract_navigation_info(random_turn['answer'])
+        print(f"  Directions: {spatial_info['directions']}")
+        print(f"  Clock Directions: {spatial_info.get('clock_directions', [])}")
+        print(f"  Landmarks: {spatial_info['landmarks']}")
+        print(f"  Colors: {spatial_info['colors']}")
+        print(f"  Spatial Relations: {spatial_info['spatial_relations']}")
+        print(f"  Sizes: {spatial_info['sizes']}")
+        
+        # Test individual spatial negative generation strategies
+        print(f"\nTESTING INDIVIDUAL SPATIAL STRATEGIES:")
+        
+        # Test clock shift negatives
+        if spatial_info.get('clock_directions'):
+            print(f"\n  Clock Shift Negatives:")
+            clock_negatives = generator._generate_clock_shift_negatives(random_turn['answer'], spatial_info['clock_directions'])
+            for j, clock_neg in enumerate(clock_negatives[:2], 1):
+                print(f"    {j}. {clock_neg['text']} (sim: {clock_neg['similarity']:.3f}, shift: {clock_neg['shift_degrees']}°)")
+        
+        # Test enhanced direction negatives
+        if spatial_info['directions']:
+            print(f"\n  Enhanced Direction Negatives:")
+            dir_negatives = generator._generate_enhanced_direction_negatives(random_turn['answer'], spatial_info['directions'])
+            for j, dir_neg in enumerate(dir_negatives[:2], 1):
+                print(f"    {j}. {dir_neg['text']} (sim: {dir_neg['similarity']:.3f})")
+        
+        # Test contextual landmark negatives
+        if spatial_info['landmarks']:
+            print(f"\n  Contextual Landmark Negatives:")
+            landmark_negatives = generator._generate_contextual_landmark_negatives(random_turn['answer'], spatial_info['landmarks'])
+            for j, landmark_neg in enumerate(landmark_negatives[:2], 1):
+                print(f"    {j}. {landmark_neg['text']} (sim: {landmark_neg['similarity']:.3f})")
+        
+        # Test multi-element spatial negatives
+        if len([k for k, v in spatial_info.items() if v]) >= 2:
+            print(f"\n  Multi-element Spatial Negatives:")
+            multi_negatives = generator._generate_multi_element_spatial_negatives(random_turn['answer'], spatial_info)
+            for j, multi_neg in enumerate(multi_negatives[:2], 1):
+                print(f"    {j}. {multi_neg['text']} (sim: {multi_neg['similarity']:.3f})")
+                print(f"       Changes: {', '.join(multi_neg['changes'])}")
         
         # Summary
         print("\n" + "="*80)
@@ -226,6 +281,18 @@ def test_contrastive_generator():
         if negatives:
             avg_neg_sim = sum(n['similarity'] for n in negatives) / len(negatives)
             print(f"Average Negative Similarity: {avg_neg_sim:.3f}")
+            
+            # Show distribution of negative types
+            neg_types = {}
+            for neg in negatives:
+                neg_type = neg['type']
+                neg_types[neg_type] = neg_types.get(neg_type, 0) + 1
+            print(f"Negative Types: {neg_types}")
+        
+        # Spatial analysis summary
+        spatial_elements = sum(1 for v in spatial_info.values() if v)
+        print(f"Spatial Elements Found: {spatial_elements}")
+        print(f"UAV-specific (Clock Directions): {'Yes' if spatial_info.get('clock_directions') else 'No'}")
         
         print("="*80)
         
