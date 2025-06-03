@@ -1,5 +1,5 @@
 # run the container:
-# ddocker run --gpus '"device=0,1,2,3,4,5,6,7"'     --shm-size=8g     -v $(pwd):/app/UAV-Language-Guided-Navigation     -v /export/openhome/vaziri/datasets:/app/datasets     --rm -it     armanshadow/ualgn:latest
+# docker run --gpus '"device=0,1,2,3,4,5,6,7,8,9"'     --shm-size=8g     -v $(pwd):/app/UAV-Language-Guided-Navigation     -v /export/openhome/vaziri/datasets:/app/datasets  -v /export/openhome/vaziri/datasets/AVDN/train_images:/app/UAV-Language-Guided-Navigation/Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images   --rm -it     armanshadow/ualgn:latest
 
 # Use PyTorch 1.11.0 with CUDA 11.3
 FROM pytorch/pytorch:1.11.0-cuda11.3-cudnn8-runtime
