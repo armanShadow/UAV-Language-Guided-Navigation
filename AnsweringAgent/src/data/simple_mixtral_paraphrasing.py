@@ -25,7 +25,10 @@ class SimpleMixtralParaphraser:
         
         # Load tokenizer
         logger.info("Loading tokenizer...")
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            use_auth_token=True  # Add authentication
+        )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
@@ -35,7 +38,8 @@ class SimpleMixtralParaphraser:
             model_name,
             torch_dtype=torch.float16,  # Use half precision for GPU memory efficiency
             device_map="auto",  # Automatically distribute across available GPUs
-            trust_remote_code=True
+            trust_remote_code=True,
+            use_auth_token=True  # Add authentication
         )
         
         self.model.eval()
