@@ -13,9 +13,8 @@ from pathlib import Path
 def load_300_random_samples():
     """Load 300 random samples from the AVDN dataset."""
     dataset_paths = [
-        "processed_data/train_data.json",
-        "../processed_data/train_data.json", 
-        "../../processed_data/train_data.json"
+        "src/data/processed_data/train_data.json",
+        "../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json"
     ]
     
     for path in dataset_paths:
@@ -45,6 +44,168 @@ def load_300_random_samples():
     
     print("❌ Could not find dataset.")
     return []
+
+def extract_avdn_spatial_examples(samples):
+    """Extract high-quality AVDN examples for Mixtral few-shot prompting."""
+    print("\n🎯 EXTRACTING AVDN SPATIAL EXAMPLES FOR MIXTRAL PROMPTS")
+    print("="*60)
+    
+    # Categories for few-shot examples
+    spatial_categories = {
+        'clock_directions': [],
+        'cardinal_directions': [],
+        'spatial_relations': [],
+        'landmark_descriptions': [],
+        'complex_instructions': []
+    }
+    
+    # Pattern matching for each category
+    for sample in samples:
+        sample_lower = sample.lower()
+        
+        # Clock directions (UAV-critical)
+        if re.search(r'\d+\s*o\'?clock', sample_lower):
+            spatial_categories['clock_directions'].append(sample)
+        
+        # Cardinal directions
+        elif any(direction in sample_lower for direction in ['north', 'south', 'east', 'west', 'northeast', 'northwest', 'southeast', 'southwest']):
+            spatial_categories['cardinal_directions'].append(sample)
+        
+        # Spatial relations
+        elif any(relation in sample_lower for relation in ['next to', 'in front of', 'behind', 'above', 'below', 'near', 'across from']):
+            spatial_categories['spatial_relations'].append(sample)
+        
+        # Landmark descriptions with colors/shapes
+        elif re.search(r'(red|blue|green|white|gray|grey|black|brown)\s+(building|structure|house|container)', sample_lower):
+            spatial_categories['landmark_descriptions'].append(sample)
+        
+        # Complex multi-step instructions
+        elif len(sample.split('.')) > 1 or 'then' in sample_lower or 'and' in sample_lower:
+            spatial_categories['complex_instructions'].append(sample)
+    
+    print("\n📋 CATEGORY EXAMPLES FOR MIXTRAL FEW-SHOT PROMPTS:")
+    
+    # Select best examples from each category
+    few_shot_examples = {}
+    
+    for category, examples in spatial_categories.items():
+        if examples:
+            # Sort by length and complexity (prefer medium-length, clear examples)
+            sorted_examples = sorted(examples, key=lambda x: len(x.split()))
+            
+            # Select diverse examples from different length ranges
+            selected = []
+            for example in sorted_examples:
+                word_count = len(example.split())
+                if 8 <= word_count <= 25 and len(selected) < 3:  # Medium-length, clear examples
+                    selected.append(example)
+            
+            few_shot_examples[category] = selected[:3]  # Top 3 per category
+            
+            print(f"\n  {category.upper()}:")
+            for i, example in enumerate(selected[:3], 1):
+                print(f"    {i}. \"{example}\"")
+    
+    return few_shot_examples
+
+def generate_mixtral_prompts(few_shot_examples):
+    """Generate Mixtral-specific prompts using real AVDN examples."""
+    print("\n🤖 GENERATED MIXTRAL PROMPTS")
+    print("="*60)
+    
+    # Base prompt template
+    base_prompt = """Paraphrase this UAV navigation instruction while preserving ALL spatial information:
+- Keep exact directions (clock positions, cardinal directions)
+- Maintain all landmarks and their spatial relationships  
+- Preserve step order and navigation target
+- Use different wording but same meaning
+
+Examples:"""
+    
+    # Select best examples across categories
+    selected_examples = []
+    
+    for category, examples in few_shot_examples.items():
+        if examples:
+            selected_examples.extend(examples[:1])  # One from each category
+    
+    # Create prompt with real AVDN examples
+    prompt_with_examples = base_prompt
+    
+    for i, example in enumerate(selected_examples[:3], 1):
+        # Create a simple paraphrase for demonstration
+        paraphrase = create_simple_paraphrase(example)
+        prompt_with_examples += f"\n\nExample {i}:\nInput: {example}\nOutput: {paraphrase}"
+    
+    prompt_with_examples += "\n\nNow paraphrase: {original_instruction}"
+    
+    print("\n📝 COMPLETE MIXTRAL PROMPT:")
+    print(prompt_with_examples)
+    
+    return prompt_with_examples
+
+def create_simple_paraphrase(original):
+    """Create a simple paraphrase for demonstration purposes."""
+    # Basic transformations for demonstration
+    paraphrase = original
+    
+    # Simple substitutions
+    substitutions = {
+        'move towards': 'head toward',
+        'turn to': 'rotate to',
+        'destination': 'target',
+        'building': 'structure',
+        'you will see': 'you\'ll observe',
+        'go to': 'proceed to',
+        'looks like': 'appears to be'
+    }
+    
+    for original_term, replacement in substitutions.items():
+        if original_term in paraphrase.lower():
+            paraphrase = re.sub(original_term, replacement, paraphrase, flags=re.IGNORECASE)
+            break  # Only one substitution per example
+    
+    return paraphrase
+
+def extract_spatial_tokens(samples):
+    """Extract critical spatial tokens that must be preserved."""
+    print("\n🔒 CRITICAL SPATIAL TOKENS (Must be preserved)")
+    print("="*60)
+    
+    spatial_tokens = {
+        'clock_positions': set(),
+        'cardinal_directions': set(),
+        'spatial_prepositions': set(),
+        'landmarks': set()
+    }
+    
+    for sample in samples:
+        sample_lower = sample.lower()
+        
+        # Extract clock positions
+        clock_matches = re.findall(r'\d+\s*o\'?clock', sample_lower)
+        spatial_tokens['clock_positions'].update(clock_matches)
+        
+        # Extract cardinal directions
+        cardinal_matches = re.findall(r'\b(north|south|east|west|northeast|northwest|southeast|southwest)\b', sample_lower)
+        spatial_tokens['cardinal_directions'].update(cardinal_matches)
+        
+        # Extract spatial prepositions
+        spatial_prep_matches = re.findall(r'\b(next to|in front of|behind|above|below|near|across from|over|under)\b', sample_lower)
+        spatial_tokens['spatial_prepositions'].update(spatial_prep_matches)
+        
+        # Extract common landmarks
+        landmark_matches = re.findall(r'\b(building|structure|house|container|parking|road|field|tree|tower)\b', sample_lower)
+        spatial_tokens['landmarks'].update(landmark_matches)
+    
+    print("\n📊 TOKEN FREQUENCIES:")
+    for category, tokens in spatial_tokens.items():
+        if tokens:
+            print(f"\n  {category.upper()}:")
+            for token in sorted(tokens):
+                print(f"    - {token}")
+    
+    return spatial_tokens
 
 def analyze_core_patterns(samples):
     """Analyze the most frequent and important patterns in 300 samples."""
@@ -217,6 +378,11 @@ if __name__ == "__main__":
     samples = load_300_random_samples()
     if not samples:
         exit(1)
+    
+    # NEW: Extract AVDN spatial examples for Mixtral
+    few_shot_examples = extract_avdn_spatial_examples(samples)
+    mixtral_prompt = generate_mixtral_prompts(few_shot_examples)
+    spatial_tokens = extract_spatial_tokens(samples)
     
     # Run focused analyses
     analyze_core_patterns(samples)
