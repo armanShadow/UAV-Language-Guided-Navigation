@@ -15,7 +15,7 @@ import random
 sys.path.append('AnsweringAgent')
 sys.path.append('../')
 
-from contrastive_sample_generator import ContrastiveSampleGenerator
+from AnsweringAgent.src.data.archive.contrastive_sample_generator import ContrastiveSampleGenerator
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

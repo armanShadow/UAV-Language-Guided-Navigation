@@ -8,7 +8,7 @@ import json
 import random
 import logging
 from pathlib import Path
-from contrastive_sample_generator import ContrastiveSampleGenerator
+from AnsweringAgent.src.data.archive.contrastive_sample_generator import ContrastiveSampleGenerator
 
 # Setup simple logging
 logging.basicConfig(level=logging.WARNING)  # Reduce noise

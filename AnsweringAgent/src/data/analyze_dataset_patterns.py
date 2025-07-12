@@ -13,6 +13,7 @@ from pathlib import Path
 def load_300_random_samples():
     """Load 300 random samples from the AVDN dataset."""
     dataset_paths = [
+        "processed_data/train_data.json",
         "src/data/processed_data/train_data.json",
         "../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json"
     ]

@@ -4,7 +4,7 @@ import logging
 import sys
 import random
 import json
-from contrastive_sample_generator import ContrastiveSampleGenerator
+from AnsweringAgent.src.data.archive.contrastive_sample_generator import ContrastiveSampleGenerator
 
 def setup_logging():
     """Setup logging configuration."""

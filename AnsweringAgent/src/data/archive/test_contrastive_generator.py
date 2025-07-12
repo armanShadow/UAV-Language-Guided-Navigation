@@ -13,7 +13,7 @@ import logging
 # Add the AnsweringAgent path to sys.path
 sys.path.append('AnsweringAgent')
 
-from contrastive_sample_generator import ContrastiveSampleGenerator
+from AnsweringAgent.src.data.archive.contrastive_sample_generator import ContrastiveSampleGenerator
 # Import config to use proper paths
 sys.path.append('../')
 from config import Config
