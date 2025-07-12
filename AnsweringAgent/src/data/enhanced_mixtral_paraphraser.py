@@ -173,16 +173,10 @@ Provide only the negative paraphrase: [/INST]"""
             
             response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
             
-            # More robust extraction of generated text
-            # Look for the instruction part after the prompt
-            if prompt in response:
-                generated_text = response.split(prompt, 1)[1].strip()
-            else:
-                # Fallback: try to find the generated part by looking for common patterns
-                generated_text = response.strip()
-                # Remove common prompt artifacts
-                for artifact in ['[/INST]', '[INST]', '<s>', '</s>']:
-                    generated_text = generated_text.replace(artifact, '').strip()
+            # Extract only the generated tokens (not the input tokens)
+            input_length = inputs['input_ids'].shape[1]
+            generated_tokens = outputs[0][input_length:]
+            generated_text = self.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
             
             return generated_text
             
