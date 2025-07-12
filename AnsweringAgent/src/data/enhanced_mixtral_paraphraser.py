@@ -41,14 +41,16 @@ class EnhancedMixtralParaphraser:
     
     def load_random_avdn_examples(self, num_examples: int = 4) -> List[str]:
         """
-        Load random examples from the AVDN dataset.
+        Load random examples from the processed AVDN dataset.
         Returns a list of navigation instructions.
         """
-        # Possible dataset paths
+        # Possible dataset paths (prioritize processed data)
         dataset_paths = [
+            "processed_data/train_data.json",
+            "src/data/processed_data/train_data.json",
+            "AnsweringAgent/src/data/processed_data/train_data.json",
             "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json",
-            "../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json",
-            "../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json"
+            "../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json"
         ]
         
         for path in dataset_paths:
