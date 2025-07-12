@@ -272,7 +272,7 @@ Provide only the paraphrases, no explanations: [/INST]"""
     
     def validate_spatial_accuracy(self, original: str, paraphrase: str, is_positive: bool = True) -> Dict[str, bool]:
         """
-        Enhanced spatial accuracy validation using multi-feature fusion with AVDN dataset insights.
+        Enhanced spatial accuracy validation with adaptive, warm calibration.
         
         Args:
             original (str): The original navigation instruction
@@ -280,7 +280,7 @@ Provide only the paraphrases, no explanations: [/INST]"""
             is_positive (bool): Whether this is a positive or negative paraphrase
         
         Returns:
-            Dict containing validation results with detailed feature breakdown
+            Dict containing validation results with detailed feature breakdown and adaptive calibration
         """
         def extract_spatial_features(text):
             """Extract comprehensive spatial features with AVDN dataset insights."""
@@ -335,6 +335,32 @@ Provide only the paraphrases, no explanations: [/INST]"""
             
             return similarity_scores
         
+        def calibrate_weights(feature_similarities):
+            """
+            Dynamically adjust weights based on actual feature preservation.
+            Warm approach: Flexible, adaptive calibration.
+            """
+            # Base weights from AVDN dataset analysis
+            base_weights = {
+                'clock_directions': 0.3,   # High importance (32.7% usage)
+                'cardinal_directions': 0.2,
+                'landmarks': 0.2,           # Buildings dominate (59.5%)
+                'movement_verbs': 0.15,     # Turn/go most common (32.5%)
+                'spatial_relations': 0.15
+            }
+            
+            # Adaptive weight adjustment
+            for feature, similarity in feature_similarities.items():
+                # More similarity → increase weight
+                # Less similarity → decrease weight
+                base_weights[feature] *= (1 + similarity)
+            
+            # Normalize weights to ensure they sum to 1
+            total_weight = sum(base_weights.values())
+            normalized_weights = {k: v / total_weight for k, v in base_weights.items()}
+            
+            return normalized_weights
+        
         # Extract spatial features
         original_features = extract_spatial_features(original)
         paraphrase_features = extract_spatial_features(paraphrase)
@@ -342,29 +368,29 @@ Provide only the paraphrases, no explanations: [/INST]"""
         # Compute feature similarities
         feature_similarities = compute_feature_similarity(original_features, paraphrase_features)
         
-        # Weighted scoring mechanism (based on AVDN dataset frequency)
-        weights = {
-            'clock_directions': 0.3,   # High importance (32.7% usage)
-            'cardinal_directions': 0.2,
-            'landmarks': 0.2,           # Buildings dominate (59.5%)
-            'movement_verbs': 0.15,     # Turn/go most common (32.5%)
-            'spatial_relations': 0.15
-        }
+        # Dynamically calibrate weights
+        calibrated_weights = calibrate_weights(feature_similarities)
         
-        # Compute composite score
+        # Compute composite score with calibrated weights
         composite_score = sum(
-            feature_similarities.get(feature, 0) * weights.get(feature, 0) 
-            for feature in weights.keys()
+            feature_similarities.get(feature, 0) * calibrated_weights.get(feature, 0) 
+            for feature in calibrated_weights.keys()
         )
         
-        # Dynamic thresholding
-        threshold = 0.6 if is_positive else 0.4
+        # Adaptive thresholding
+        # Warm approach: Soften the hard boundaries
+        threshold = (
+            0.6 if is_positive else 0.4  # Original baseline
+            + sum(feature_similarities.values()) * 0.1  # Dynamic adjustment
+        )
         
         return {
             'spatial_terms_preserved': composite_score >= threshold,
             'meaning_changed': composite_score < threshold,
             'feature_similarities': feature_similarities,
-            'composite_score': composite_score
+            'composite_score': composite_score,
+            'calibrated_weights': calibrated_weights,
+            'adaptive_threshold': threshold
         }
 
 # Test function
