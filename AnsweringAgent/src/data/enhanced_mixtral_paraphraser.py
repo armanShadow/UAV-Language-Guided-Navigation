@@ -284,9 +284,9 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
     def calibrate_weights(self, feature_similarities):
         """
         Dynamically adjust weights based on actual feature preservation.
-        Enhanced version with more nuanced weight distribution.
+        Enhanced version with more nuanced weight distribution and dynamic feature handling.
         """
-        # Updated base weights with more granular distribution
+        # Default base weights with prioritized spatial features
         base_weights = {
             'clock_directions': 0.4,   # Highest importance for precise spatial reference
             'cardinal_directions': 0.25,  # Critical for navigation intent
@@ -295,8 +295,15 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
             'spatial_relations': 0.05   # Least critical, but still relevant
         }
         
+        # Dynamically add any new features with a default low weight
+        default_new_feature_weight = 0.05
+        
         # Adaptive weight adjustment
         for feature, similarity in feature_similarities.items():
+            # Add feature to base_weights if not already present
+            if feature not in base_weights:
+                base_weights[feature] = default_new_feature_weight
+            
             # More aggressive weight scaling
             # Reward high similarity with exponential boost
             base_weights[feature] *= (1 + (similarity ** 2))
