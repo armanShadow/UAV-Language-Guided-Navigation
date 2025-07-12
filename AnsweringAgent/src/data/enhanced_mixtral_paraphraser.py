@@ -324,6 +324,12 @@ Provide only the paraphrases, no explanations: [/INST]"""
             for category, orig_terms in orig_features.items():
                 para_terms = para_features.get(category, [])
                 
+                # Special handling for clock directions - EXACT match required
+                if category == 'clock_directions':
+                    # Strict matching for clock directions
+                    similarity_scores[category] = 1.0 if set(orig_terms) == set(para_terms) else 0.0
+                    continue
+                
                 # Special handling for categories with substitution groups
                 if category in substitution_groups:
                     for group in substitution_groups[category]:
