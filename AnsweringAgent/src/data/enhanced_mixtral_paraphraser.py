@@ -72,7 +72,8 @@ class EnhancedMixtralParaphraser:
                     
                     # Get random examples
                     if len(all_instructions) >= num_examples:
-                        random.seed(42)  # Consistent results
+                        # Use current time for true randomness
+                        random.seed()  # Remove fixed seed for true randomness
                         random_examples = random.sample(all_instructions, num_examples)
                         logger.info(f"📊 Selected {num_examples} random examples from {len(all_instructions)} total")
                         return random_examples
@@ -168,10 +169,12 @@ For positives:
 - Sound like natural human navigation instructions
 
 For negative:
-{substitution_guidance}- Change spatial meaning (wrong direction, landmark, or location)
+{substitution_guidance}- Make EXACTLY TWO correlated strategic changes (e.g., direction + landmark, or clock + landmark)
+- Examples: "right + white building" → "left + gray structure", "3 o'clock + building" → "9 o'clock + structure"
 - Maintain realistic UAV navigation vocabulary and sentence structure
 - Use natural language (avoid robotic or template-like phrasing)
 - Create a plausible but incorrect navigation instruction
+- Ensure changes are correlated and realistic
 
 Provide only the paraphrases, no explanations: [/INST]"""
         
@@ -287,13 +290,19 @@ Provide only the paraphrases, no explanations: [/INST]"""
             # Check for direction changes
             direction_changes = [
                 ('north', 'south'), ('east', 'west'), ('left', 'right'),
-                ('clockwise', 'counterclockwise'), ('forward', 'backward')
+                ('clockwise', 'counterclockwise'), ('forward', 'backward'),
+                ('right', 'left'), ('south', 'north'), ('west', 'east')
             ]
             
             for old_dir, new_dir in direction_changes:
                 if old_dir in original_lower and new_dir in paraphrase_lower:
                     meaning_changed = True
                     break
+            
+            # Check for "right" vs "left" specifically (common in navigation)
+            if ('right' in original_lower and 'left' in paraphrase_lower) or \
+               ('left' in original_lower and 'right' in paraphrase_lower):
+                meaning_changed = True
             
             # Check for clock direction shifts
             clock_pattern = r'(\d+)\s*o\'?clock'
