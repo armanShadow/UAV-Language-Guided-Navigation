@@ -188,7 +188,7 @@ For negative:
 - Focus on spatial accuracy changes that would lead to different navigation outcomes
 - Ensure both changes work together coherently (e.g., "turn left at the gray building" not "turn left at the blue sky")
 
-Provide only the paraphrases, no explanations: [/INST]"""
+Provide ONLY the paraphrases, no explanations: [/INST]"""
         
         return prompt
     
@@ -284,14 +284,7 @@ Provide only the paraphrases, no explanations: [/INST]"""
     def validate_spatial_accuracy(self, original: str, paraphrase: str, is_positive: bool = True) -> Dict[str, bool]:
         """
         Enhanced spatial accuracy validation with adaptive, warm calibration.
-        
-        Args:
-            original (str): The original navigation instruction
-            paraphrase (str): The generated paraphrase to validate
-            is_positive (bool): Whether this is a positive or negative paraphrase
-        
-        Returns:
-            Dict containing validation results with detailed feature breakdown and adaptive calibration
+        Added comprehensive logging for debugging validation process.
         """
         def extract_spatial_features(text):
             """Extract comprehensive spatial features with AVDN dataset insights."""
@@ -355,22 +348,22 @@ Provide only the paraphrases, no explanations: [/INST]"""
         def calibrate_weights(feature_similarities):
             """
             Dynamically adjust weights based on actual feature preservation.
-            Warm approach: Flexible, adaptive calibration.
+            Enhanced version with more nuanced weight distribution.
             """
-            # Base weights from AVDN dataset analysis
+            # Updated base weights with more granular distribution
             base_weights = {
-                'clock_directions': 0.3,   # High importance (32.7% usage)
-                'cardinal_directions': 0.2,
-                'landmarks': 0.2,           # Buildings dominate (59.5%)
-                'movement_verbs': 0.15,     # Turn/go most common (32.5%)
-                'spatial_relations': 0.15
+                'clock_directions': 0.4,   # Highest importance for precise spatial reference
+                'cardinal_directions': 0.25,  # Critical for navigation intent
+                'landmarks': 0.2,           # Important for spatial context
+                'movement_verbs': 0.1,      # Moderate importance for action preservation
+                'spatial_relations': 0.05   # Least critical, but still relevant
             }
             
             # Adaptive weight adjustment
             for feature, similarity in feature_similarities.items():
-                # More similarity → increase weight
-                # Less similarity → decrease weight
-                base_weights[feature] *= (1 + similarity)
+                # More aggressive weight scaling
+                # Reward high similarity with exponential boost
+                base_weights[feature] *= (1 + (similarity ** 2))
             
             # Normalize weights to ensure they sum to 1
             total_weight = sum(base_weights.values())
@@ -414,6 +407,34 @@ Provide only the paraphrases, no explanations: [/INST]"""
             spatial_terms_preserved = composite_score >= threshold
             meaning_changed = composite_score < threshold
             validation_result = (not spatial_terms_preserved) or meaning_changed
+
+        # Add detailed logging
+        logger.info(f"\n--- Spatial Accuracy Validation ---")
+        logger.info(f"Original: {original}")
+        logger.info(f"Paraphrase: {paraphrase}")
+        logger.info(f"Is Positive Paraphrase: {is_positive}")
+        
+        # Log extracted features
+        logger.info("Original Features:")
+        for category, terms in original_features.items():
+            logger.info(f"  {category}: {terms}")
+        
+        logger.info("Paraphrase Features:")
+        for category, terms in paraphrase_features.items():
+            logger.info(f"  {category}: {terms}")
+        
+        # Log feature similarities
+        logger.info("Feature Similarities:")
+        for feature, similarity in feature_similarities.items():
+            logger.info(f"  {feature}: {similarity}")
+        
+        # Log calibrated weights
+        logger.info("Calibrated Weights:")
+        for feature, weight in calibrated_weights.items():
+            logger.info(f"  {feature}: {weight}")
+        
+        logger.info(f"Composite Score: {composite_score}")
+        logger.info(f"Adaptive Threshold: {threshold}")
 
         return {
             'spatial_terms_preserved': spatial_terms_preserved,
