@@ -171,10 +171,11 @@ For positives:
 For negative:
 {substitution_guidance}- Make EXACTLY TWO correlated strategic changes (e.g., direction + landmark, or clock + landmark)
 - Examples: "right + white building" → "left + gray structure", "3 o'clock + building" → "9 o'clock + structure"
-- Maintain realistic UAV navigation vocabulary and sentence structure
+- Ensure changes are LOGICALLY CONSISTENT and realistic for UAV navigation
 - Use natural language (avoid robotic or template-like phrasing)
 - Create a plausible but incorrect navigation instruction
-- Ensure changes are correlated and realistic
+- Focus on spatial accuracy changes that would lead to different navigation outcomes
+- Ensure both changes work together coherently (e.g., "turn left at the gray building" not "turn left at the blue sky")
 
 Provide only the paraphrases, no explanations: [/INST]"""
         
@@ -287,11 +288,13 @@ Provide only the paraphrases, no explanations: [/INST]"""
             original_lower = original.lower()
             paraphrase_lower = paraphrase.lower()
             
-            # Check for direction changes
+            # Check for direction changes (expanded pairs)
             direction_changes = [
                 ('north', 'south'), ('east', 'west'), ('left', 'right'),
                 ('clockwise', 'counterclockwise'), ('forward', 'backward'),
-                ('right', 'left'), ('south', 'north'), ('west', 'east')
+                ('right', 'left'), ('south', 'north'), ('west', 'east'),
+                ('up', 'down'), ('above', 'below'), ('over', 'under'),
+                ('towards', 'away from'), ('approach', 'avoid')
             ]
             
             for old_dir, new_dir in direction_changes:
@@ -304,7 +307,18 @@ Provide only the paraphrases, no explanations: [/INST]"""
                ('left' in original_lower and 'right' in paraphrase_lower):
                 meaning_changed = True
             
-            # Check for clock direction shifts
+            # Check for landmark changes (building ↔ structure, road ↔ highway)
+            landmark_changes = [
+                ('building', 'structure'), ('road', 'highway'), ('house', 'building'),
+                ('parking', 'lot'), ('field', 'area'), ('intersection', 'crossing')
+            ]
+            
+            for old_landmark, new_landmark in landmark_changes:
+                if old_landmark in original_lower and new_landmark in paraphrase_lower:
+                    meaning_changed = True
+                    break
+            
+            # Check for clock direction shifts (more sensitive)
             clock_pattern = r'(\d+)\s*o\'?clock'
             original_clocks = re.findall(clock_pattern, original_lower)
             paraphrase_clocks = re.findall(clock_pattern, paraphrase_lower)
@@ -312,7 +326,7 @@ Provide only the paraphrases, no explanations: [/INST]"""
             if original_clocks and paraphrase_clocks:
                 original_hour = int(original_clocks[0])
                 paraphrase_hour = int(paraphrase_clocks[0])
-                if abs(original_hour - paraphrase_hour) >= 3:  # Significant shift
+                if abs(original_hour - paraphrase_hour) >= 2:  # More sensitive threshold
                     meaning_changed = True
         
         validation_type = "positive" if is_positive else "negative"
