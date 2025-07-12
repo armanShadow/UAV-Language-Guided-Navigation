@@ -272,128 +272,57 @@ Provide only the paraphrases, no explanations: [/INST]"""
     
     def validate_spatial_accuracy(self, original: str, paraphrase: str, is_positive: bool = True) -> Dict[str, bool]:
         """
-        Enhanced validation of spatial accuracy with comprehensive logging and precise detection.
+        Enhanced validation of spatial accuracy with lightweight, targeted improvements.
         Returns: {'spatial_terms_preserved': bool, 'meaning_changed': bool, 'validation_type': str}
         """
-        # Configure logging for detailed tracking
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.setLevel(logging.DEBUG)
-        
-        # Detailed logging handler
-        handler = logging.StreamHandler()
-        handler.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        
-        def log_validation_details(message):
-            """Log detailed validation information."""
-            logger.debug(f"[VALIDATION] {message}")
-        
-        # Comprehensive spatial element extraction
-        def extract_comprehensive_elements(text):
-            """
-            Extract a wide range of spatial elements with detailed categorization.
-            """
+        def extract_spatial_elements(text):
+            """Extract key spatial elements with more flexible matching."""
             text_lower = text.lower()
             return {
                 'clock_directions': re.findall(r'(\d+)\s*o\'?clock', text_lower),
                 'cardinal_directions': re.findall(r'\b(north|south|east|west)\b', text_lower),
-                'relative_directions': re.findall(r'\b(left|right|forward|backward|up|down)\b', text_lower),
-                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure|roof|rooftop|lot|aircraft|airplane|hangar)\b', text_lower),
-                'colors': re.findall(r'\b(white|gray|grey|brown|tan|tawny|drab|blue|green|red|black|light|dark)\b', text_lower),
-                'location_descriptors': re.findall(r'\b(middle|center|edge|side|north|south|east|west)\b', text_lower),
-                'movement_verbs': re.findall(r'\b(turn|go|move|head|steer|navigate|cross|fly)\b', text_lower)
+                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure)\b', text_lower),
+                'movement_verbs': re.findall(r'\b(turn|go|move|head|fly)\b', text_lower)
             }
         
         def compute_spatial_similarity(orig_elements, para_elements):
             """
-            Compute a similarity score based on spatial elements.
-            Lower score indicates more significant changes.
+            Compute spatial similarity with more lenient matching.
+            Allows some variation while preserving core spatial semantics.
             """
             similarity_score = 0
-            total_categories = 0
-            
-            # Check each category
-            for category in ['clock_directions', 'cardinal_directions', 'relative_directions', 
-                             'landmarks', 'colors', 'location_descriptors', 'movement_verbs']:
-                orig_set = set(orig_elements.get(category, []))
-                para_set = set(para_elements.get(category, []))
-                
-                # Compute Jaccard similarity
-                if orig_set or para_set:
-                    total_categories += 1
-                    intersection = len(orig_set.intersection(para_set))
-                    union = len(orig_set.union(para_set))
-                    similarity_score += intersection / union if union > 0 else 0
-            
-            # Normalize similarity score
-            normalized_similarity = similarity_score / total_categories if total_categories > 0 else 0
-            
-            log_validation_details(f"Similarity Score: {normalized_similarity:.2f}")
-            return normalized_similarity
-        
-        def detect_meaning_change(original, paraphrase):
-            """
-            Detect spatial meaning change with comprehensive analysis.
-            """
-            orig_elements = extract_comprehensive_elements(original)
-            para_elements = extract_comprehensive_elements(paraphrase)
-            
-            # Log extracted elements for debugging
-            log_validation_details(f"Original Elements: {orig_elements}")
-            log_validation_details(f"Paraphrase Elements: {para_elements}")
-            
-            # Compute similarity
-            similarity = compute_spatial_similarity(orig_elements, para_elements)
-            
-            # Determine meaning change based on similarity threshold
-            # Positive paraphrases should have high similarity
-            # Negative paraphrases should have low similarity
-            if is_positive:
-                meaning_changed = similarity < 0.6  # Allow some variation
-                log_validation_details(f"Positive Paraphrase - Meaning Changed: {meaning_changed}")
-            else:
-                meaning_changed = similarity < 0.3  # Require significant change
-                log_validation_details(f"Negative Paraphrase - Meaning Changed: {meaning_changed}")
-            
-            return meaning_changed
-        
-        def check_term_preservation(original, paraphrase):
-            """
-            Check if key spatial terms are preserved.
-            More flexible and comprehensive approach.
-            """
-            orig_elements = extract_comprehensive_elements(original)
-            para_elements = extract_comprehensive_elements(paraphrase)
-            
-            preserved_categories = 0
             total_categories = len(orig_elements)
             
             for category, orig_terms in orig_elements.items():
                 para_terms = para_elements.get(category, [])
                 
-                # Check for any overlap or semantic similarity
-                if orig_terms and para_terms:
+                # Flexible matching: require at least partial preservation
+                if orig_terms:
+                    # Check for any overlap or substitution
                     overlap = len(set(orig_terms).intersection(set(para_terms)))
-                    if overlap > 0:
-                        preserved_categories += 1
+                    category_score = overlap / len(orig_terms) if orig_terms else 0
+                    similarity_score += category_score
             
-            # Require preservation of most categories
-            terms_preserved = preserved_categories >= max(1, total_categories - 1)
-            
-            log_validation_details(f"Term Preservation - Preserved: {terms_preserved}")
-            log_validation_details(f"Preserved Categories: {preserved_categories}/{total_categories}")
-            
-            return terms_preserved
+            # Normalize similarity
+            normalized_similarity = similarity_score / total_categories if total_categories > 0 else 0
+            return normalized_similarity
         
-        # Main validation logic
-        spatial_terms_preserved = check_term_preservation(original, paraphrase)
-        meaning_changed = detect_meaning_change(original, paraphrase)
+        # Extract spatial elements
+        original_elements = extract_spatial_elements(original)
+        paraphrase_elements = extract_spatial_elements(paraphrase)
         
-        # Remove the logging handler to prevent duplicate logs
-        logger.removeHandler(handler)
+        # Compute similarity
+        similarity = compute_spatial_similarity(original_elements, paraphrase_elements)
+        
+        # Validation logic
+        if is_positive:
+            # For positive paraphrases, require high similarity
+            spatial_terms_preserved = similarity >= 0.6
+            meaning_changed = similarity < 0.6
+        else:
+            # For negative paraphrases, require lower similarity
+            spatial_terms_preserved = similarity >= 0.3
+            meaning_changed = similarity < 0.3
         
         return {
             'spatial_terms_preserved': spatial_terms_preserved,
