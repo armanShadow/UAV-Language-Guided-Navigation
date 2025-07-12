@@ -176,7 +176,7 @@ Generate:
 
 For positives:
 - Use natural language variation in word choice and sentence structure
-- Preserve key spatial terms (landmarks, directions, clock references)
+- Preserve key spatial terms (landmarks, directions, EXACT clock references)
 - Sound like natural human navigation instructions
 
 For negative:
