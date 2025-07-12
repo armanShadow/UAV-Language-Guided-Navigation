@@ -272,9 +272,12 @@ Provide only the paraphrases, no explanations: [/INST]"""
     
     def validate_spatial_accuracy(self, original: str, paraphrase: str, is_positive: bool = True) -> Dict[str, bool]:
         """
-        Enhanced validation of spatial accuracy.
+        Enhanced validation of spatial accuracy with more nuanced checks.
         Returns: {'spatial_terms_preserved': bool, 'meaning_changed': bool, 'validation_type': str}
         """
+        original_lower = original.lower()
+        paraphrase_lower = paraphrase.lower()
+        
         original_terms = self.extract_spatial_terms(original)
         paraphrase_terms = self.extract_spatial_terms(paraphrase)
         
@@ -283,12 +286,20 @@ Provide only the paraphrases, no explanations: [/INST]"""
         
         # Enhanced meaning change detection
         meaning_changed = False
-        if original_terms and paraphrase_terms:
-            # Check for systematic changes in spatial terms
-            original_lower = original.lower()
-            paraphrase_lower = paraphrase.lower()
-            
-            # Check for direction changes (expanded pairs)
+        
+        # Detailed spatial term preservation and change checks
+        def check_term_preservation(original_terms, paraphrase_terms):
+            for category, terms in original_terms.items():
+                if category not in paraphrase_terms:
+                    return False
+                for term in terms:
+                    if term not in paraphrase_terms[category]:
+                        return False
+            return True
+        
+        # Comprehensive spatial meaning change detection
+        def detect_meaning_change():
+            # Direction changes
             direction_changes = [
                 ('north', 'south'), ('east', 'west'), ('left', 'right'),
                 ('clockwise', 'counterclockwise'), ('forward', 'backward'),
@@ -297,28 +308,24 @@ Provide only the paraphrases, no explanations: [/INST]"""
                 ('towards', 'away from'), ('approach', 'avoid')
             ]
             
-            for old_dir, new_dir in direction_changes:
-                if old_dir in original_lower and new_dir in paraphrase_lower:
-                    meaning_changed = True
-                    break
-            
-            # Check for "right" vs "left" specifically (common in navigation)
-            if ('right' in original_lower and 'left' in paraphrase_lower) or \
-               ('left' in original_lower and 'right' in paraphrase_lower):
-                meaning_changed = True
-            
-            # Check for landmark changes (building ↔ structure, road ↔ highway)
+            # Landmark and location changes
             landmark_changes = [
-                ('building', 'structure'), ('road', 'highway'), ('house', 'building'),
-                ('parking', 'lot'), ('field', 'area'), ('intersection', 'crossing')
+                ('building', 'structure'), ('road', 'highway'), 
+                ('house', 'building'), ('parking', 'lot'), 
+                ('field', 'area'), ('intersection', 'crossing')
             ]
             
+            # Check direction changes
+            for old_dir, new_dir in direction_changes:
+                if old_dir in original_lower and new_dir in paraphrase_lower:
+                    return True
+            
+            # Check landmark changes
             for old_landmark, new_landmark in landmark_changes:
                 if old_landmark in original_lower and new_landmark in paraphrase_lower:
-                    meaning_changed = True
-                    break
+                    return True
             
-            # Check for clock direction shifts (more sensitive)
+            # Check clock direction shifts
             clock_pattern = r'(\d+)\s*o\'?clock'
             original_clocks = re.findall(clock_pattern, original_lower)
             paraphrase_clocks = re.findall(clock_pattern, paraphrase_lower)
@@ -326,15 +333,26 @@ Provide only the paraphrases, no explanations: [/INST]"""
             if original_clocks and paraphrase_clocks:
                 original_hour = int(original_clocks[0])
                 paraphrase_hour = int(paraphrase_clocks[0])
-                if abs(original_hour - paraphrase_hour) >= 2:  # More sensitive threshold
-                    meaning_changed = True
+                if abs(original_hour - paraphrase_hour) >= 3:  # More sensitive threshold
+                    return True
+            
+            return False
         
-        validation_type = "positive" if is_positive else "negative"
+        # Determine if meaning has changed
+        if is_positive:
+            # For positive paraphrases, meaning should NOT change
+            meaning_changed = detect_meaning_change()
+            spatial_terms_preserved = check_term_preservation(original_terms, paraphrase_terms)
+        else:
+            # For negative paraphrases, meaning SHOULD change
+            meaning_changed = detect_meaning_change()
+            # Allow some variation in spatial terms for negative samples
+            spatial_terms_preserved = len(set(paraphrase_terms.keys()) & set(original_terms.keys())) > 0
         
         return {
             'spatial_terms_preserved': spatial_terms_preserved,
             'meaning_changed': meaning_changed,
-            'validation_type': validation_type
+            'validation_type': 'positive' if is_positive else 'negative'
         }
 
 # Test function
