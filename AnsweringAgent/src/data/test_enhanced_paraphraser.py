@@ -41,12 +41,13 @@ def test_spatial_token_extraction(paraphraser):
     print("\n🔄 Test 3: Spatial Token Extraction")
     print("-" * 45)
     
-    # Test cases from AVDN dataset analysis
+    # Test cases from actual AVDN dataset
     test_cases = [
-        "Go in the 8 o'clock direction from your current position.",
-        "Go southeast to the building on the treeline.", 
-        "Your destination is next to the parking lot.",
-        "Move towards your 11 o'clock direction over the structure."
+        "head forward towards 6 o'clock direction, After passing a road and few buildings, The destination is a ground with few trucks parked there.",
+        "Hi drone, head south west and pass over a building and your destination is the small green building.",
+        "Move toward 3 o'clock direction, turn towards 6 o'clock direction, black colored small square shaped place is your destination.",
+        "Destination looks like three blue roofed buildings. It is in your two o'clock direction.",
+        "turn 8'o clock direction go foward cross road go forward then cross other road the three joint brown building is your goal."
     ]
     
     for i, instruction in enumerate(test_cases, 1):
@@ -73,7 +74,7 @@ def test_single_positive_generation(paraphraser):
     print("\n🔄 Test 4: Single Positive Generation")
     print("-" * 45)
     
-    test_instruction = "Go in the 8 o'clock direction from your current position."
+    test_instruction = "head forward towards 6 o'clock direction, After passing a road and few buildings, The destination is a ground with few trucks parked there."
     print(f"📝 Testing: {test_instruction}")
     
     try:
@@ -87,7 +88,7 @@ def test_single_positive_generation(paraphraser):
             print("⚠️  Paraphrase is same as original (fallback)")
             
         # Check for spatial preservation  
-        if "8 o'clock" in positive:
+        if "6 o'clock" in positive:
             print("✅ Clock direction preserved")
         else:
             print("❌ Clock direction lost!")
@@ -103,7 +104,7 @@ def test_single_negative_generation(paraphraser):
     print("\n🔄 Test 5: Single Negative Generation")
     print("-" * 45)
     
-    test_instruction = "Go southeast to the building on the treeline."
+    test_instruction = "Hi drone, head south west and pass over a building and your destination is the small green building."
     print(f"📝 Testing: {test_instruction}")
     
     try:
@@ -117,7 +118,7 @@ def test_single_negative_generation(paraphraser):
             print("⚠️  Negative is same as original (fallback)")
             
         # Check for spatial corruption
-        if "southeast" not in negative or "building" not in negative:
+        if "south west" not in negative or "green building" not in negative:
             print("✅ Spatial corruption detected")
         else:
             print("⚠️  No spatial corruption detected")
@@ -133,7 +134,7 @@ def test_full_pipeline(paraphraser):
     print("\n🔄 Test 6: Full Pipeline")
     print("-" * 45)
     
-    test_instruction = "Move towards your 11 o'clock direction. You will fly over two residential buildings."
+    test_instruction = "turn 8'o clock direction go foward cross road go forward then cross other road the three joint brown building is your goal."
     print(f"📝 Testing: {test_instruction}")
     
     try:
