@@ -279,50 +279,56 @@ Provide only the paraphrases, no explanations: [/INST]"""
             Dict containing validation results with detailed feature breakdown and adaptive calibration
         """
         def extract_spatial_features(text):
-            """Extract comprehensive spatial features with AVDN dataset insights."""
+            """Enhanced spatial feature extraction with more comprehensive matching."""
             text_lower = text.lower()
             return {
                 'clock_directions': re.findall(r'(\d+)\s*o\'?clock', text_lower),
-                'cardinal_directions': re.findall(r'\b(north|south|east|west)\b', text_lower),
-                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure)\b', text_lower),
-                'movement_verbs': re.findall(r'\b(turn|go|move|head|fly)\b', text_lower),
-                'spatial_relations': re.findall(r'\b(over|near|in front of|next to|around|through|behind)\b', text_lower)
+                'cardinal_directions': re.findall(r'\b(north|south|east|west|northeast|northwest|southeast|southwest)\b', text_lower),
+                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure|tower|container)\b', text_lower),
+                'movement_verbs': re.findall(r'\b(turn|go|move|head|fly|navigate|proceed)\b', text_lower),
+                'spatial_relations': re.findall(r'\b(over|near|in front of|next to|around|through|behind|across|along|between)\b', text_lower)
             }
         
         def compute_feature_similarity(orig_features, para_features):
-            """Compute similarity across different spatial feature categories."""
+            """Enhanced feature similarity with more sophisticated matching."""
             similarity_scores = {}
             
-            # Predefined substitution groups based on AVDN dataset analysis
+            # Expanded substitution groups with more nuanced matching
             substitution_groups = {
                 'landmarks': [
-                    {'building', 'structure', 'house'},
-                    {'road', 'highway', 'parking'},
-                    {'field', 'area'}
+                    {'building', 'structure', 'house', 'tower'},
+                    {'road', 'highway', 'parking', 'street'},
+                    {'field', 'area', 'section'},
+                    {'container', 'block'}
                 ],
                 'movement_verbs': [
-                    {'turn', 'go', 'move'},
-                    {'head', 'fly'}
+                    {'turn', 'go', 'move', 'navigate'},
+                    {'head', 'fly', 'proceed'}
+                ],
+                'spatial_relations': [
+                    {'over', 'across'},
+                    {'near', 'next to', 'close to'},
+                    {'in front of', 'ahead of'},
+                    {'around', 'near'}
                 ]
             }
             
             for category, orig_terms in orig_features.items():
                 para_terms = para_features.get(category, [])
                 
-                # Special handling for categories with substitution groups
+                # Enhanced group-based similarity
                 if category in substitution_groups:
+                    group_matches = 0
+                    total_groups = len(substitution_groups[category])
+                    
                     for group in substitution_groups[category]:
                         orig_group_terms = [term for term in orig_terms if term in group]
                         para_group_terms = [term for term in para_terms if term in group]
                         
                         if orig_group_terms and para_group_terms:
-                            similarity_scores[category] = 1.0
-                            break
-                    else:
-                        # Fallback to Jaccard similarity
-                        overlap = len(set(orig_terms).intersection(set(para_terms)))
-                        total = len(set(orig_terms).union(set(para_terms)))
-                        similarity_scores[category] = overlap / total if total > 0 else 0
+                            group_matches += 1
+                    
+                    similarity_scores[category] = group_matches / total_groups if total_groups > 0 else 0
                 else:
                     # Standard Jaccard similarity for other categories
                     overlap = len(set(orig_terms).intersection(set(para_terms)))
