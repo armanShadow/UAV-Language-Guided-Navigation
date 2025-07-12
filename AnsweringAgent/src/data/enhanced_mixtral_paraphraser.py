@@ -277,20 +277,21 @@ Provide only the paraphrases, no explanations: [/INST]"""
         """
         # Predefined substitution groups based on dataset frequency analysis
         LANDMARK_SUBSTITUTIONS = [
-            {'building', 'structure', 'house'},
-            {'road', 'highway', 'parking'},
-            {'field', 'area'},
+            {'building', 'structure', 'house', 'roof', 'rooftop'},
+            {'road', 'highway', 'street', 'parking', 'lot'},
+            {'field', 'area', 'vision', 'line of sight'},
             {'intersection', 'crossing'}
         ]
         
         COLOR_VARIATIONS = [
-            {'white', 'gray', 'grey'},
-            {'brown', 'red', 'dark'},
-            {'blue', 'green', 'light'}
+            {'white', 'gray', 'grey', 'light'},
+            {'brown', 'tan', 'tawny', 'drab'},
+            {'blue', 'green', 'dark'},
+            {'red', 'black'}
         ]
         
         DIRECTION_SUBSTITUTIONS = [
-            {'turn', 'go', 'move'},
+            {'turn', 'go', 'move', 'head', 'steer', 'navigate'},
             {'left', 'right'},
             {'north', 'south', 'east', 'west'},
             {'forward', 'straight', 'ahead'}
@@ -298,31 +299,31 @@ Provide only the paraphrases, no explanations: [/INST]"""
         
         CLOCK_DIRECTION_SHIFTS = {
             '1 o\'clock': ['12 o\'clock', '2 o\'clock'],
-            '2 o\'clock': ['1 o\'clock', '3 o\'clock'],
+            '2 o\'clock': ['1 o\'clock', '3 o\'clock', '10 o\'clock'],
             '3 o\'clock': ['2 o\'clock', '4 o\'clock'],
             '4 o\'clock': ['3 o\'clock', '5 o\'clock'],
             '5 o\'clock': ['4 o\'clock', '6 o\'clock'],
             '6 o\'clock': ['5 o\'clock', '7 o\'clock'],
-            '7 o\'clock': ['6 o\'clock', '8 o\'clock'],
+            '7 o\'clock': ['6 o\'clock', '8 o\'clock', '10 o\'clock'],
             '8 o\'clock': ['7 o\'clock', '9 o\'clock'],
             '9 o\'clock': ['8 o\'clock', '10 o\'clock'],
-            '10 o\'clock': ['9 o\'clock', '11 o\'clock'],
+            '10 o\'clock': ['9 o\'clock', '11 o\'clock', '7 o\'clock', '2 o\'clock'],
             '11 o\'clock': ['10 o\'clock', '12 o\'clock'],
             '12 o\'clock': ['11 o\'clock', '1 o\'clock']
         }
         
         def find_substitution_group(term, substitution_groups):
             """Find which substitution group a term belongs to."""
-            return next((group for group in substitution_groups if term in group), None)
+            return next((group for group in substitution_groups if any(t in term.lower() for t in group)), None)
         
         def extract_key_elements(text):
             """Extract key spatial elements with more nuanced extraction."""
             text_lower = text.lower()
             return {
                 'clock_directions': re.findall(r'(\d+)\s*o\'?clock', text_lower),
-                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure)\b', text_lower),
-                'colors': re.findall(r'\b(white|gray|grey|brown|red|blue|green|black|dark|light)\b', text_lower),
-                'directions': re.findall(r'\b(turn|forward|right|left|north|south|east|west|straight|ahead)\b', text_lower)
+                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure|roof|rooftop)\b', text_lower),
+                'colors': re.findall(r'\b(white|gray|grey|brown|tan|tawny|drab|blue|green|red|black|light|dark)\b', text_lower),
+                'directions': re.findall(r'\b(turn|go|move|head|steer|navigate|right|left|north|south|east|west|forward|straight|ahead)\b', text_lower)
             }
         
         def detect_meaning_change(original, paraphrase):
@@ -341,7 +342,7 @@ Provide only the paraphrases, no explanations: [/INST]"""
                 para_clock = f"{para_elements['clock_directions'][0]} o'clock"
                 
                 # Check if clock direction is significantly different
-                if orig_clock not in CLOCK_DIRECTION_SHIFTS.get(para_clock, []):
+                if para_clock not in CLOCK_DIRECTION_SHIFTS.get(orig_clock, []):
                     changes += 1
             
             # Landmark changes
@@ -371,7 +372,7 @@ Provide only the paraphrases, no explanations: [/INST]"""
                 if not any(og == pg for og, pg in zip(orig_dir_groups, para_dir_groups)):
                     changes += 1
             
-            return changes >= 2
+            return changes >= 1 if is_positive else changes >= 2
         
         def check_term_preservation(original_terms, paraphrase_terms):
             """
@@ -398,7 +399,7 @@ Provide only the paraphrases, no explanations: [/INST]"""
         # Validation logic
         if is_positive:
             # For positive paraphrases:
-            # 1. Meaning should NOT change
+            # 1. Minimal meaning change allowed
             # 2. Spatial terms should be largely preserved
             meaning_changed = detect_meaning_change(original, paraphrase)
             spatial_terms_preserved = check_term_preservation(
