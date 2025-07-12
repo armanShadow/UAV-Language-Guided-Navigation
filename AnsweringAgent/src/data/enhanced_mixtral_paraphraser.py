@@ -281,62 +281,98 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
         # Return expected number or all if fewer
         return paraphrases[:expected_count]
     
+    def calibrate_weights(self, feature_similarities):
+        """
+        Dynamically adjust weights based on actual feature preservation.
+        Enhanced version with more nuanced weight distribution.
+        """
+        # Updated base weights with more granular distribution
+        base_weights = {
+            'clock_directions': 0.4,   # Highest importance for precise spatial reference
+            'cardinal_directions': 0.25,  # Critical for navigation intent
+            'landmarks': 0.2,           # Important for spatial context
+            'movement_verbs': 0.1,      # Moderate importance for action preservation
+            'spatial_relations': 0.05   # Least critical, but still relevant
+        }
+        
+        # Adaptive weight adjustment
+        for feature, similarity in feature_similarities.items():
+            # More aggressive weight scaling
+            # Reward high similarity with exponential boost
+            base_weights[feature] *= (1 + (similarity ** 2))
+        
+        # Normalize weights to ensure they sum to 1
+        total_weight = sum(base_weights.values())
+        normalized_weights = {k: v / total_weight for k, v in base_weights.items()}
+        
+        return normalized_weights
+    
     def validate_spatial_accuracy(self, original: str, paraphrase: str, is_positive: bool = True) -> Dict[str, bool]:
         """
-        Enhanced spatial accuracy validation with adaptive, warm calibration.
-        Added comprehensive logging for debugging validation process.
+        Enhanced spatial accuracy validation with advanced feature matching and semantic equivalence.
+        
+        Args:
+            original (str): The original navigation instruction
+            paraphrase (str): The generated paraphrase to validate
+            is_positive (bool): Whether this is a positive or negative paraphrase
+        
+        Returns:
+            Dict containing validation results with detailed feature breakdown and adaptive calibration
         """
         def extract_spatial_features(text):
-            """Extract comprehensive spatial features with AVDN dataset insights."""
+            """More robust spatial feature extraction with expanded categories"""
             text_lower = text.lower()
             return {
                 'clock_directions': re.findall(r'(\d+)\s*o\'?clock', text_lower),
-                'cardinal_directions': re.findall(r'\b(north|south|east|west)\b', text_lower),
-                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure)\b', text_lower),
-                'movement_verbs': re.findall(r'\b(turn|go|move|head|fly)\b', text_lower),
-                'spatial_relations': re.findall(r'\b(over|near|in front of|next to|around|through|behind)\b', text_lower)
+                'cardinal_directions': re.findall(r'\b(north|south|east|west|northeast|northwest|southeast|southwest)\b', text_lower),
+                'landmarks': re.findall(r'\b(building|road|street|lot|highway|structure|field|parking|area)\b', text_lower),
+                'movement_verbs': re.findall(r'\b(turn|move|pivot|head|go|advance|fly|navigate)\b', text_lower),
+                'spatial_relations': re.findall(r'\b(over|under|near|beside|across|along|through|in front of|behind)\b', text_lower),
+                'position_descriptors': re.findall(r'\b(first|last|next|previous|opposite|same|other)\b', text_lower)
             }
         
         def compute_feature_similarity(orig_features, para_features):
-            """Compute similarity across different spatial feature categories."""
+            """More nuanced feature similarity calculation with semantic proximity"""
             similarity_scores = {}
             
-            # Predefined substitution groups based on AVDN dataset analysis
-            substitution_groups = {
-                'landmarks': [
-                    {'building', 'structure', 'house'},
-                    {'road', 'highway', 'parking'},
-                    {'field', 'area'}
-                ],
-                'movement_verbs': [
-                    {'turn', 'go', 'move'},
-                    {'head', 'fly'}
-                ]
+            # Direction proximity mapping
+            direction_proximity = {
+                'north': ['northwest', 'northeast'],
+                'south': ['southwest', 'southeast'],
+                'east': ['northeast', 'southeast'],
+                'west': ['northwest', 'southwest']
             }
             
             for category, orig_terms in orig_features.items():
                 para_terms = para_features.get(category, [])
                 
-                # Special handling for clock directions - EXACT match required
-                if category == 'clock_directions':
-                    # Strict matching for clock directions
-                    similarity_scores[category] = 1.0 if set(orig_terms) == set(para_terms) else 0.0
-                    continue
+                if category == 'cardinal_directions':
+                    # Enhanced direction matching
+                    matching_terms = [
+                        term for term in orig_terms 
+                        if term in para_terms or 
+                        any(prox in para_terms for prox in direction_proximity.get(term, []))
+                    ]
+                    similarity_scores[category] = len(matching_terms) / max(len(orig_terms), 1)
                 
-                # Special handling for categories with substitution groups
-                if category in substitution_groups:
-                    for group in substitution_groups[category]:
+                elif category == 'landmarks':
+                    # Semantic landmark matching with broader categories
+                    landmark_groups = [
+                        {'building', 'structure', 'lot'},
+                        {'road', 'street', 'highway'},
+                        {'field', 'area', 'parking'}
+                    ]
+                    
+                    group_matches = 0
+                    for group in landmark_groups:
                         orig_group_terms = [term for term in orig_terms if term in group]
                         para_group_terms = [term for term in para_terms if term in group]
                         
                         if orig_group_terms and para_group_terms:
-                            similarity_scores[category] = 1.0
-                            break
-                    else:
-                        # Fallback to Jaccard similarity
-                        overlap = len(set(orig_terms).intersection(set(para_terms)))
-                        total = len(set(orig_terms).union(set(para_terms)))
-                        similarity_scores[category] = overlap / total if total > 0 else 0
+                            group_matches += 1
+                    
+                    similarity_scores[category] = group_matches / len(landmark_groups)
+                
                 else:
                     # Standard Jaccard similarity for other categories
                     overlap = len(set(orig_terms).intersection(set(para_terms)))
@@ -345,31 +381,27 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
             
             return similarity_scores
         
-        def calibrate_weights(feature_similarities):
+        def is_semantically_equivalent(orig, para):
             """
-            Dynamically adjust weights based on actual feature preservation.
-            Enhanced version with more nuanced weight distribution.
+            Check semantic equivalence using basic linguistic heuristics.
+            This is a simplified version - in a production system, you'd use more advanced NLP techniques.
             """
-            # Updated base weights with more granular distribution
-            base_weights = {
-                'clock_directions': 0.4,   # Highest importance for precise spatial reference
-                'cardinal_directions': 0.25,  # Critical for navigation intent
-                'landmarks': 0.2,           # Important for spatial context
-                'movement_verbs': 0.1,      # Moderate importance for action preservation
-                'spatial_relations': 0.05   # Least critical, but still relevant
-            }
+            # Remove punctuation and convert to lowercase
+            orig_clean = re.sub(r'[^\w\s]', '', orig.lower())
+            para_clean = re.sub(r'[^\w\s]', '', para.lower())
             
-            # Adaptive weight adjustment
-            for feature, similarity in feature_similarities.items():
-                # More aggressive weight scaling
-                # Reward high similarity with exponential boost
-                base_weights[feature] *= (1 + (similarity ** 2))
+            # Compare word count and common words
+            orig_words = orig_clean.split()
+            para_words = para_clean.split()
             
-            # Normalize weights to ensure they sum to 1
-            total_weight = sum(base_weights.values())
-            normalized_weights = {k: v / total_weight for k, v in base_weights.items()}
+            # Check if word counts are similar
+            word_count_similar = abs(len(orig_words) - len(para_words)) <= 3
             
-            return normalized_weights
+            # Check common word percentage
+            common_words = set(orig_words) & set(para_words)
+            common_word_ratio = len(common_words) / max(len(orig_words), len(para_words))
+            
+            return word_count_similar and common_word_ratio > 0.5
         
         # Extract spatial features
         original_features = extract_spatial_features(original)
@@ -379,7 +411,7 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
         feature_similarities = compute_feature_similarity(original_features, paraphrase_features)
         
         # Dynamically calibrate weights
-        calibrated_weights = calibrate_weights(feature_similarities)
+        calibrated_weights = self.calibrate_weights(feature_similarities)
         
         # Compute composite score with calibrated weights
         composite_score = sum(
@@ -388,33 +420,31 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
         )
         
         # Adaptive thresholding
-        # Warm approach: Soften the hard boundaries
         threshold = (
             0.6 if is_positive else 0.4  # Original baseline
             + sum(feature_similarities.values()) * 0.1  # Dynamic adjustment
         )
         
-        # Logical refinement for validation
+        # Enhanced validation logic
         if is_positive:
             # For positive paraphrases:
-            # Must preserve spatial terms AND not change meaning
+            # Must preserve spatial terms AND maintain semantic equivalence
             spatial_terms_preserved = composite_score >= threshold
-            meaning_preserved = composite_score >= threshold
+            meaning_preserved = is_semantically_equivalent(original, paraphrase)
             validation_result = spatial_terms_preserved and meaning_preserved
         else:
             # For negative paraphrases:
             # Must either NOT preserve spatial terms OR change meaning
-            spatial_terms_preserved = composite_score >= threshold
-            meaning_changed = composite_score < threshold
-            validation_result = (not spatial_terms_preserved) or meaning_changed
+            spatial_terms_changed = composite_score < threshold
+            meaning_changed = not is_semantically_equivalent(original, paraphrase)
+            validation_result = spatial_terms_changed or meaning_changed
 
-        # Add detailed logging
+        # Detailed logging
         logger.info(f"\n--- Spatial Accuracy Validation ---")
         logger.info(f"Original: {original}")
         logger.info(f"Paraphrase: {paraphrase}")
         logger.info(f"Is Positive Paraphrase: {is_positive}")
         
-        # Log extracted features
         logger.info("Original Features:")
         for category, terms in original_features.items():
             logger.info(f"  {category}: {terms}")
@@ -423,18 +453,17 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
         for category, terms in paraphrase_features.items():
             logger.info(f"  {category}: {terms}")
         
-        # Log feature similarities
         logger.info("Feature Similarities:")
         for feature, similarity in feature_similarities.items():
             logger.info(f"  {feature}: {similarity}")
         
-        # Log calibrated weights
         logger.info("Calibrated Weights:")
         for feature, weight in calibrated_weights.items():
             logger.info(f"  {feature}: {weight}")
         
         logger.info(f"Composite Score: {composite_score}")
         logger.info(f"Adaptive Threshold: {threshold}")
+        logger.info(f"Semantic Equivalence: {is_semantically_equivalent(original, paraphrase)}")
 
         return {
             'spatial_terms_preserved': spatial_terms_preserved,
@@ -443,7 +472,8 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
             'feature_similarities': feature_similarities,
             'composite_score': composite_score,
             'calibrated_weights': calibrated_weights,
-            'adaptive_threshold': threshold
+            'adaptive_threshold': threshold,
+            'semantic_equivalence': is_semantically_equivalent(original, paraphrase)
         }
 
 # Test function
