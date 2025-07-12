@@ -124,45 +124,47 @@ class EnhancedMixtralParaphraser:
             logger.error(f"Error loading model: {e}")
             return False
     
+    def extract_spatial_terms(self, instruction: str) -> Dict[str, List[str]]:
+        """Extract spatial terms from instruction for preservation with flexible matching."""
+        instruction_lower = instruction.lower()
+        extracted_terms = {}
+        
+        # Enhanced matching with regex and word boundary checks
+        for category, terms in self.spatial_terms.items():
+            found_terms = []
+            for term in terms:
+                # Use word boundary regex to prevent partial matches
+                pattern = r'\b' + re.escape(term) + r'\b'
+                if re.search(pattern, instruction_lower):
+                    found_terms.append(term)
+                
+                # Handle plural and slight variations
+                if term.endswith('ing'):
+                    # Check for -ing forms (e.g., "building" → "buildings")
+                    plural_pattern = r'\b' + re.escape(term) + r's?\b'
+                    if re.search(plural_pattern, instruction_lower):
+                        found_terms.append(term)
+            
+            if found_terms:
+                extracted_terms[category] = list(set(found_terms))  # Remove duplicates
+        
+        return extracted_terms
+    
     def create_combined_prompt(self, instruction: str) -> str:
         """
-        Enhanced prompt for generating UAV navigation instruction paraphrases.
-        Refined to provide clear, concise guidance while maintaining creative flexibility.
+        Create unified prompt for both positive and negative paraphrases.
+        Focus: Cohesive generation with better contrast understanding.
         """
-        # Dynamic substitution guidance based on extracted spatial terms
         spatial_terms = self.extract_spatial_terms(instruction)
         
-        # Comprehensive substitution guidance
-        substitution_guidance = "Substitution Guidelines:\n"
-        
-        # Landmarks substitution
+        # Build term substitution guidance based on AVDN frequency analysis
+        substitution_guidance = ""
         if 'landmarks' in spatial_terms:
-            substitution_guidance += "- Landmark variations:\n"
-            substitution_guidance += "  * building ↔ structure ↔ facility\n"
-            substitution_guidance += "  * train car ↔ railcar ↔ wagon\n"
-            substitution_guidance += "  * container ↔ stack ↔ pile\n"
-        
-        # Clock direction substitution
-        if 'clock_directions' in spatial_terms:
-            substitution_guidance += "- Clock direction shifts:\n"
-            substitution_guidance += "  * 6 o'clock ↔ 5:30 o'clock ↔ directly ahead\n"
-            substitution_guidance += "  * Maintain ±1-2 hour precision\n"
-        
-        # Cardinal direction substitution
+            substitution_guidance += "- Change landmarks: building↔structure↔house, road↔highway↔parking\n"
         if 'directions' in spatial_terms:
-            substitution_guidance += "- Direction alternatives:\n"
-            substitution_guidance += "  * west ↔ westward ↔ to the west\n"
-            substitution_guidance += "  * north ↔ northward ↔ heading north\n"
-        
-        # Movement verb substitution
-        substitution_guidance += "- Movement verb variations:\n"
-        substitution_guidance += "  * go ↔ proceed ↔ travel\n"
-        substitution_guidance += "  * turn ↔ pivot ↔ veer\n"
-        
-        # Spatial relation substitution
-        substitution_guidance += "- Spatial relation alternatives:\n"
-        substitution_guidance += "  * until ↔ up to ↔ continuing to\n"
-        substitution_guidance += "  * first ↔ initial ↔ leading\n"
+            substitution_guidance += "- Change directions: turn↔go↔move, left↔right, north↔south↔east↔west\n"
+        if 'clock_directions' in spatial_terms:
+            substitution_guidance += "- Change clock directions: shift by 2-4 hours (e.g., 3 o'clock→6 o'clock)\n"
         
         prompt = f"""<s>[INST] You are an expert in UAV navigation instructions. Generate paraphrases for this instruction:
 
@@ -172,57 +174,23 @@ Generate:
 1. 2 positive paraphrases that maintain the same spatial meaning and navigation intent
 2. 1 negative paraphrase that changes spatial meaning strategically
 
-Paraphrasing Guidelines:
-- Use natural, varied language
-- Preserve core navigation semantics
-- Sound like authentic human instructions
+For positives:
+- Use natural language variation in word choice and sentence structure
+- Preserve key spatial terms (landmarks, directions, clock references)
+- Sound like natural human navigation instructions
 
-{substitution_guidance}
-
-Negative Paraphrase Strategy:
-- Make strategic changes that alter navigation outcome
-- Ensure logically consistent and realistic modifications
-- Focus on creating a plausible but incorrect instruction
+For negative:
+{substitution_guidance}- Make correlated strategic changes (e.g., direction + landmark, or clock + landmark)
+- Examples: "right + white building" → "left + gray structure", "3 o'clock + building" → "9 o'clock + farm"
+- Ensure changes are LOGICALLY CONSISTENT and realistic for UAV navigation
+- Use natural language (avoid robotic or template-like phrasing)
+- Create a plausible but incorrect navigation instruction
+- Focus on spatial accuracy changes that would lead to different navigation outcomes
+- Ensure both changes work together coherently (e.g., "turn left at the gray building" not "turn left at the blue sky")
 
 Provide only the paraphrases, no explanations: [/INST]"""
         
         return prompt
-    
-    def extract_spatial_terms(self, instruction: str) -> Dict[str, List[str]]:
-        """Enhanced spatial term extraction with comprehensive matching."""
-        instruction_lower = instruction.lower()
-        extracted_terms = {}
-        
-        # Expanded spatial term categories
-        spatial_term_patterns = {
-            'landmarks': [
-                r'\b(building|train car|railcar|wagon|container|stack|pile|yard|track|facility)\b',
-                r'\b(white|first|small|large)\b'
-            ],
-            'clock_directions': [
-                r'\b(\d+)\s*o\'?clock\b',
-                r'\b(directly ahead|at the front)\b'
-            ],
-            'directions': [
-                r'\b(west|north|south|east|westward|northward|southward|eastward)\b',
-                r'\b(turn|go|proceed|travel|veer|pivot)\b'
-            ],
-            'spatial_relations': [
-                r'\b(until|up to|continuing to|first|initial|leading)\b',
-                r'\b(forward|ahead)\b'
-            ]
-        }
-        
-        # Extract terms for each category
-        for category, patterns in spatial_term_patterns.items():
-            found_terms = []
-            for pattern in patterns:
-                found_terms.extend(re.findall(pattern, instruction_lower))
-            
-            if found_terms:
-                extracted_terms[category] = list(set(found_terms))
-        
-        return extracted_terms
     
     def generate_paraphrases(self, instruction: str, num_positives: int = 2, num_negatives: int = 1) -> Dict[str, List[str]]:
         """
@@ -326,56 +294,50 @@ Provide only the paraphrases, no explanations: [/INST]"""
             Dict containing validation results with detailed feature breakdown and adaptive calibration
         """
         def extract_spatial_features(text):
-            """Enhanced spatial feature extraction with more comprehensive matching."""
+            """Extract comprehensive spatial features with AVDN dataset insights."""
             text_lower = text.lower()
             return {
                 'clock_directions': re.findall(r'(\d+)\s*o\'?clock', text_lower),
-                'cardinal_directions': re.findall(r'\b(north|south|east|west|northeast|northwest|southeast|southwest)\b', text_lower),
-                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure|tower|container)\b', text_lower),
-                'movement_verbs': re.findall(r'\b(turn|go|move|head|fly|navigate|proceed)\b', text_lower),
-                'spatial_relations': re.findall(r'\b(over|near|in front of|next to|around|through|behind|across|along|between)\b', text_lower)
+                'cardinal_directions': re.findall(r'\b(north|south|east|west)\b', text_lower),
+                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure)\b', text_lower),
+                'movement_verbs': re.findall(r'\b(turn|go|move|head|fly)\b', text_lower),
+                'spatial_relations': re.findall(r'\b(over|near|in front of|next to|around|through|behind)\b', text_lower)
             }
         
         def compute_feature_similarity(orig_features, para_features):
-            """Enhanced feature similarity with more sophisticated matching."""
+            """Compute similarity across different spatial feature categories."""
             similarity_scores = {}
             
-            # Expanded substitution groups with more nuanced matching
+            # Predefined substitution groups based on AVDN dataset analysis
             substitution_groups = {
                 'landmarks': [
-                    {'building', 'structure', 'house', 'tower'},
-                    {'road', 'highway', 'parking', 'street'},
-                    {'field', 'area', 'section'},
-                    {'container', 'block'}
+                    {'building', 'structure', 'house'},
+                    {'road', 'highway', 'parking'},
+                    {'field', 'area'}
                 ],
                 'movement_verbs': [
-                    {'turn', 'go', 'move', 'navigate'},
-                    {'head', 'fly', 'proceed'}
-                ],
-                'spatial_relations': [
-                    {'over', 'across'},
-                    {'near', 'next to', 'close to'},
-                    {'in front of', 'ahead of'},
-                    {'around', 'near'}
+                    {'turn', 'go', 'move'},
+                    {'head', 'fly'}
                 ]
             }
             
             for category, orig_terms in orig_features.items():
                 para_terms = para_features.get(category, [])
                 
-                # Enhanced group-based similarity
+                # Special handling for categories with substitution groups
                 if category in substitution_groups:
-                    group_matches = 0
-                    total_groups = len(substitution_groups[category])
-                    
                     for group in substitution_groups[category]:
                         orig_group_terms = [term for term in orig_terms if term in group]
                         para_group_terms = [term for term in para_terms if term in group]
                         
                         if orig_group_terms and para_group_terms:
-                            group_matches += 1
-                    
-                    similarity_scores[category] = group_matches / total_groups if total_groups > 0 else 0
+                            similarity_scores[category] = 1.0
+                            break
+                    else:
+                        # Fallback to Jaccard similarity
+                        overlap = len(set(orig_terms).intersection(set(para_terms)))
+                        total = len(set(orig_terms).union(set(para_terms)))
+                        similarity_scores[category] = overlap / total if total > 0 else 0
                 else:
                     # Standard Jaccard similarity for other categories
                     overlap = len(set(orig_terms).intersection(set(para_terms)))
