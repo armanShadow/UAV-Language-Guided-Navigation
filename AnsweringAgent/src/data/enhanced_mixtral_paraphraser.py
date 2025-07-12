@@ -129,30 +129,10 @@ class EnhancedMixtralParaphraser:
                 
         return extracted_terms
     
-    def create_positive_prompt(self, instruction: str) -> str:
+    def create_combined_prompt(self, instruction: str) -> str:
         """
-        Create minimal but strategic prompt for positive paraphrases.
-        Focus: Natural diversity while preserving spatial accuracy.
-        """
-        
-        prompt = f"""<s>[INST] You are an expert in UAV navigation instructions. Paraphrase the following instruction naturally while maintaining spatial accuracy and key navigation terms.
-
-Original instruction: "{instruction}"
-
-Generate 2 high-quality paraphrases that:
-- Maintain the same spatial meaning and navigation intent
-- Use natural language variation in word choice and sentence structure
-- Preserve key spatial terms (landmarks, directions, clock references)
-- Sound like natural human navigation instructions
-
-Provide only the paraphrases, one per line: [/INST]"""
-        
-        return prompt
-    
-    def create_negative_prompt(self, instruction: str) -> str:
-        """
-        Create comprehensive prompt for negative paraphrases.
-        Focus: Strategic term changes while maintaining realistic navigation language.
+        Create unified prompt for both positive and negative paraphrases.
+        Focus: Cohesive generation with better contrast understanding.
         """
         spatial_terms = self.extract_spatial_terms(instruction)
         
@@ -165,23 +145,32 @@ Provide only the paraphrases, one per line: [/INST]"""
         if 'clock_directions' in spatial_terms:
             substitution_guidance += "- Change clock directions: shift by 2-4 hours (e.g., 3 o'clock→6 o'clock)\n"
         
-        prompt = f"""<s>[INST] You are an expert in UAV navigation instructions. Create a negative paraphrase that changes key spatial terms while maintaining realistic navigation language.
+        prompt = f"""<s>[INST] You are an expert in UAV navigation instructions. Generate paraphrases for this instruction:
 
 Original instruction: "{instruction}"
 
-Generate 1 negative paraphrase that:
-{substitution_guidance}- Changes spatial meaning (wrong direction, landmark, or location)
-- Maintains realistic UAV navigation vocabulary and sentence structure
-- Uses natural language (avoid robotic or template-like phrasing)
-- Creates a plausible but incorrect navigation instruction
+Generate:
+1. 2 positive paraphrases that maintain the same spatial meaning and navigation intent
+2. 1 negative paraphrase that changes spatial meaning strategically
 
-Provide only the negative paraphrase: [/INST]"""
+For positives:
+- Use natural language variation in word choice and sentence structure
+- Preserve key spatial terms (landmarks, directions, clock references)
+- Sound like natural human navigation instructions
+
+For negative:
+{substitution_guidance}- Change spatial meaning (wrong direction, landmark, or location)
+- Maintain realistic UAV navigation vocabulary and sentence structure
+- Use natural language (avoid robotic or template-like phrasing)
+- Create a plausible but incorrect navigation instruction
+
+Provide only the paraphrases, no explanations: [/INST]"""
         
         return prompt
     
     def generate_paraphrases(self, instruction: str, num_positives: int = 2, num_negatives: int = 1) -> Dict[str, List[str]]:
         """
-        Generate high-quality paraphrases with natural diversity.
+        Generate high-quality paraphrases with natural diversity using combined prompt.
         Returns: {'positives': [...], 'negatives': [...]}
         """
         if not self.model or not self.tokenizer:
@@ -191,19 +180,22 @@ Provide only the negative paraphrase: [/INST]"""
         results = {'positives': [], 'negatives': []}
         
         try:
-            # Generate positive paraphrases
-            logger.info("Generating positive paraphrases...")
-            positive_prompt = self.create_positive_prompt(instruction)
-            positive_response = self._generate_response(positive_prompt)
-            positive_paraphrases = self._parse_paraphrases(positive_response, num_positives)
-            results['positives'] = positive_paraphrases
+            # Generate all paraphrases using combined prompt
+            logger.info("Generating paraphrases with combined prompt...")
+            combined_prompt = self.create_combined_prompt(instruction)
+            response = self._generate_response(combined_prompt)
             
-            # Generate negative paraphrases
-            logger.info("Generating negative paraphrases...")
-            negative_prompt = self.create_negative_prompt(instruction)
-            negative_response = self._generate_response(negative_prompt)
-            negative_paraphrases = self._parse_paraphrases(negative_response, num_negatives)
-            results['negatives'] = negative_paraphrases
+            # Parse all paraphrases from response
+            all_paraphrases = self._parse_paraphrases(response, num_positives + num_negatives)
+            
+            # Split into positives and negatives
+            if len(all_paraphrases) >= num_positives + num_negatives:
+                results['positives'] = all_paraphrases[:num_positives]
+                results['negatives'] = all_paraphrases[num_positives:num_positives + num_negatives]
+            else:
+                # Fallback: use all available paraphrases
+                results['positives'] = all_paraphrases[:len(all_paraphrases)//2]
+                results['negatives'] = all_paraphrases[len(all_paraphrases)//2:]
             
             logger.info(f"Generated {len(results['positives'])} positives and {len(results['negatives'])} negatives")
             return results
@@ -314,16 +306,13 @@ def test_enhanced_paraphraser():
         print(f"Extracted terms: {terms}")
         print()
     
-    # Test 4: Prompt generation
-    print("\n4. Testing prompt generation...")
+    # Test 4: Combined prompt generation
+    print("\n4. Testing combined prompt generation...")
     test_instruction = avdn_examples[0]
-    positive_prompt = paraphraser.create_positive_prompt(test_instruction)
-    negative_prompt = paraphraser.create_negative_prompt(test_instruction)
+    combined_prompt = paraphraser.create_combined_prompt(test_instruction)
     
-    print("Positive prompt preview:")
-    print(positive_prompt)
-    print("\nNegative prompt preview:")
-    print(negative_prompt)
+    print("Combined prompt preview:")
+    print(combined_prompt)
     
     # Test 5: Full paraphrase generation for all examples
     print("\n5. Testing full paraphrase generation for all examples...")
