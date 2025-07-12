@@ -433,6 +433,9 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
         )
         
         # Enhanced validation logic
+        spatial_terms_preserved = False
+        meaning_preserved = False
+        
         if is_positive:
             # For positive paraphrases:
             # Must preserve spatial terms AND maintain semantic equivalence
@@ -442,9 +445,9 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
         else:
             # For negative paraphrases:
             # Must either NOT preserve spatial terms OR change meaning
-            spatial_terms_changed = composite_score < threshold
+            spatial_terms_preserved = composite_score < threshold
             meaning_changed = not is_semantically_equivalent(original, paraphrase)
-            validation_result = spatial_terms_changed or meaning_changed
+            validation_result = spatial_terms_preserved or meaning_changed
 
         # Detailed logging
         logger.info(f"\n--- Spatial Accuracy Validation ---")
