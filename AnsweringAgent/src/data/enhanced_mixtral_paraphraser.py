@@ -272,149 +272,128 @@ Provide only the paraphrases, no explanations: [/INST]"""
     
     def validate_spatial_accuracy(self, original: str, paraphrase: str, is_positive: bool = True) -> Dict[str, bool]:
         """
-        Enhanced validation of spatial accuracy using AVDN dataset analysis insights.
+        Enhanced validation of spatial accuracy with comprehensive logging and precise detection.
         Returns: {'spatial_terms_preserved': bool, 'meaning_changed': bool, 'validation_type': str}
         """
-        # Predefined substitution groups based on dataset frequency analysis
-        LANDMARK_SUBSTITUTIONS = [
-            {'building', 'structure', 'house', 'roof', 'rooftop'},
-            {'road', 'highway', 'street', 'parking', 'lot'},
-            {'field', 'area', 'vision', 'line of sight'},
-            {'intersection', 'crossing'}
-        ]
+        # Configure logging for detailed tracking
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.DEBUG)
         
-        COLOR_VARIATIONS = [
-            {'white', 'gray', 'grey', 'light'},
-            {'brown', 'tan', 'tawny', 'drab'},
-            {'blue', 'green', 'dark'},
-            {'red', 'black'}
-        ]
+        # Detailed logging handler
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
         
-        DIRECTION_SUBSTITUTIONS = [
-            {'turn', 'go', 'move', 'head', 'steer', 'navigate'},
-            {'left', 'right'},
-            {'north', 'south', 'east', 'west'},
-            {'forward', 'straight', 'ahead'}
-        ]
+        def log_validation_details(message):
+            """Log detailed validation information."""
+            logger.debug(f"[VALIDATION] {message}")
         
-        CLOCK_DIRECTION_SHIFTS = {
-            '1 o\'clock': ['12 o\'clock', '2 o\'clock'],
-            '2 o\'clock': ['1 o\'clock', '3 o\'clock', '10 o\'clock'],
-            '3 o\'clock': ['2 o\'clock', '4 o\'clock'],
-            '4 o\'clock': ['3 o\'clock', '5 o\'clock'],
-            '5 o\'clock': ['4 o\'clock', '6 o\'clock'],
-            '6 o\'clock': ['5 o\'clock', '7 o\'clock'],
-            '7 o\'clock': ['6 o\'clock', '8 o\'clock', '10 o\'clock'],
-            '8 o\'clock': ['7 o\'clock', '9 o\'clock'],
-            '9 o\'clock': ['8 o\'clock', '10 o\'clock'],
-            '10 o\'clock': ['9 o\'clock', '11 o\'clock', '7 o\'clock', '2 o\'clock'],
-            '11 o\'clock': ['10 o\'clock', '12 o\'clock'],
-            '12 o\'clock': ['11 o\'clock', '1 o\'clock']
-        }
-        
-        def find_substitution_group(term, substitution_groups):
-            """Find which substitution group a term belongs to."""
-            return next((group for group in substitution_groups if any(t in term.lower() for t in group)), None)
-        
-        def extract_key_elements(text):
-            """Extract key spatial elements with more nuanced extraction."""
+        # Comprehensive spatial element extraction
+        def extract_comprehensive_elements(text):
+            """
+            Extract a wide range of spatial elements with detailed categorization.
+            """
             text_lower = text.lower()
             return {
                 'clock_directions': re.findall(r'(\d+)\s*o\'?clock', text_lower),
-                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure|roof|rooftop)\b', text_lower),
+                'cardinal_directions': re.findall(r'\b(north|south|east|west)\b', text_lower),
+                'relative_directions': re.findall(r'\b(left|right|forward|backward|up|down)\b', text_lower),
+                'landmarks': re.findall(r'\b(building|road|parking|field|house|highway|structure|roof|rooftop|lot|aircraft|airplane|hangar)\b', text_lower),
                 'colors': re.findall(r'\b(white|gray|grey|brown|tan|tawny|drab|blue|green|red|black|light|dark)\b', text_lower),
-                'directions': re.findall(r'\b(turn|go|move|head|steer|navigate|right|left|north|south|east|west|forward|straight|ahead)\b', text_lower)
+                'location_descriptors': re.findall(r'\b(middle|center|edge|side|north|south|east|west)\b', text_lower),
+                'movement_verbs': re.findall(r'\b(turn|go|move|head|steer|navigate|cross|fly)\b', text_lower)
             }
+        
+        def compute_spatial_similarity(orig_elements, para_elements):
+            """
+            Compute a similarity score based on spatial elements.
+            Lower score indicates more significant changes.
+            """
+            similarity_score = 0
+            total_categories = 0
+            
+            # Check each category
+            for category in ['clock_directions', 'cardinal_directions', 'relative_directions', 
+                             'landmarks', 'colors', 'location_descriptors', 'movement_verbs']:
+                orig_set = set(orig_elements.get(category, []))
+                para_set = set(para_elements.get(category, []))
+                
+                # Compute Jaccard similarity
+                if orig_set or para_set:
+                    total_categories += 1
+                    intersection = len(orig_set.intersection(para_set))
+                    union = len(orig_set.union(para_set))
+                    similarity_score += intersection / union if union > 0 else 0
+            
+            # Normalize similarity score
+            normalized_similarity = similarity_score / total_categories if total_categories > 0 else 0
+            
+            log_validation_details(f"Similarity Score: {normalized_similarity:.2f}")
+            return normalized_similarity
         
         def detect_meaning_change(original, paraphrase):
             """
-            Detect spatial meaning change with dataset-informed rules.
-            More sophisticated than simple term matching.
+            Detect spatial meaning change with comprehensive analysis.
             """
-            orig_elements = extract_key_elements(original)
-            para_elements = extract_key_elements(paraphrase)
+            orig_elements = extract_comprehensive_elements(original)
+            para_elements = extract_comprehensive_elements(paraphrase)
             
-            changes = 0
+            # Log extracted elements for debugging
+            log_validation_details(f"Original Elements: {orig_elements}")
+            log_validation_details(f"Paraphrase Elements: {para_elements}")
             
-            # Clock direction change
-            if orig_elements['clock_directions'] and para_elements['clock_directions']:
-                orig_clock = f"{orig_elements['clock_directions'][0]} o'clock"
-                para_clock = f"{para_elements['clock_directions'][0]} o'clock"
-                
-                # Check if clock direction is significantly different
-                if para_clock not in CLOCK_DIRECTION_SHIFTS.get(orig_clock, []):
-                    changes += 1
+            # Compute similarity
+            similarity = compute_spatial_similarity(orig_elements, para_elements)
             
-            # Landmark changes
-            if orig_elements['landmarks'] and para_elements['landmarks']:
-                orig_landmark_groups = [find_substitution_group(l, LANDMARK_SUBSTITUTIONS) for l in orig_elements['landmarks']]
-                para_landmark_groups = [find_substitution_group(l, LANDMARK_SUBSTITUTIONS) for l in para_elements['landmarks']]
-                
-                # Check if landmarks are from different groups
-                if not any(og == pg for og, pg in zip(orig_landmark_groups, para_landmark_groups)):
-                    changes += 1
+            # Determine meaning change based on similarity threshold
+            # Positive paraphrases should have high similarity
+            # Negative paraphrases should have low similarity
+            if is_positive:
+                meaning_changed = similarity < 0.6  # Allow some variation
+                log_validation_details(f"Positive Paraphrase - Meaning Changed: {meaning_changed}")
+            else:
+                meaning_changed = similarity < 0.3  # Require significant change
+                log_validation_details(f"Negative Paraphrase - Meaning Changed: {meaning_changed}")
             
-            # Color changes
-            if orig_elements['colors'] and para_elements['colors']:
-                orig_color_groups = [find_substitution_group(c, COLOR_VARIATIONS) for c in orig_elements['colors']]
-                para_color_groups = [find_substitution_group(c, COLOR_VARIATIONS) for c in para_elements['colors']]
-                
-                # Check if colors are from different groups
-                if not any(og == pg for og, pg in zip(orig_color_groups, para_color_groups)):
-                    changes += 1
-            
-            # Direction changes
-            if orig_elements['directions'] and para_elements['directions']:
-                orig_dir_groups = [find_substitution_group(d, DIRECTION_SUBSTITUTIONS) for d in orig_elements['directions']]
-                para_dir_groups = [find_substitution_group(d, DIRECTION_SUBSTITUTIONS) for d in para_elements['directions']]
-                
-                # Check if directions are from different groups
-                if not any(og == pg for og, pg in zip(orig_dir_groups, para_dir_groups)):
-                    changes += 1
-            
-            return changes >= 1 if is_positive else changes >= 2
+            return meaning_changed
         
-        def check_term_preservation(original_terms, paraphrase_terms):
+        def check_term_preservation(original, paraphrase):
             """
-            Check spatial term preservation with dataset-informed flexibility.
+            Check if key spatial terms are preserved.
+            More flexible and comprehensive approach.
             """
-            preserved_categories = 0
-            total_categories = len(original_terms)
+            orig_elements = extract_comprehensive_elements(original)
+            para_elements = extract_comprehensive_elements(paraphrase)
             
-            for category, terms in original_terms.items():
-                if category in paraphrase_terms:
-                    # Check if there's any overlap in terms or substitution groups
-                    if any(
-                        term in paraphrase_terms[category] or 
-                        any(term in group for group in LANDMARK_SUBSTITUTIONS if category == 'landmarks') or
-                        any(term in group for group in COLOR_VARIATIONS if category == 'colors') or
-                        any(term in group for group in DIRECTION_SUBSTITUTIONS if category == 'directions')
-                        for term in terms
-                    ):
+            preserved_categories = 0
+            total_categories = len(orig_elements)
+            
+            for category, orig_terms in orig_elements.items():
+                para_terms = para_elements.get(category, [])
+                
+                # Check for any overlap or semantic similarity
+                if orig_terms and para_terms:
+                    overlap = len(set(orig_terms).intersection(set(para_terms)))
+                    if overlap > 0:
                         preserved_categories += 1
             
-            # Consider terms preserved if most categories are maintained
-            return preserved_categories >= max(1, total_categories - 1)
+            # Require preservation of most categories
+            terms_preserved = preserved_categories >= max(1, total_categories - 1)
+            
+            log_validation_details(f"Term Preservation - Preserved: {terms_preserved}")
+            log_validation_details(f"Preserved Categories: {preserved_categories}/{total_categories}")
+            
+            return terms_preserved
         
-        # Validation logic
-        if is_positive:
-            # For positive paraphrases:
-            # 1. Minimal meaning change allowed
-            # 2. Spatial terms should be largely preserved
-            meaning_changed = detect_meaning_change(original, paraphrase)
-            spatial_terms_preserved = check_term_preservation(
-                self.extract_spatial_terms(original), 
-                self.extract_spatial_terms(paraphrase)
-            )
-        else:
-            # For negative paraphrases:
-            # 1. Meaning SHOULD change
-            # 2. Allow more variation in spatial terms
-            meaning_changed = detect_meaning_change(original, paraphrase)
-            spatial_terms_preserved = len(set(
-                self.extract_spatial_terms(paraphrase).keys()) & 
-                set(self.extract_spatial_terms(original).keys())
-            ) > 0
+        # Main validation logic
+        spatial_terms_preserved = check_term_preservation(original, paraphrase)
+        meaning_changed = detect_meaning_change(original, paraphrase)
+        
+        # Remove the logging handler to prevent duplicate logs
+        logger.removeHandler(handler)
         
         return {
             'spatial_terms_preserved': spatial_terms_preserved,
