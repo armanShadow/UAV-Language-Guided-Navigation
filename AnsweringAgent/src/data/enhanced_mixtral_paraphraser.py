@@ -3,7 +3,7 @@
 # Focus: High-quality, fewer paraphrases with natural language diversity
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import re
 import json
 from typing import List, Dict, Tuple, Optional
@@ -100,11 +100,20 @@ class EnhancedMixtralParaphraser:
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             
             logger.info("Loading Mixtral model...")
+            
+            # Configure quantization for better memory efficiency
+            quantization_config = BitsAndBytesConfig(
+                load_in_8bit=True,
+                llm_int8_threshold=6.0,
+                llm_int8_has_fp16_weight=False,
+            )
+            
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
                 torch_dtype=torch.float16,
                 device_map="auto",
-                trust_remote_code=True
+                trust_remote_code=True,
+                quantization_config=quantization_config
             )
             
             logger.info("Model loaded successfully!")
@@ -240,38 +249,69 @@ Provide only the paraphrases, no explanations: [/INST]"""
         # Split by lines and clean up
         lines = [line.strip() for line in response.split('\n') if line.strip()]
         
-        # Extract paraphrases (remove numbering, quotes, etc.)
+        # Extract paraphrases (remove numbering, quotes, labels, etc.)
         paraphrases = []
         for line in lines:
-            # Remove common prefixes
+            # Remove common prefixes and labels
             cleaned = re.sub(r'^\d+\.\s*', '', line)  # Remove "1. ", "2. " etc.
             cleaned = re.sub(r'^["\']|["\']$', '', cleaned)  # Remove quotes
+            cleaned = re.sub(r'^(Positive|Negative)\s+Paraphrases?:\s*', '', cleaned, flags=re.IGNORECASE)  # Remove labels
+            cleaned = re.sub(r'^(Positives?|Negatives?):\s*', '', cleaned, flags=re.IGNORECASE)  # Remove section headers
             cleaned = cleaned.strip()
             
-            if cleaned and len(cleaned) > 10:  # Minimum meaningful length
+            # Only include actual instruction text (not labels or empty lines)
+            if cleaned and len(cleaned) > 10 and not cleaned.lower().startswith(('positive', 'negative', 'positives', 'negatives')):
                 paraphrases.append(cleaned)
         
         # Return expected number or all if fewer
         return paraphrases[:expected_count]
     
-    def validate_spatial_accuracy(self, original: str, paraphrase: str) -> Dict[str, bool]:
+    def validate_spatial_accuracy(self, original: str, paraphrase: str, is_positive: bool = True) -> Dict[str, bool]:
         """
-        Basic validation of spatial accuracy.
-        Returns: {'spatial_terms_preserved': bool, 'meaning_changed': bool}
+        Enhanced validation of spatial accuracy.
+        Returns: {'spatial_terms_preserved': bool, 'meaning_changed': bool, 'validation_type': str}
         """
         original_terms = self.extract_spatial_terms(original)
         paraphrase_terms = self.extract_spatial_terms(paraphrase)
         
-        # Check if key spatial terms are preserved (for positives) or changed (for negatives)
+        # Check if key spatial terms are preserved
         spatial_terms_preserved = len(original_terms) > 0 and len(paraphrase_terms) > 0
         
-        # Simple meaning change detection (for negatives)
-        meaning_changed = len(original_terms) != len(paraphrase_terms) or \
-                        any(cat not in paraphrase_terms for cat in original_terms)
+        # Enhanced meaning change detection
+        meaning_changed = False
+        if original_terms and paraphrase_terms:
+            # Check for systematic changes in spatial terms
+            original_lower = original.lower()
+            paraphrase_lower = paraphrase.lower()
+            
+            # Check for direction changes
+            direction_changes = [
+                ('north', 'south'), ('east', 'west'), ('left', 'right'),
+                ('clockwise', 'counterclockwise'), ('forward', 'backward')
+            ]
+            
+            for old_dir, new_dir in direction_changes:
+                if old_dir in original_lower and new_dir in paraphrase_lower:
+                    meaning_changed = True
+                    break
+            
+            # Check for clock direction shifts
+            clock_pattern = r'(\d+)\s*o\'?clock'
+            original_clocks = re.findall(clock_pattern, original_lower)
+            paraphrase_clocks = re.findall(clock_pattern, paraphrase_lower)
+            
+            if original_clocks and paraphrase_clocks:
+                original_hour = int(original_clocks[0])
+                paraphrase_hour = int(paraphrase_clocks[0])
+                if abs(original_hour - paraphrase_hour) >= 3:  # Significant shift
+                    meaning_changed = True
+        
+        validation_type = "positive" if is_positive else "negative"
         
         return {
             'spatial_terms_preserved': spatial_terms_preserved,
-            'meaning_changed': meaning_changed
+            'meaning_changed': meaning_changed,
+            'validation_type': validation_type
         }
 
 # Test function
@@ -332,10 +372,14 @@ def test_enhanced_paraphraser():
         for j, negative in enumerate(results['negatives'], 1):
             print(f"  {j}. {negative}")
         
-        # Validation for first positive
+        # Enhanced validation for positives and negatives
         if results['positives']:
-            validation = paraphraser.validate_spatial_accuracy(instruction, results['positives'][0])
-            print(f"Validation: {validation}")
+            positive_validation = paraphraser.validate_spatial_accuracy(instruction, results['positives'][0], is_positive=True)
+            print(f"Positive validation: {positive_validation}")
+        
+        if results['negatives']:
+            negative_validation = paraphraser.validate_spatial_accuracy(instruction, results['negatives'][0], is_positive=False)
+            print(f"Negative validation: {negative_validation}")
         
         print("-" * 50)
     
