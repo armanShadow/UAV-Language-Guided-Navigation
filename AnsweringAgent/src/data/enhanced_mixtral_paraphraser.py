@@ -172,8 +172,17 @@ Provide only the negative paraphrase: [/INST]"""
                 )
             
             response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            # Extract only the generated part (after the prompt)
-            generated_text = response[len(prompt):].strip()
+            
+            # More robust extraction of generated text
+            # Look for the instruction part after the prompt
+            if prompt in response:
+                generated_text = response.split(prompt, 1)[1].strip()
+            else:
+                # Fallback: try to find the generated part by looking for common patterns
+                generated_text = response.strip()
+                # Remove common prompt artifacts
+                for artifact in ['[/INST]', '[INST]', '<s>', '</s>']:
+                    generated_text = generated_text.replace(artifact, '').strip()
             
             return generated_text
             
@@ -263,9 +272,9 @@ def test_enhanced_paraphraser():
     negative_prompt = paraphraser.create_negative_prompt(test_instruction)
     
     print("Positive prompt preview:")
-    print(positive_prompt[:200] + "...")
+    print(positive_prompt)
     print("\nNegative prompt preview:")
-    print(negative_prompt[:200] + "...")
+    print(negative_prompt)
     
     # Test 4: Full paraphrase generation (if model loaded)
     print("\n4. Testing full paraphrase generation...")
