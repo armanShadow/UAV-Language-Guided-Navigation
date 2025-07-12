@@ -124,21 +124,6 @@ class EnhancedMixtralParaphraser:
             logger.error(f"Error loading model: {e}")
             return False
     
-    def extract_spatial_terms(self, instruction: str) -> Dict[str, List[str]]:
-        """Extract spatial terms from instruction for preservation."""
-        instruction_lower = instruction.lower()
-        extracted_terms = {}
-        
-        for category, terms in self.spatial_terms.items():
-            found_terms = []
-            for term in terms:
-                if term in instruction_lower:
-                    found_terms.append(term)
-            if found_terms:
-                extracted_terms[category] = found_terms
-                
-        return extracted_terms
-    
     def create_combined_prompt(self, instruction: str) -> str:
         """
         Enhanced prompt for generating UAV navigation instruction paraphrases.
@@ -146,14 +131,38 @@ class EnhancedMixtralParaphraser:
         """
         # Dynamic substitution guidance based on extracted spatial terms
         spatial_terms = self.extract_spatial_terms(instruction)
-        substitution_guidance = ""
         
+        # Comprehensive substitution guidance
+        substitution_guidance = "Substitution Guidelines:\n"
+        
+        # Landmarks substitution
         if 'landmarks' in spatial_terms:
-            substitution_guidance += "- Landmark variations: building↔structure, road↔highway\n"
+            substitution_guidance += "- Landmark variations:\n"
+            substitution_guidance += "  * building ↔ structure ↔ facility\n"
+            substitution_guidance += "  * train car ↔ railcar ↔ wagon\n"
+            substitution_guidance += "  * container ↔ stack ↔ pile\n"
+        
+        # Clock direction substitution
         if 'clock_directions' in spatial_terms:
-            substitution_guidance += "- Clock direction shifts: ±2-3 hours\n"
-        if 'cardinal_directions' in spatial_terms:
-            substitution_guidance += "- Direction alternatives: north↔south, east↔west\n"
+            substitution_guidance += "- Clock direction shifts:\n"
+            substitution_guidance += "  * 6 o'clock ↔ 5:30 o'clock ↔ directly ahead\n"
+            substitution_guidance += "  * Maintain ±1-2 hour precision\n"
+        
+        # Cardinal direction substitution
+        if 'directions' in spatial_terms:
+            substitution_guidance += "- Direction alternatives:\n"
+            substitution_guidance += "  * west ↔ westward ↔ to the west\n"
+            substitution_guidance += "  * north ↔ northward ↔ heading north\n"
+        
+        # Movement verb substitution
+        substitution_guidance += "- Movement verb variations:\n"
+        substitution_guidance += "  * go ↔ proceed ↔ travel\n"
+        substitution_guidance += "  * turn ↔ pivot ↔ veer\n"
+        
+        # Spatial relation substitution
+        substitution_guidance += "- Spatial relation alternatives:\n"
+        substitution_guidance += "  * until ↔ up to ↔ continuing to\n"
+        substitution_guidance += "  * first ↔ initial ↔ leading\n"
         
         prompt = f"""<s>[INST] You are an expert in UAV navigation instructions. Generate paraphrases for this instruction:
 
@@ -168,14 +177,52 @@ Paraphrasing Guidelines:
 - Preserve core navigation semantics
 - Sound like authentic human instructions
 
+{substitution_guidance}
+
 Negative Paraphrase Strategy:
-{substitution_guidance}- Make strategic changes that alter navigation outcome
+- Make strategic changes that alter navigation outcome
 - Ensure logically consistent and realistic modifications
 - Focus on creating a plausible but incorrect instruction
 
 Provide only the paraphrases, no explanations: [/INST]"""
         
         return prompt
+    
+    def extract_spatial_terms(self, instruction: str) -> Dict[str, List[str]]:
+        """Enhanced spatial term extraction with comprehensive matching."""
+        instruction_lower = instruction.lower()
+        extracted_terms = {}
+        
+        # Expanded spatial term categories
+        spatial_term_patterns = {
+            'landmarks': [
+                r'\b(building|train car|railcar|wagon|container|stack|pile|yard|track|facility)\b',
+                r'\b(white|first|small|large)\b'
+            ],
+            'clock_directions': [
+                r'\b(\d+)\s*o\'?clock\b',
+                r'\b(directly ahead|at the front)\b'
+            ],
+            'directions': [
+                r'\b(west|north|south|east|westward|northward|southward|eastward)\b',
+                r'\b(turn|go|proceed|travel|veer|pivot)\b'
+            ],
+            'spatial_relations': [
+                r'\b(until|up to|continuing to|first|initial|leading)\b',
+                r'\b(forward|ahead)\b'
+            ]
+        }
+        
+        # Extract terms for each category
+        for category, patterns in spatial_term_patterns.items():
+            found_terms = []
+            for pattern in patterns:
+                found_terms.extend(re.findall(pattern, instruction_lower))
+            
+            if found_terms:
+                extracted_terms[category] = list(set(found_terms))
+        
+        return extracted_terms
     
     def generate_paraphrases(self, instruction: str, num_positives: int = 2, num_negatives: int = 1) -> Dict[str, List[str]]:
         """
