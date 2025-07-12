@@ -8,6 +8,8 @@ import re
 import json
 from typing import List, Dict, Tuple, Optional
 import logging
+import random
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +38,58 @@ class EnhancedMixtralParaphraser:
         }
         
         logger.info(f"Initializing Enhanced Mixtral Paraphraser on {self.device}")
+    
+    def load_random_avdn_examples(self, num_examples: int = 4) -> List[str]:
+        """
+        Load random examples from the AVDN dataset.
+        Returns a list of navigation instructions.
+        """
+        # Possible dataset paths
+        dataset_paths = [
+            "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json",
+            "../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json",
+            "../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/train_data.json"
+        ]
+        
+        for path in dataset_paths:
+            if Path(path).exists():
+                logger.info(f"📂 Loading dataset from: {path}")
+                try:
+                    with open(path, 'r') as f:
+                        episodes = json.load(f)
+                    
+                    # Extract all answers from dialogs
+                    all_instructions = []
+                    for episode in episodes:
+                        dialogs = episode.get('dialogs', [])
+                        for dialog in dialogs:
+                            if dialog and dialog.get('answer'):
+                                answer = dialog['answer'].strip()
+                                if answer and len(answer.split()) >= 3:
+                                    all_instructions.append(answer)
+                    
+                    # Get random examples
+                    if len(all_instructions) >= num_examples:
+                        random.seed(42)  # Consistent results
+                        random_examples = random.sample(all_instructions, num_examples)
+                        logger.info(f"📊 Selected {num_examples} random examples from {len(all_instructions)} total")
+                        return random_examples
+                    else:
+                        logger.warning(f"Only {len(all_instructions)} examples available, returning all")
+                        return all_instructions
+                        
+                except Exception as e:
+                    logger.error(f"Error loading dataset from {path}: {e}")
+                    continue
+        
+        logger.error("❌ Could not find AVDN dataset. Using fallback examples.")
+        # Fallback to original hardcoded examples
+        return [
+            "Turn right and fly over the white building at 3 o'clock",
+            "Go straight ahead towards the gray road near the parking area",
+            "Navigate to the brown house at 6 o'clock position",
+            "Fly north over the highway and turn left at the intersection"
+        ]
         
     def load_model(self):
         """Load Mixtral model and tokenizer."""
@@ -230,14 +284,6 @@ Provide only the negative paraphrase: [/INST]"""
 def test_enhanced_paraphraser():
     """Test the enhanced paraphraser with real AVDN examples."""
     
-    # Real AVDN examples from dataset analysis
-    test_instructions = [
-        "Turn right and fly over the white building at 3 o'clock",
-        "Go straight ahead towards the gray road near the parking area",
-        "Navigate to the brown house at 6 o'clock position",
-        "Fly north over the highway and turn left at the intersection"
-    ]
-    
     paraphraser = EnhancedMixtralParaphraser()
     
     print("=== Enhanced Mixtral Paraphraser Test ===")
@@ -251,17 +297,24 @@ def test_enhanced_paraphraser():
         print("❌ Model loading failed")
         return
     
-    # Test 2: Spatial term extraction
-    print("\n2. Testing spatial term extraction...")
-    for instruction in test_instructions[:2]:
+    # Test 2: Load random AVDN examples
+    print("\n2. Loading random AVDN examples...")
+    avdn_examples = paraphraser.load_random_avdn_examples(num_examples=4)
+    print(f"✅ Loaded {len(avdn_examples)} examples from AVDN dataset")
+    for i, example in enumerate(avdn_examples, 1):
+        print(f"   {i}. {example}")
+    
+    # Test 3: Spatial term extraction
+    print("\n3. Testing spatial term extraction...")
+    for instruction in avdn_examples[:2]:
         terms = paraphraser.extract_spatial_terms(instruction)
         print(f"Instruction: {instruction}")
         print(f"Extracted terms: {terms}")
         print()
     
-    # Test 3: Prompt generation
-    print("\n3. Testing prompt generation...")
-    test_instruction = test_instructions[0]
+    # Test 4: Prompt generation
+    print("\n4. Testing prompt generation...")
+    test_instruction = avdn_examples[0]
     positive_prompt = paraphraser.create_positive_prompt(test_instruction)
     negative_prompt = paraphraser.create_negative_prompt(test_instruction)
     
@@ -270,16 +323,16 @@ def test_enhanced_paraphraser():
     print("\nNegative prompt preview:")
     print(negative_prompt)
     
-    # Test 4: Full paraphrase generation (if model loaded)
-    print("\n4. Testing full paraphrase generation...")
+    # Test 5: Full paraphrase generation (if model loaded)
+    print("\n5. Testing full paraphrase generation...")
     results = paraphraser.generate_paraphrases(test_instruction, num_positives=2, num_negatives=1)
     
     print(f"Original: {test_instruction}")
     print(f"Positives: {results['positives']}")
     print(f"Negatives: {results['negatives']}")
     
-    # Test 5: Validation
-    print("\n5. Testing validation...")
+    # Test 6: Validation
+    print("\n6. Testing validation...")
     if results['positives']:
         validation = paraphraser.validate_spatial_accuracy(test_instruction, results['positives'][0])
         print(f"Validation results: {validation}")
