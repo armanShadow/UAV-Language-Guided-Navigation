@@ -141,19 +141,19 @@ class EnhancedMixtralParaphraser:
     
     def create_combined_prompt(self, instruction: str) -> str:
         """
-        Create unified prompt for both positive and negative paraphrases.
-        Focus: Cohesive generation with better contrast understanding.
+        Enhanced prompt for generating UAV navigation instruction paraphrases.
+        Refined to provide clear, concise guidance while maintaining creative flexibility.
         """
+        # Dynamic substitution guidance based on extracted spatial terms
         spatial_terms = self.extract_spatial_terms(instruction)
-        
-        # Build term substitution guidance based on AVDN frequency analysis
         substitution_guidance = ""
+        
         if 'landmarks' in spatial_terms:
-            substitution_guidance += "- Change landmarks: building↔structure↔house, road↔highway↔parking\n"
-        if 'directions' in spatial_terms:
-            substitution_guidance += "- Change directions: turn↔go↔move, left↔right, north↔south↔east↔west\n"
+            substitution_guidance += "- Landmark variations: building↔structure, road↔highway\n"
         if 'clock_directions' in spatial_terms:
-            substitution_guidance += "- Change clock directions: shift by 2-4 hours (e.g., 3 o'clock→6 o'clock)\n"
+            substitution_guidance += "- Clock direction shifts: ±2-3 hours\n"
+        if 'cardinal_directions' in spatial_terms:
+            substitution_guidance += "- Direction alternatives: north↔south, east↔west\n"
         
         prompt = f"""<s>[INST] You are an expert in UAV navigation instructions. Generate paraphrases for this instruction:
 
@@ -163,19 +163,15 @@ Generate:
 1. 2 positive paraphrases that maintain the same spatial meaning and navigation intent
 2. 1 negative paraphrase that changes spatial meaning strategically
 
-For positives:
-- Use natural language variation in word choice and sentence structure
-- Preserve key spatial terms (landmarks, directions, clock references)
-- Sound like natural human navigation instructions
+Paraphrasing Guidelines:
+- Use natural, varied language
+- Preserve core navigation semantics
+- Sound like authentic human instructions
 
-For negative:
-{substitution_guidance}- Make EXACTLY TWO correlated strategic changes (e.g., direction + landmark, or clock + landmark)
-- Examples: "right + white building" → "left + gray structure", "3 o'clock + building" → "9 o'clock + structure"
-- Ensure changes are LOGICALLY CONSISTENT and realistic for UAV navigation
-- Use natural language (avoid robotic or template-like phrasing)
-- Create a plausible but incorrect navigation instruction
-- Focus on spatial accuracy changes that would lead to different navigation outcomes
-- Ensure both changes work together coherently (e.g., "turn left at the gray building" not "turn left at the blue sky")
+Negative Paraphrase Strategy:
+{substitution_guidance}- Make strategic changes that alter navigation outcome
+- Ensure logically consistent and realistic modifications
+- Focus on creating a plausible but incorrect instruction
 
 Provide only the paraphrases, no explanations: [/INST]"""
         
@@ -384,9 +380,24 @@ Provide only the paraphrases, no explanations: [/INST]"""
             + sum(feature_similarities.values()) * 0.1  # Dynamic adjustment
         )
         
+        # Logical refinement for validation
+        if is_positive:
+            # For positive paraphrases:
+            # Must preserve spatial terms AND not change meaning
+            spatial_terms_preserved = composite_score >= threshold
+            meaning_preserved = composite_score >= threshold
+            validation_result = spatial_terms_preserved and meaning_preserved
+        else:
+            # For negative paraphrases:
+            # Must either NOT preserve spatial terms OR change meaning
+            spatial_terms_preserved = composite_score >= threshold
+            meaning_changed = composite_score < threshold
+            validation_result = (not spatial_terms_preserved) or meaning_changed
+
         return {
-            'spatial_terms_preserved': composite_score >= threshold,
-            'meaning_changed': composite_score < threshold,
+            'spatial_terms_preserved': spatial_terms_preserved,
+            'meaning_changed': not meaning_preserved if is_positive else meaning_changed,
+            'validation_result': validation_result,
             'feature_similarities': feature_similarities,
             'composite_score': composite_score,
             'calibrated_weights': calibrated_weights,
