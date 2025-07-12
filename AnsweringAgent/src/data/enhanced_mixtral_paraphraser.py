@@ -325,19 +325,30 @@ def test_enhanced_paraphraser():
     print("\nNegative prompt preview:")
     print(negative_prompt)
     
-    # Test 5: Full paraphrase generation (if model loaded)
-    print("\n5. Testing full paraphrase generation...")
-    results = paraphraser.generate_paraphrases(test_instruction, num_positives=2, num_negatives=1)
+    # Test 5: Full paraphrase generation for all examples
+    print("\n5. Testing full paraphrase generation for all examples...")
     
-    print(f"Original: {test_instruction}")
-    print(f"Positives: {results['positives']}")
-    print(f"Negatives: {results['negatives']}")
-    
-    # Test 6: Validation
-    print("\n6. Testing validation...")
-    if results['positives']:
-        validation = paraphraser.validate_spatial_accuracy(test_instruction, results['positives'][0])
-        print(f"Validation results: {validation}")
+    for i, instruction in enumerate(avdn_examples, 1):
+        print(f"\n--- Example {i} ---")
+        print(f"Original: {instruction}")
+        
+        # Generate paraphrases
+        results = paraphraser.generate_paraphrases(instruction, num_positives=2, num_negatives=1)
+        
+        print(f"Positives:")
+        for j, positive in enumerate(results['positives'], 1):
+            print(f"  {j}. {positive}")
+        
+        print(f"Negatives:")
+        for j, negative in enumerate(results['negatives'], 1):
+            print(f"  {j}. {negative}")
+        
+        # Validation for first positive
+        if results['positives']:
+            validation = paraphraser.validate_spatial_accuracy(instruction, results['positives'][0])
+            print(f"Validation: {validation}")
+        
+        print("-" * 50)
     
     print("\n=== Test Complete ===")
 
