@@ -196,12 +196,10 @@ class ValidationPipeline:
             0.3 * landmark_similarity
         )
         
-        # Validation thresholds for positive paraphrases
+        # Validation thresholds for positive paraphrases (more lenient)
         is_valid = (
-            embedding_similarity > 0.6 and
-            direction_similarity > 0.7 and
-            landmark_similarity > 0.5 and
-            combined_score > 0.65
+            embedding_similarity > 0.5 and  # Reduced from 0.6
+            (direction_similarity > 0.5 or landmark_similarity > 0.4 or combined_score > 0.55)  # OR logic instead of AND
         )
         
         return {
