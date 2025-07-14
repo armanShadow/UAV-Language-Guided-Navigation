@@ -315,200 +315,138 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
         return normalized_weights
     
     def validate_spatial_accuracy(self, original: str, paraphrase: str, is_positive: bool = True) -> Dict[str, bool]:
-        def extract_spatial_features(text):
-            """More robust spatial feature extraction with expanded categories and synonyms"""
-            text_lower = text.lower()
+        def preprocess_text(text):
+            """Normalize text for comparison"""
+            return re.sub(r'[^\w\s]', '', text.lower()).split()
+        
+        def compute_text_similarity(orig_words, para_words):
+            """
+            Compute text similarity with more nuanced approach
+            - Word overlap
+            - Semantic preservation
+            - Structural similarity
+            """
+            # Compute word overlap
+            common_words = set(orig_words) & set(para_words)
+            total_words = set(orig_words) | set(para_words)
             
-            # Expanded movement verb synonyms
-            movement_verb_synonyms = {
-                'turn': ['turn', 'pivot', 'rotate', 'reverse', 'switch'],
-                'move': ['move', 'go', 'proceed', 'advance', 'travel'],
-                'fly': ['fly', 'navigate', 'travel', 'move']
+            # Compute overlap ratio
+            overlap_ratio = len(common_words) / len(total_words) if total_words else 0
+            
+            # Check key semantic preservation
+            semantic_keywords = {
+                'navigation': ['destination', 'target', 'ahead', 'left', 'right', 'forward'],
+                'landmarks': ['chute', 'building', 'structure', 'road', 'area'],
+                'movement': ['turn', 'move', 'go', 'fly', 'navigate']
             }
             
-            # Expanded landmark categories
-            landmark_categories = {
-                'container': ['container', 'box', 'crate', 'vessel'],
-                'structure': ['structure', 'building', 'object', 'thing'],
-                'area': ['area', 'region', 'space', 'location']
+            # Check preservation of semantic keywords
+            keyword_preservation = {
+                category: any(
+                    keyword in orig_words or keyword in para_words 
+                    for keyword in keywords
+                )
+                for category, keywords in semantic_keywords.items()
             }
             
-            def find_synonyms(term, synonym_dict):
-                """Find synonyms for a given term"""
-                for key, synonyms in synonym_dict.items():
-                    if term in synonyms:
-                        return synonyms
-                return [term]
+            # Structural similarity (length and relative position)
+            length_similarity = 1 - abs(len(orig_words) - len(para_words)) / max(len(orig_words), len(para_words))
             
-            def find_category_matches(term, categories):
-                """Find category matches for a given term"""
-                for category, members in categories.items():
-                    if term in members:
-                        return members
-                return [term]
+            # Compute overall similarity score
+            similarity_score = (
+                0.4 * overlap_ratio + 
+                0.3 * length_similarity + 
+                0.3 * sum(keyword_preservation.values()) / len(keyword_preservation)
+            )
             
             return {
-                'clock_directions': re.findall(r'(\d+)\s*o\'?clock', text_lower),
-                'cardinal_directions': re.findall(r'\b(north|south|east|west|northeast|northwest|southeast|southwest)\b', text_lower),
-                'landmarks': [
-                    term for term in re.findall(r'\b(building|road|street|lot|highway|structure|field|parking|area|container|red)\b', text_lower)
-                    for term in find_category_matches(term, landmark_categories)
-                ],
-                'movement_verbs': [
-                    term for term in re.findall(r'\b(turn|move|pivot|head|go|advance|fly|navigate|reverse|course)\b', text_lower)
-                    for term in find_synonyms(term, movement_verb_synonyms)
-                ],
-                'spatial_relations': re.findall(r'\b(over|under|near|beside|across|along|through|in front of|behind|left|right)\b', text_lower),
-                'position_descriptors': re.findall(r'\b(first|last|next|previous|opposite|same|other|view|visual field)\b', text_lower)
+                'similarity_score': similarity_score,
+                'overlap_ratio': overlap_ratio,
+                'keyword_preservation': keyword_preservation,
+                'length_similarity': length_similarity
             }
         
-        def compute_feature_similarity(orig_features, para_features):
-            """More nuanced and flexible feature similarity calculation"""
-            similarity_scores = {}
+        def extract_spatial_features(text):
+            """
+            Extract spatial features with more flexible and comprehensive approach
+            """
+            text_lower = text.lower()
             
-            for category, orig_terms in orig_features.items():
-                para_terms = para_features.get(category, [])
-                
-                # Special handling for different feature types
-                if category == 'movement_verbs':
-                    # Check if any movement verb is semantically similar
-                    matching_terms = [
-                        term for term in orig_terms 
-                        if any(para_term in term or term in para_term for para_term in para_terms)
-                    ]
-                    similarity_scores[category] = len(matching_terms) / max(len(orig_terms), 1)
-                
-                elif category == 'landmarks':
-                    # More flexible landmark matching
-                    matching_terms = [
-                        term for term in orig_terms 
-                        if any(para_term in term or term in para_term for para_term in para_terms)
-                    ]
-                    similarity_scores[category] = len(matching_terms) / max(len(orig_terms), 1)
-                
-                else:
-                    # Standard Jaccard-like similarity with more flexibility
-                    matching_terms = [
-                        term for term in orig_terms 
-                        if term in para_terms
-                    ]
-                    similarity_scores[category] = len(matching_terms) / max(len(orig_terms), 1)
+            # Expanded feature extraction
+            features = {
+                'directions': re.findall(r'\b(north|south|east|west|left|right|ahead|forward|back|backward)\b', text_lower),
+                'landmarks': re.findall(r'\b(building|road|chute|structure|area|ramp|target|destination)\b', text_lower),
+                'spatial_relations': re.findall(r'\b(in front of|next to|near|beside|across|over|under)\b', text_lower),
+                'movement_verbs': re.findall(r'\b(turn|move|go|fly|navigate|approach|head)\b', text_lower)
+            }
             
-            return similarity_scores
+            return features
         
-        def is_semantically_equivalent(orig, para):
-            """
-            Enhanced semantic equivalence check with more intelligent comparison
-            """
-            # Remove punctuation and convert to lowercase
-            orig_clean = re.sub(r'[^\w\s]', '', orig.lower())
-            para_clean = re.sub(r'[^\w\s]', '', para.lower())
-            
-            # Compare word count and common words
-            orig_words = orig_clean.split()
-            para_words = para_clean.split()
-            
-            # More flexible word count similarity
-            word_count_similar = abs(len(orig_words) - len(para_words)) <= max(3, len(orig_words) * 0.3)
-            
-            # Check common word percentage with more lenient threshold
-            common_words = set(orig_words) & set(para_words)
-            common_word_ratio = len(common_words) / max(len(orig_words), len(para_words))
-            
-            # Additional semantic checks
-            semantic_verbs = any(
-                verb in orig_clean and verb in para_clean 
-                for verb in ['turn', 'move', 'go', 'fly', 'navigate']
-            )
-            
-            # Spatial context preservation
-            spatial_context_preserved = any(
-                term in orig_clean and term in para_clean
-                for term in ['left', 'right', 'view', 'target']
-            )
-            
-            return (
-                word_count_similar and 
-                common_word_ratio > 0.4 and 
-                (semantic_verbs or spatial_context_preserved)
-            )
+        # Preprocess texts
+        orig_words = preprocess_text(original)
+        para_words = preprocess_text(paraphrase)
+        
+        # Compute text similarity
+        similarity_metrics = compute_text_similarity(orig_words, para_words)
         
         # Extract spatial features
-        original_features = extract_spatial_features(original)
-        paraphrase_features = extract_spatial_features(paraphrase)
+        orig_features = extract_spatial_features(original)
+        para_features = extract_spatial_features(paraphrase)
         
-        # Compute feature similarities
-        feature_similarities = compute_feature_similarity(original_features, paraphrase_features)
-        
-        # Dynamically calibrate weights with more balanced approach
-        calibrated_weights = {
-            'movement_verbs': 0.3,
-            'landmarks': 0.25,
-            'spatial_relations': 0.2,
-            'position_descriptors': 0.1,
-            'clock_directions': 0.1,
-            'cardinal_directions': 0.05
+        # Compute feature preservation
+        feature_preservation = {
+            category: any(
+                term in para_features[category] 
+                for term in orig_features[category]
+            )
+            for category in orig_features.keys()
         }
         
-        # Compute composite score with calibrated weights
-        composite_score = sum(
-            feature_similarities.get(feature, 0) * calibrated_weights.get(feature, 0) 
-            for feature in calibrated_weights.keys()
-        )
-        
-        # Adaptive thresholding with more nuanced approach
-        threshold = 0.5 if is_positive else 0.3
-        
-        # Enhanced validation logic
-        semantic_equivalence = is_semantically_equivalent(original, paraphrase)
-        
+        # Validation logic
         if is_positive:
-            # For positive paraphrases:
-            # Must mostly preserve spatial terms AND maintain semantic equivalence
-            spatial_terms_preserved = composite_score >= threshold
-            validation_result = spatial_terms_preserved and semantic_equivalence
+            # Positive paraphrase should maintain semantic and spatial integrity
+            spatial_terms_preserved = (
+                similarity_metrics['similarity_score'] > 0.5 and
+                all(feature_preservation.values())
+            )
+            validation_result = spatial_terms_preserved
         else:
-            # For negative paraphrases:
-            # Must change spatial terms or meaning
-            spatial_terms_changed = composite_score < threshold
-            meaning_changed = not semantic_equivalence
-            validation_result = spatial_terms_changed or meaning_changed
-
+            # Negative paraphrase should differ significantly
+            spatial_terms_changed = (
+                similarity_metrics['similarity_score'] < 0.4 or
+                not all(feature_preservation.values())
+            )
+            validation_result = spatial_terms_changed
+        
         # Detailed logging
         logger.info(f"\n--- Spatial Accuracy Validation ---")
         logger.info(f"Original: {original}")
         logger.info(f"Paraphrase: {paraphrase}")
         logger.info(f"Is Positive Paraphrase: {is_positive}")
         
-        logger.info("Original Features:")
-        for category, terms in original_features.items():
+        logger.info("Original Spatial Features:")
+        for category, terms in orig_features.items():
             logger.info(f"  {category}: {terms}")
         
-        logger.info("Paraphrase Features:")
-        for category, terms in paraphrase_features.items():
+        logger.info("Paraphrase Spatial Features:")
+        for category, terms in para_features.items():
             logger.info(f"  {category}: {terms}")
         
-        logger.info("Feature Similarities:")
-        for feature, similarity in feature_similarities.items():
-            logger.info(f"  {feature}: {similarity}")
+        logger.info("Similarity Metrics:")
+        for metric, value in similarity_metrics.items():
+            logger.info(f"  {metric}: {value}")
         
-        logger.info("Calibrated Weights:")
-        for feature, weight in calibrated_weights.items():
-            logger.info(f"  {feature}: {weight}")
+        logger.info("Feature Preservation:")
+        for category, preserved in feature_preservation.items():
+            logger.info(f"  {category}: {preserved}")
         
-        logger.info(f"Composite Score: {composite_score}")
-        logger.info(f"Adaptive Threshold: {threshold}")
-        logger.info(f"Semantic Equivalence: {semantic_equivalence}")
+        logger.info(f"Validation Result: {validation_result}")
 
         return {
             'spatial_terms_preserved': spatial_terms_preserved if is_positive else spatial_terms_changed,
-            'meaning_changed': not semantic_equivalence,
             'validation_result': validation_result,
-            'feature_similarities': feature_similarities,
-            'composite_score': composite_score,
-            'calibrated_weights': calibrated_weights,
-            'adaptive_threshold': threshold,
-            'semantic_equivalence': semantic_equivalence
+            'similarity_metrics': similarity_metrics,
+            'feature_preservation': feature_preservation
         }
 
 # Test function
