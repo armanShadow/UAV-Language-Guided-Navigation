@@ -598,6 +598,13 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 'landmark_similarity': landmark_similarity
             }
         
+        # Extract spatial features for original and paraphrased instructions
+        orig_features = extract_spatial_features(original)
+        para_features = extract_spatial_features(paraphrase)
+        
+        # Compute similarity metrics
+        similarity_metrics = compute_similarity(original, paraphrase)
+        
         # Modify feature preservation and validation
         feature_preservation = {}
         for category in orig_features.keys():
