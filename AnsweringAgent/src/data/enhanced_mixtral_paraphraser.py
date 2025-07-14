@@ -474,19 +474,18 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
             # Length similarity
             length_similarity = 1 - abs(len(orig_clean) - len(para_clean)) / max(len(orig_clean), len(para_clean))
             
-            # Semantic keyword preservation
+            # Semantic keyword preservation with more flexible matching
             semantic_keywords = {
-                'navigation': ['destination', 'target', 'ahead', 'forward', 'go'],
-                'direction': ['left', 'right', 'north', 'south', 'east', 'west', 'o\'clock'],
-                'movement': ['turn', 'move', 'go', 'navigate']
+                'navigation': ['destination', 'target', 'goal', 'location'],
+                'direction': ['left', 'right', 'forward', 'back', 'ahead', 'return'],
+                'movement': ['go', 'move', 'turn', 'head', 'navigate']
             }
             
             keyword_preservation = {
                 category: any(
-                    keyword in orig_clean or keyword in para_clean 
-                    for keyword in keywords
+                    any(keyword in orig_clean or keyword in para_clean for keyword in keywords)
+                    for category, keywords in semantic_keywords.items()
                 )
-                for category, keywords in semantic_keywords.items()
             }
             
             # Compute overall similarity score with weighted components
@@ -503,70 +502,156 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 'keyword_preservation': keyword_preservation
             }
         
-        # Extract spatial features
-        orig_features = extract_spatial_features(original)
-        para_features = extract_spatial_features(paraphrase)
+        def compute_advanced_similarity(orig_features, para_features, similarity_metrics):
+            """
+            Advanced similarity computation focusing on spatial semantic preservation
+            """
+            # Directional similarity
+            def compute_direction_similarity(orig_dirs, para_dirs):
+                # Handle cardinal and compound directions
+                cardinal_directions = {
+                    'north': ['north', 'n'],
+                    'south': ['south', 's'],
+                    'east': ['east', 'e'],
+                    'west': ['west', 'w'],
+                    'northwest': ['northwest', 'nw'],
+                    'northeast': ['northeast', 'ne'],
+                    'southwest': ['southwest', 'sw'],
+                    'southeast': ['southeast', 'se']
+                }
+                
+                # Create sets of direction components
+                orig_dir_set = set()
+                para_dir_set = set()
+                
+                for orig_dir in orig_dirs:
+                    for cardinal, variants in cardinal_directions.items():
+                        if any(var in orig_dir.lower() for var in variants):
+                            orig_dir_set.add(cardinal)
+                
+                for para_dir in para_dirs:
+                    for cardinal, variants in cardinal_directions.items():
+                        if any(var in para_dir.lower() for var in variants):
+                            para_dir_set.add(cardinal)
+                
+                # Compute direction similarity
+                if not orig_dir_set and not para_dir_set:
+                    return 1.0  # No directions in both
+                
+                common_dirs = orig_dir_set & para_dir_set
+                return len(common_dirs) / max(len(orig_dir_set), len(para_dir_set))
+            
+            # Landmark similarity
+            def compute_landmark_similarity(orig_landmarks, para_landmarks):
+                landmark_synonyms = {
+                    'building': ['structure', 'house', 'edifice'],
+                    'road': ['street', 'highway', 'path'],
+                    'destination': ['target', 'goal', 'endpoint']
+                }
+                
+                # Create sets of landmarks with synonyms
+                orig_landmark_set = set()
+                para_landmark_set = set()
+                
+                for landmark in orig_landmarks:
+                    orig_landmark_set.add(landmark)
+                    orig_landmark_set.update(
+                        syn for category, synonyms in landmark_synonyms.items()
+                        for syn in synonyms if landmark in category
+                    )
+                
+                for landmark in para_landmarks:
+                    para_landmark_set.add(landmark)
+                    para_landmark_set.update(
+                        syn for category, synonyms in landmark_synonyms.items()
+                        for syn in synonyms if landmark in category
+                    )
+                
+                # Compute landmark similarity
+                if not orig_landmark_set and not para_landmark_set:
+                    return 1.0  # No landmarks in both
+                
+                common_landmarks = orig_landmark_set & para_landmark_set
+                return len(common_landmarks) / max(len(orig_landmark_set), len(para_landmark_set))
+            
+            # Compute individual similarities
+            direction_similarity = compute_direction_similarity(
+                orig_features.get('directions', []), 
+                para_features.get('directions', [])
+            )
+            
+            landmark_similarity = compute_landmark_similarity(
+                orig_features.get('landmarks', []), 
+                para_features.get('landmarks', [])
+            )
+            
+            # Combine similarities with original similarity metrics
+            combined_similarity = (
+                0.4 * similarity_metrics['similarity_score'] +
+                0.3 * direction_similarity +
+                0.3 * landmark_similarity
+            )
+            
+            return {
+                'combined_similarity': combined_similarity,
+                'direction_similarity': direction_similarity,
+                'landmark_similarity': landmark_similarity
+            }
         
-        # Compute similarity
-        similarity_metrics = compute_similarity(original, paraphrase)
-        
-        # More flexible feature preservation check
+        # Modify feature preservation and validation
         feature_preservation = {}
         for category in orig_features.keys():
-            # Check if any original feature is preserved or has a close synonym
-            preserved = any(
-                orig_term in para_features[category] or 
-                (category == 'directions' and 
+            # More flexible feature matching
+            if category == 'directions':
+                # Flexible direction matching with cardinal direction awareness
+                preserved = any(
                     any(
-                        orig_term.replace('o\'clock', '') in p.replace('o\'clock', '') 
-                        for p in para_features[category]
+                        orig_term in para_features[category] or
+                        (orig_term in ['north', 'south', 'east', 'west'] and 
+                         any(orig_term in p.lower() for p in para_features[category]))
                     )
+                    for orig_term in orig_features[category]
                 )
-                for orig_term in orig_features[category]
-            )
+            elif category == 'landmarks':
+                # Semantic landmark matching
+                preserved = any(
+                    any(
+                        orig_term in para_features[category] or
+                        (orig_term == 'building' and 'structure' in para_features[category]) or
+                        (orig_term == 'road' and 'street' in para_features[category])
+                    )
+                    for orig_term in orig_features[category]
+                )
+            else:
+                # Standard feature preservation
+                preserved = any(
+                    orig_term in para_features[category]
+                    for orig_term in orig_features[category]
+                )
+            
             feature_preservation[category] = preserved
+        
+        # Compute advanced similarity
+        advanced_similarity = compute_advanced_similarity(
+            orig_features, para_features, similarity_metrics
+        )
         
         # Validation logic for positive paraphrases
         if is_positive:
-            # Positive paraphrase should:
-            # 1. Have moderate to high similarity score
-            # 2. Preserve most spatial features with more flexibility
             spatial_terms_preserved = (
-                similarity_metrics['similarity_score'] > 0.5 and
-                sum(feature_preservation.values()) / len(feature_preservation) > 0.6
+                advanced_similarity['combined_similarity'] > 0.5 and
+                advanced_similarity['direction_similarity'] > 0.6 and
+                advanced_similarity['landmark_similarity'] > 0.5
             )
             validation_result = spatial_terms_preserved
         
         # Validation logic for negative paraphrases
         else:
-            # Compute similarity score
-            similarity_score = similarity_metrics['similarity_score']
-            is_low_similarity = similarity_score < 0.4
-            
-            # Calculate feature preservation ratio
-            preservation_values = list(feature_preservation.values())
-            feature_preservation_ratio = sum(preservation_values) / len(preservation_values)
-            is_few_features_preserved = feature_preservation_ratio < 0.3
-            
-            # Check landmark changes
-            orig_landmarks = set(orig_features['landmarks'])
-            para_landmarks = set(para_features['landmarks'])
-            is_no_common_landmarks = len(orig_landmarks & para_landmarks) == 0
-            
-            # Check spatial context change
-            context_categories = ['directions', 'landmarks', 'spatial_relations']
-            is_context_changed = any(
-                len(set(para_features[cat]) - set(orig_features[cat])) > 0
-                for cat in context_categories
-            )
-            
-            # Combine validation conditions
             spatial_terms_changed = (
-                is_low_similarity and 
-                (is_few_features_preserved or is_no_common_landmarks) and 
-                is_context_changed
+                advanced_similarity['combined_similarity'] < 0.4 or
+                advanced_similarity['direction_similarity'] < 0.3 or
+                advanced_similarity['landmark_similarity'] < 0.3
             )
-            
             validation_result = spatial_terms_changed
         
         # Detailed logging
