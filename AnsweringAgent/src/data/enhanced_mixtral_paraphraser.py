@@ -412,15 +412,15 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                     r'eight\s+o\'?clock', r'nine\s+o\'?clock', r'ten\s+o\'?clock', r'eleven\s+o\'?clock',
                     r'twelve\s+o\'?clock', 'north', 'south', 'east', 'west', 
                     'northwest', 'northeast', 'southwest', 'southeast',
-                    'left', 'right', 'forward', 'ahead', 'straight'
+                    'left', 'right', 'forward', 'ahead', 'straight', 'backwards', 'backward', 'reverse'
                 ],
-                'movement_verbs': ['move', 'go', 'turn', 'head', 'fly', 'navigate']
+                'movement_verbs': ['move', 'go', 'turn', 'head', 'fly', 'navigate', 'reverse', 'pivot', 'proceed', 'advance']
             }
             
             landmark_categories = {
                 'landmarks': [
-                    'building', 'structure', 'road', 'street', 'highway', 
-                    'parking', 'lot', 'area', 'destination', 'target'
+                    'building', 'structure', 'road', 'street', 'highway', 'house',
+                    'parking', 'lot', 'area', 'destination', 'target', 'goal', 'construction', 'edifice'
                 ]
             }
             
@@ -525,7 +525,7 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 # Spatial direction synonyms - CRITICAL for semantic equivalence
                 direction_synonyms = {
                     'forward': ['forward', 'ahead', 'straight', 'front'],
-                    'backward': ['backward', 'back', 'behind'],
+                    'backward': ['backward', 'backwards', 'reverse', 'back', 'behind'],
                     'left': ['left', 'port'],
                     'right': ['right', 'starboard'],
                     'up': ['up', 'above', 'upward'],
@@ -715,7 +715,7 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 # Direction synonym mappings for feature preservation
                 direction_synonyms_feature = {
                     'forward': ['forward', 'ahead', 'straight', 'front'],
-                    'backward': ['backward', 'back', 'behind'],
+                    'backward': ['backward', 'backwards', 'reverse', 'back', 'behind'],
                     'left': ['left', 'port'],
                     'right': ['right', 'starboard'],
                     'up': ['up', 'above', 'upward'],
@@ -765,7 +765,7 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 # Semantic landmark matching
                 preserved = False
                 landmark_synonyms_feature = {
-                    'building': ['building', 'structure', 'house', 'edifice'],
+                    'building': ['building', 'structure', 'house', 'edifice', 'construction'],
                     'road': ['road', 'street', 'highway', 'path'],
                     'destination': ['destination', 'target', 'goal', 'endpoint']
                 }
@@ -794,8 +794,9 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 # Movement verb synonyms for better semantic matching
                 if category == 'movement_verbs':
                     movement_synonyms_feature = {
-                        'move': ['move', 'go', 'head', 'proceed', 'travel', 'navigate'],
-                        'turn': ['turn', 'rotate', 'pivot', 'swing'],
+                        'move': ['move', 'go', 'head', 'proceed', 'travel', 'navigate', 'advance'],
+                        'turn': ['turn', 'rotate', 'pivot', 'swing', 'veer'],
+                        'reverse': ['reverse', 'back', 'backwards', 'backward'],
                         'fly': ['fly', 'soar', 'hover', 'pilot']
                     }
                     
