@@ -88,6 +88,9 @@ class ValidationPipeline:
         }
         
         logger.info(f"Initializing Validation Pipeline on {self.device}")
+        
+        # Automatically load embedding model
+        self.load_embedding_model()
     
     def load_embedding_model(self) -> bool:
         """Load sentence embedding model for semantic similarity."""
@@ -183,29 +186,26 @@ class ValidationPipeline:
         # Feature preservation analysis
         feature_preservation = self._analyze_feature_preservation(orig_features, para_features, is_positive=True)
         
-        # Direction similarity (critical for UAV navigation)
+        # Direction preservation (should be similar for positives)
         direction_similarity = self._compute_direction_similarity(
             orig_features.get('directions', []), 
             para_features.get('directions', [])
         )
         
-        # Landmark similarity
+        # Landmark preservation
         landmark_similarity = self._compute_landmark_similarity(
             orig_features.get('landmarks', []), 
             para_features.get('landmarks', [])
         )
         
-        # Combined validation score
-        combined_score = (
-            0.4 * embedding_similarity +
-            0.3 * direction_similarity +
-            0.3 * landmark_similarity
-        )
+        # Combined spatial score
+        combined_score = (direction_similarity + landmark_similarity) / 2
         
-        # Validation thresholds for positive paraphrases (more lenient)
+        # REALISTIC POSITIVE VALIDATION THRESHOLDS
+        # For positive paraphrases, we want high semantic similarity AND spatial preservation
         is_valid = (
-            embedding_similarity > 0.5 and  # Reduced from 0.6
-            (direction_similarity > 0.5 or landmark_similarity > 0.4 or combined_score > 0.55)  # OR logic instead of AND
+            embedding_similarity > 0.75 and  # High semantic similarity required
+            (direction_similarity > 0.8 or landmark_similarity > 0.7 or combined_score > 0.75)  # Strong spatial preservation
         )
         
         return {
@@ -218,7 +218,7 @@ class ValidationPipeline:
             'original_features': orig_features,
             'paraphrase_features': para_features
         }
-    
+
     def validate_negative_paraphrase(self, original: str, paraphrase: str) -> Dict[str, any]:
         """
         Validate negative paraphrase for appropriate spatial changes.
@@ -248,15 +248,17 @@ class ValidationPipeline:
             para_features.get('landmarks', [])
         )
         
-        # For negatives: detect spatial changes (extremely lenient thresholds for testing)
-        direction_changed = direction_similarity < 0.9  # Very lenient - almost any change counts
-        landmark_changed = landmark_similarity < 0.9    # Very lenient - almost any change counts
+        # REALISTIC NEGATIVE VALIDATION THRESHOLDS (Updated based on AVDN results)
+        # For negatives: moderate semantic similarity BUT clear spatial changes
+        direction_changed = direction_similarity < 0.7  # More lenient - allows more moderate changes
+        landmark_changed = landmark_similarity < 0.7    # More lenient - allows more moderate changes
         spatial_changed = direction_changed or landmark_changed
         
-        # Validation for negative paraphrases (extremely lenient for testing)
+        # Validation for negative paraphrases (Updated thresholds)
         is_valid = (
-            embedding_similarity > 0.1 and  # Very low threshold - almost any text passes
-            spatial_changed                  # But spatial elements should change
+            embedding_similarity > 0.3 and  # Lower bound - still navigation-related
+            embedding_similarity < 0.95 and  # Higher upper bound - allows more similar negatives
+            spatial_changed                  # Clear spatial differences required
         )
         
         # Debug logging for negative validation
@@ -398,7 +400,15 @@ class ValidationPipeline:
                 para_clock_hours.add(clock_hour)
         
         # Clock direction similarity
-        clock_similarity = 1.0 if orig_clock_hours == para_clock_hours else 0.0
+        if orig_clock_hours and para_clock_hours:
+            # Both have clock directions - compare them
+            clock_similarity = 1.0 if orig_clock_hours == para_clock_hours else 0.0
+        elif not orig_clock_hours and not para_clock_hours:
+            # Neither has clock directions - no clock information to compare
+            clock_similarity = 0.0
+        else:
+            # One has clock directions, other doesn't - different
+            clock_similarity = 0.0
         
         # Synonym-based similarity for other directions
         synonym_matches = 0

@@ -78,30 +78,32 @@ def analyze_validation_detailed(val_pipeline, original, paraphrase, paraphrase_t
     if paraphrase_type == "positive":
         result = val_pipeline.validate_positive_paraphrase(original, paraphrase)
         print("✅ POSITIVE VALIDATION LOGIC:")
-        print(f"  Required: embedding > 0.5 AND (direction > 0.5 OR landmark > 0.4)")
-        print(f"  Embedding check: {embedding_sim:.3f} > 0.5 = {embedding_sim > 0.5}")
-        print(f"  Direction check: {direction_sim:.3f} > 0.5 = {direction_sim > 0.5}")
-        print(f"  Landmark check: {landmark_sim:.3f} > 0.4 = {landmark_sim > 0.4}")
-        spatial_ok = direction_sim > 0.5 or landmark_sim > 0.4
+        print(f"  Required: embedding > 0.75 AND (direction > 0.8 OR landmark > 0.7 OR combined > 0.75)")
+        print(f"  Embedding check: {embedding_sim:.3f} > 0.75 = {embedding_sim > 0.75}")
+        print(f"  Direction check: {direction_sim:.3f} > 0.8 = {direction_sim > 0.8}")
+        print(f"  Landmark check: {landmark_sim:.3f} > 0.7 = {landmark_sim > 0.7}")
+        combined_score = (direction_sim + landmark_sim) / 2
+        print(f"  Combined check: {combined_score:.3f} > 0.75 = {combined_score > 0.75}")
+        spatial_ok = direction_sim > 0.8 or landmark_sim > 0.7 or combined_score > 0.75
         print(f"  Spatial OK: {spatial_ok}")
-        overall_valid = embedding_sim > 0.5 and spatial_ok
+        overall_valid = embedding_sim > 0.75 and spatial_ok
         print(f"  Overall valid: {overall_valid}")
         
     else:  # negative
         result = val_pipeline.validate_negative_paraphrase(original, paraphrase)
         print("❌ NEGATIVE VALIDATION LOGIC:")
-        print(f"  Required: embedding > 0.1 AND spatial_changed")
-        print(f"  Embedding check: {embedding_sim:.3f} > 0.1 = {embedding_sim > 0.1}")
+        print(f"  Required: 0.4 < embedding < 0.9 AND spatial_changed")
+        print(f"  Embedding check: 0.4 < {embedding_sim:.3f} < 0.9 = {0.4 < embedding_sim < 0.9}")
         
-        direction_changed = direction_sim < 0.9
-        landmark_changed = landmark_sim < 0.9
+        direction_changed = direction_sim < 0.6
+        landmark_changed = landmark_sim < 0.6
         spatial_changed = direction_changed or landmark_changed
         
-        print(f"  Direction changed: {direction_sim:.3f} < 0.9 = {direction_changed}")
-        print(f"  Landmark changed: {landmark_sim:.3f} < 0.9 = {landmark_changed}")
+        print(f"  Direction changed: {direction_sim:.3f} < 0.6 = {direction_changed}")
+        print(f"  Landmark changed: {landmark_sim:.3f} < 0.6 = {landmark_changed}")
         print(f"  Spatial changed: {spatial_changed}")
         
-        overall_valid = embedding_sim > 0.1 and spatial_changed
+        overall_valid = (0.4 < embedding_sim < 0.9) and spatial_changed
         print(f"  Overall valid: {overall_valid}")
     
     print(f"\n🎯 FINAL RESULT: {'✅ VALID' if result['is_valid'] else '❌ INVALID'}")
@@ -109,15 +111,18 @@ def analyze_validation_detailed(val_pipeline, original, paraphrase, paraphrase_t
     if not result['is_valid']:
         print("❌ FAILURE REASONS:")
         if paraphrase_type == "positive":
-            if embedding_sim <= 0.5:
-                print(f"   - Embedding too low: {embedding_sim:.3f} ≤ 0.5")
+            if embedding_sim <= 0.75:
+                print(f"   - Embedding too low: {embedding_sim:.3f} ≤ 0.75")
             if not spatial_ok:
-                print(f"   - Spatial preservation failed: direction={direction_sim:.3f}≤0.5, landmark={landmark_sim:.3f}≤0.4")
+                print(f"   - Spatial preservation failed: direction={direction_sim:.3f}≤0.8, landmark={landmark_sim:.3f}≤0.7, combined={combined_score:.3f}≤0.75")
         else:
-            if embedding_sim <= 0.1:
-                print(f"   - Embedding too low: {embedding_sim:.3f} ≤ 0.1")
+            if not (0.4 < embedding_sim < 0.9):
+                if embedding_sim <= 0.4:
+                    print(f"   - Embedding too low: {embedding_sim:.3f} ≤ 0.4")
+                if embedding_sim >= 0.9:
+                    print(f"   - Embedding too high: {embedding_sim:.3f} ≥ 0.9")
             if not spatial_changed:
-                print(f"   - No spatial changes: direction={direction_sim:.3f}≥0.9, landmark={landmark_sim:.3f}≥0.9")
+                print(f"   - No spatial changes: direction={direction_sim:.3f}≥0.6, landmark={landmark_sim:.3f}≥0.6")
     
     return result
 
@@ -211,12 +216,12 @@ def test_comprehensive_validation():
     print("=" * 30)
     print("Current thresholds:")
     print("  Positive validation:")
-    print("    - Embedding similarity: > 0.5")
-    print("    - Direction similarity: > 0.5 OR landmark > 0.4")
+    print("    - Embedding similarity: > 0.75")
+    print("    - Direction similarity: > 0.8 OR landmark > 0.7 OR combined > 0.75")
     print("  Negative validation:")
-    print("    - Embedding similarity: > 0.1")
-    print("    - Direction change: < 0.9")
-    print("    - Landmark change: < 0.9")
+    print("    - Embedding similarity: 0.4 < embedding < 0.9")
+    print("    - Direction change: < 0.6")
+    print("    - Landmark change: < 0.6")
     
     # Suggestions based on results
     print(f"\n💡 RECOMMENDATIONS")
@@ -227,14 +232,16 @@ def test_comprehensive_validation():
     
     if pos_rate < 0.8:
         print("🔧 Positive validation issues:")
-        print("  - Consider lowering embedding threshold from 0.5 to 0.4")
-        print("  - Consider lowering direction threshold from 0.5 to 0.4")
+        print("  - Consider lowering embedding threshold from 0.75 to 0.65")
+        print("  - Consider lowering direction threshold from 0.8 to 0.7")
+        print("  - Consider lowering landmark threshold from 0.7 to 0.6")
     
     if neg_rate < 0.8:
         print("🔧 Negative validation issues:")
-        print("  - Consider raising direction change threshold from 0.9 to 0.95")
-        print("  - Consider raising landmark change threshold from 0.9 to 0.95")
-        print("  - Consider lowering embedding threshold from 0.1 to 0.05")
+        print("  - Consider raising direction change threshold from 0.6 to 0.65")
+        print("  - Consider raising landmark change threshold from 0.6 to 0.65")
+        print("  - Consider lowering embedding threshold from 0.4 to 0.35")
+        print("  - Consider raising embedding threshold from 0.9 to 0.95")
     
     if pos_rate >= 0.8 and neg_rate >= 0.8:
         print("✅ Validation thresholds appear well-calibrated!")
