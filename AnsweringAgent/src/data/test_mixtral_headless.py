@@ -229,7 +229,9 @@ def test_mixtral_paraphrasing():
     if successful > 0:
         print(f"\n✅ SUCCESSFUL GENERATIONS ({successful}):")
         for i, result in enumerate([r for r in all_results if r.get('success', False)], 1):
-            print(f"\n{i}. Original: {result['instruction']}")
+            # Handle different result formats
+            original_instruction = result.get('original_instruction') or result.get('instruction') or f"Instruction {i}"
+            print(f"\n{i}. Original: {original_instruction}")
             if 'positives' in result:
                 print(f"   Positives ({len(result['positives'])}):")
                 for j, pos in enumerate(result['positives'], 1):
@@ -243,7 +245,9 @@ def test_mixtral_paraphrasing():
         failed = len(all_results) - successful
         print(f"\n❌ FAILED GENERATIONS ({failed}):")
         for i, result in enumerate([r for r in all_results if not r.get('success', False)], 1):
-            print(f"\n{i}. Original: {result['instruction']}")
+            # Handle different result formats
+            original_instruction = result.get('original_instruction') or result.get('instruction') or f"Failed instruction {i}"
+            print(f"\n{i}. Original: {original_instruction}")
             if 'error' in result:
                 print(f"   Error: {result['error']}")
     
