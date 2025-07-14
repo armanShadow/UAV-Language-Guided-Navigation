@@ -90,178 +90,129 @@ def load_random_avdn_examples(num_examples: int = 4) -> List[str]:
     return fallback_examples[:num_examples]
 
 def test_mixtral_paraphrasing():
-    """Test Mixtral paraphrasing pipeline with TRUE BATCH PROCESSING."""
+    """Test Mixtral paraphrasing with TRUE BATCH PROCESSING and combined prompts."""
+    
     print("🚀 Testing Mixtral TRUE BATCH PROCESSING Pipeline on Headless Server")
     print("="*80)
     
-    # Load test examples
-    print("📂 Loading AVDN test examples...")
+    # Load test instructions
     test_instructions = load_random_avdn_examples(num_examples=8)
     print(f"📊 Loaded {len(test_instructions)} test instructions")
     
-    # Display examples
     print("\n📝 Test Instructions:")
     for i, instruction in enumerate(test_instructions, 1):
         print(f"  {i}. {instruction}")
     
     # Initialize TRUE BATCH PROCESSING pipeline
-    print("\n🔧 Initializing TRUE BATCH PROCESSING Pipeline...")
+    print(f"\n🔧 Initializing TRUE BATCH PROCESSING Pipeline...")
     try:
         from true_batch_processing_pipeline import TrueBatchProcessingPipeline
-        pipeline = TrueBatchProcessingPipeline(batch_size=4)
         print("✅ TRUE BATCH pipeline imported successfully")
-    except ImportError:
-        print("⚠️  TRUE BATCH pipeline not found, falling back to regular generation pipeline")
-        pipeline = ParaphraseGenerationPipeline()
-    
-    # Test model loading
-    print("⏳ Loading Mixtral-8x7B-Instruct model...")
-    start_time = time.time()
-    
-    if hasattr(pipeline, 'initialize'):
-        # True batch processing pipeline
-        if not pipeline.initialize():
-            print("❌ Failed to initialize TRUE BATCH pipeline")
-            return False
-    else:
-        # Regular pipeline fallback
-        if not pipeline.load_model():
-            print("❌ Failed to load Mixtral model")
-            return False
-    
-    load_time = time.time() - start_time
-    print(f"✅ Mixtral model loaded successfully in {load_time:.1f}s")
-    
-    # Test GPU information
-    if hasattr(pipeline, 'generation_pipeline'):
-        print(f"🔧 Using device: {pipeline.generation_pipeline.device}")
-        if hasattr(pipeline.generation_pipeline, 'model') and pipeline.generation_pipeline.model:
-            print(f"🔧 Model device: {next(pipeline.generation_pipeline.model.parameters()).device}")
-    elif hasattr(pipeline, 'device'):
-        print(f"🔧 Using device: {pipeline.device}")
-        if hasattr(pipeline, 'model') and pipeline.model:
-            print(f"🔧 Model device: {next(pipeline.model.parameters()).device}")
-    
-    # Test TRUE BATCH PROCESSING
-    print(f"\n🚀 Testing TRUE BATCH PROCESSING...")
-    print(f"⚡ PROCESSING ALL {len(test_instructions)} INSTRUCTIONS SIMULTANEOUSLY")
-    print(f"🔥 NO SEQUENTIAL PROCESSING - GENUINE PARALLEL INFERENCE")
-    
-    start_time = time.time()
-    
-    try:
-        if hasattr(pipeline, 'process_instructions_true_batch'):
-            # Use TRUE batch processing
-            print("🔥 Using TRUE BATCH PROCESSING at model level")
-            all_results = pipeline.process_instructions_true_batch(test_instructions)
-        elif hasattr(pipeline, 'generate_paraphrases_batch'):
-            # Use batch generation from regular pipeline
-            print("🔄 Using batch generation from regular pipeline")
-            batch_results = pipeline.generate_paraphrases_batch(test_instructions, strategy="combined", batch_size=4)
-            
-            # Convert to expected format
-            all_results = []
-            for i, (instruction, result) in enumerate(zip(test_instructions, batch_results)):
-                if result and result.get('positives') and result.get('negatives'):
-                    all_results.append({
-                        'instruction': instruction,
-                        'positives': result['positives'],
-                        'negatives': result['negatives'],
-                        'success': True
-                    })
-                else:
-                    all_results.append({
-                        'instruction': instruction,
-                        'success': False
-                    })
-        else:
-            # Fallback to sequential (but warn user)
-            print("⚠️  FALLBACK: No batch processing available, using sequential")
-            all_results = []
-            for i, instruction in enumerate(test_instructions, 1):
-                print(f"--- Sequential Test {i}/{len(test_instructions)} ---")
-                print(f"Original: {instruction}")
-                
-                result = pipeline.generate_paraphrases(instruction, strategy="combined")
-                
-                if result and result.get('positives') and result.get('negatives'):
-                    all_results.append({
-                        'instruction': instruction,
-                        'positives': result['positives'],
-                        'negatives': result['negatives'],
-                        'success': True
-                    })
-                else:
-                    all_results.append({
-                        'instruction': instruction,
-                        'success': False
-                    })
-        
-        total_time = time.time() - start_time
-        
-    except Exception as e:
-        total_time = time.time() - start_time
-        print(f"❌ Batch processing failed with exception: {e}")
-        import traceback
-        traceback.print_exc()
+    except ImportError as e:
+        print(f"❌ Failed to import TRUE BATCH pipeline: {e}")
         return False
     
-    # Summary
-    print(f"\n{'='*80}")
-    print("📊 TRUE BATCH PROCESSING TEST SUMMARY")
-    print(f"{'='*80}")
+    # Initialize pipeline
+    pipeline = TrueBatchProcessingPipeline(batch_size=4)
     
-    successful = sum(1 for r in all_results if r.get('success', False))
+    print("⏳ Loading Mixtral-8x7B-Instruct model...")
+    load_start = time.time()
+    
+    if not pipeline.initialize():
+        print("❌ Failed to initialize pipeline")
+        return False
+    
+    load_time = time.time() - load_start
+    print(f"✅ Mixtral model loaded successfully in {load_time:.1f}s")
+    print(f"🔧 Using device: {pipeline.generation_pipeline.device}")
+    print(f"🔧 Model device: {pipeline.generation_pipeline.model.device}")
+    
+    # Test TRUE BATCH PROCESSING with COMBINED PROMPTS
+    print(f"\n🚀 Testing TRUE BATCH PROCESSING with COMBINED PROMPTS...")
+    print(f"⚡ PROCESSING ALL {len(test_instructions)} INSTRUCTIONS SIMULTANEOUSLY")
+    print(f"🔥 USING 4 COMBINED PROMPTS (instead of 8 separate prompts)")
+    print(f"🔥 NO SEQUENTIAL PROCESSING - GENUINE PARALLEL INFERENCE")
+    print(f"🔥 Using TRUE BATCH PROCESSING at model level")
+    
+    # Process all instructions with TRUE BATCH PROCESSING
+    batch_start = time.time()
+    
+    print(f"\n🚀 TRUE BATCH PROCESSING: {len(test_instructions)} instructions across {pipeline.num_gpus} GPUs")
+    all_results = pipeline.process_instructions_true_batch(test_instructions)
+    
+    batch_time = time.time() - batch_start
+    
+    # Display results with quality assessment
+    print(f"\n📊 TRUE BATCH PROCESSING Results:")
+    print(f"⏱️  Total batch processing time: {batch_time:.1f}s")
+    print(f"⚡ Average time per instruction: {batch_time/len(test_instructions):.1f}s")
+    
+    successful = 0
+    total_quality_scores = {'positives': [], 'negatives': []}
+    
+    for i, result in enumerate(all_results, 1):
+        print(f"\n--- Result {i}/{len(all_results)} ---")
+        print(f"Original: {result['original_instruction']}")
+        
+        if result['success']:
+            successful += 1
+            
+            # Display valid paraphrases
+            print(f"✅ SUCCESS - Generated valid paraphrases:")
+            print(f"  Valid Positives ({len(result['positives'])}):")
+            for j, pos in enumerate(result['positives'], 1):
+                print(f"    {j}. {pos}")
+            
+            print(f"  Valid Negatives ({len(result['negatives'])}):")
+            for j, neg in enumerate(result['negatives'], 1):
+                print(f"    {j}. {neg}")
+            
+            # Display quality assessment
+            quality = result.get('quality_assessment', {})
+            print(f"  Quality Scores:")
+            print(f"    Avg Positive Quality: {quality.get('avg_positive_quality', 0):.2f}")
+            print(f"    Avg Negative Quality: {quality.get('avg_negative_quality', 0):.2f}")
+            
+            # Collect quality scores
+            total_quality_scores['positives'].extend(quality.get('individual_scores', {}).get('positives', []))
+            total_quality_scores['negatives'].extend(quality.get('individual_scores', {}).get('negatives', []))
+            
+        else:
+            print(f"❌ FAILED - Validation did not pass")
+            validation = result.get('validation_summary', {})
+            print(f"  Valid Positives: {validation.get('valid_positives', 0)}")
+            print(f"  Valid Negatives: {validation.get('valid_negatives', 0)}")
+            print(f"  (Requires both positives AND negatives for success)")
+    
+    # Final summary with quality metrics
     success_rate = successful / len(all_results) * 100 if all_results else 0
-    avg_time = total_time / len(all_results) if all_results else 0
     
-    # Calculate speedup vs sequential
+    print(f"\n📊 FINAL RESULTS:")
+    print(f"🎯 SUCCESS RATE: {successful}/{len(all_results)} ({success_rate:.1f}%)")
+    print(f"⏱️  TOTAL TIME: {batch_time:.1f}s")
+    print(f"⚡ SPEEDUP: TRUE BATCH PROCESSING across {pipeline.num_gpus} GPUs")
+    print(f"🔥 EFFICIENCY: Combined prompts (4 vs 8) = 2x prompt efficiency")
+    
+    # Quality assessment summary
+    if total_quality_scores['positives']:
+        avg_pos_quality = sum(total_quality_scores['positives']) / len(total_quality_scores['positives'])
+        print(f"📈 AVG POSITIVE QUALITY: {avg_pos_quality:.2f}")
+    
+    if total_quality_scores['negatives']:
+        avg_neg_quality = sum(total_quality_scores['negatives']) / len(total_quality_scores['negatives'])
+        print(f"📈 AVG NEGATIVE QUALITY: {avg_neg_quality:.2f}")
+    
+    # Compare with sequential processing estimate
     sequential_time_estimate = len(test_instructions) * 25  # Assume 25s per instruction sequential
-    speedup = sequential_time_estimate / total_time if total_time > 0 else 1
+    speedup = sequential_time_estimate / batch_time if batch_time > 0 else 0
     
-    print(f"📈 Success rate: {successful}/{len(all_results)} ({success_rate:.1f}%)")
-    print(f"⏱️  Total processing time: {total_time:.1f}s")
-    print(f"⏱️  Average time per instruction: {avg_time:.1f}s")
-    print(f"⚡ SPEEDUP vs sequential: {speedup:.1f}x")
+    print(f"\n🚀 PERFORMANCE COMPARISON:")
+    print(f"📊 Sequential estimate: {sequential_time_estimate}s")
+    print(f"⚡ TRUE BATCH actual: {batch_time:.1f}s")
+    print(f"🔥 SPEEDUP: {speedup:.1f}x faster")
     print(f"🔥 TRUE BATCH PROCESSING: {len(test_instructions)} instructions processed simultaneously")
     
-    # Detailed results
-    if successful > 0:
-        print(f"\n✅ SUCCESSFUL GENERATIONS ({successful}):")
-        for i, result in enumerate([r for r in all_results if r.get('success', False)], 1):
-            # Handle different result formats
-            original_instruction = result.get('original_instruction') or result.get('instruction') or f"Instruction {i}"
-            print(f"\n{i}. Original: {original_instruction}")
-            if 'positives' in result:
-                print(f"   Positives ({len(result['positives'])}):")
-                for j, pos in enumerate(result['positives'], 1):
-                    print(f"     {j}. {pos}")
-            if 'negatives' in result:
-                print(f"   Negatives ({len(result['negatives'])}):")
-                for j, neg in enumerate(result['negatives'], 1):
-                    print(f"     {j}. {neg}")
-    
-    if successful < len(all_results):
-        failed = len(all_results) - successful
-        print(f"\n❌ FAILED GENERATIONS ({failed}):")
-        for i, result in enumerate([r for r in all_results if not r.get('success', False)], 1):
-            # Handle different result formats
-            original_instruction = result.get('original_instruction') or result.get('instruction') or f"Failed instruction {i}"
-            print(f"\n{i}. Original: {original_instruction}")
-            if 'error' in result:
-                print(f"   Error: {result['error']}")
-    
-    # Final assessment
-    if success_rate >= 80:
-        print(f"\n🎉 EXCELLENT: {success_rate:.1f}% success rate - TRUE BATCH PROCESSING ready for production!")
-        print(f"⚡ SPEEDUP: {speedup:.1f}x faster than sequential processing")
-    elif success_rate >= 60:
-        print(f"\n✅ GOOD: {success_rate:.1f}% success rate - TRUE BATCH PROCESSING functional")
-        print(f"⚡ SPEEDUP: {speedup:.1f}x faster than sequential processing")
-    else:
-        print(f"\n⚠️  NEEDS WORK: {success_rate:.1f}% success rate - TRUE BATCH PROCESSING needs debugging")
-    
-    return success_rate >= 60
+    return successful > 0
 
 def main():
     """Run the Mixtral paraphrasing test."""

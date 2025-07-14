@@ -191,62 +191,150 @@ class TrueBatchProcessingPipeline:
     def _generate_batch_paraphrases(self, instructions: List[str]) -> List[Dict]:
         """Generate paraphrases for multiple instructions simultaneously."""
         try:
-            # Create batch prompts
-            prompts = []
+            # ENHANCED: Use combined prompts strategy (4 prompts instead of 8)
+            # Generate both positive and negative paraphrases in single prompt per instruction
+            combined_prompts = []
             for instruction in instructions:
-                positive_prompt = self._create_positive_prompt(instruction)
-                negative_prompt = self._create_negative_prompt(instruction)
-                prompts.extend([positive_prompt, negative_prompt])
+                combined_prompt = self._create_combined_prompt(instruction)
+                combined_prompts.append(combined_prompt)
             
-            logger.info(f"    🔥 Generating {len(prompts)} prompts SIMULTANEOUSLY")
+            # Generate responses for all combined prompts simultaneously
+            batch_responses = self._generate_batch_responses(combined_prompts)
             
-            # TRUE BATCH INFERENCE - All prompts processed at once
-            start_time = time.time()
-            batch_responses = self._generate_batch_responses(prompts)
-            generation_time = time.time() - start_time
-            
-            logger.info(f"    ⚡ TRUE BATCH inference completed in {generation_time:.1f}s")
-            logger.info(f"    📊 {len(prompts)} prompts in {generation_time:.1f}s = {generation_time/len(prompts):.2f}s per prompt")
-            
-            # Parse responses back to instruction format
+            # Parse results from combined responses
             results = []
-            for i in range(0, len(batch_responses), 2):
-                positive_response = batch_responses[i] if i < len(batch_responses) else ""
-                negative_response = batch_responses[i+1] if i+1 < len(batch_responses) else ""
-                
-                # Parse responses
-                positives = self._parse_paraphrases(positive_response, target_count=2)
-                negatives = self._parse_paraphrases(negative_response, target_count=1)
-                
-                results.append({
-                    "success": len(positives) > 0 or len(negatives) > 0,
-                    "positives": positives,
-                    "negatives": negatives
-                })
+            for i, (instruction, response) in enumerate(zip(instructions, batch_responses)):
+                try:
+                    # Parse both positives and negatives from single response
+                    parsed_result = self._parse_combined_response(response)
+                    
+                    results.append({
+                        "success": True,
+                        "positives": parsed_result.get('positives', []),
+                        "negatives": parsed_result.get('negatives', []),
+                        "instruction_index": i,
+                        "original_instruction": instruction
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing combined response for instruction {i}: {e}")
+                    results.append({
+                        "success": False,
+                        "error": str(e),
+                        "instruction_index": i,
+                        "original_instruction": instruction
+                    })
             
             return results
             
         except Exception as e:
-            logger.error(f"Error in batch generation: {e}")
-            return [{"success": False, "error": str(e)} for _ in instructions]
+            logger.error(f"Error in batch paraphrase generation: {e}")
+            return [{"success": False, "error": str(e), "instruction_index": i, "original_instruction": inst} 
+                   for i, inst in enumerate(instructions)]
+    
+    def _create_combined_prompt(self, instruction: str) -> str:
+        """Create unified prompt for both positive and negative paraphrases."""
+        # Extract spatial terms for guidance
+        spatial_terms = self._extract_spatial_terms(instruction)
+        
+        # Build substitution guidance
+        substitution_guidance = ""
+        if 'landmarks' in spatial_terms:
+            substitution_guidance += "- Change landmarks: building↔structure↔house, road↔highway↔parking\n"
+        if 'directions' in spatial_terms:
+            substitution_guidance += "- Change directions: turn↔go↔move, left↔right, north↔south↔east↔west\n"
+        if 'clock_directions' in spatial_terms:
+            substitution_guidance += "- Change clock directions: shift by 2-4 hours (e.g., 3 o'clock→6 o'clock)\n"
+        
+        return f"""<s>[INST] Generate paraphrases for this UAV navigation instruction:
+
+Original: "{instruction}"
+
+Generate EXACTLY:
+1. 2 positive paraphrases that maintain the same spatial meaning
+2. 1 negative paraphrase that changes spatial meaning strategically
+
+POSITIVE PARAPHRASES (preserve spatial accuracy):
+- Use natural language variation
+- Preserve key spatial terms exactly (landmarks, directions, clock references)
+- Maintain the same navigation intent
+
+NEGATIVE PARAPHRASE (strategic spatial changes):
+{substitution_guidance}- Make correlated changes (e.g., "right + white building" → "left + gray structure")
+- Ensure changes are logically consistent
+- Create plausible but incorrect navigation instruction
+
+Format your response as:
+POSITIVE 1: [paraphrase]
+POSITIVE 2: [paraphrase]
+NEGATIVE 1: [paraphrase]
+
+NO EXPLANATIONS OR NOTES - ONLY THE PARAPHRASES. [/INST]"""
+    
+    def _parse_combined_response(self, response: str) -> Dict[str, List[str]]:
+        """Parse combined response into positives and negatives."""
+        result = {'positives': [], 'negatives': []}
+        
+        if not response.strip():
+            return result
+        
+        lines = [line.strip() for line in response.split('\n') if line.strip()]
+        
+        for line in lines:
+            # Look for positive paraphrases
+            if line.startswith('POSITIVE 1:'):
+                paraphrase = line.replace('POSITIVE 1:', '').strip()
+                if paraphrase:
+                    result['positives'].append(paraphrase)
+            elif line.startswith('POSITIVE 2:'):
+                paraphrase = line.replace('POSITIVE 2:', '').strip()
+                if paraphrase:
+                    result['positives'].append(paraphrase)
+            elif line.startswith('NEGATIVE 1:'):
+                paraphrase = line.replace('NEGATIVE 1:', '').strip()
+                if paraphrase:
+                    result['negatives'].append(paraphrase)
+        
+        return result
+    
+    def _extract_spatial_terms(self, instruction: str) -> Dict[str, List[str]]:
+        """Extract spatial terms from instruction for guidance."""
+        instruction_lower = instruction.lower()
+        spatial_terms = {}
+        
+        # Landmarks
+        landmarks = ['building', 'road', 'parking', 'field', 'house', 'highway', 'structure']
+        found_landmarks = [term for term in landmarks if term in instruction_lower]
+        if found_landmarks:
+            spatial_terms['landmarks'] = found_landmarks
+        
+        # Directions
+        directions = ['turn', 'forward', 'right', 'left', 'north', 'south', 'east', 'west', 'straight']
+        found_directions = [term for term in directions if term in instruction_lower]
+        if found_directions:
+            spatial_terms['directions'] = found_directions
+        
+        # Clock directions
+        import re
+        clock_pattern = r'\d+\s*o\'?clock'
+        if re.search(clock_pattern, instruction_lower):
+            spatial_terms['clock_directions'] = re.findall(clock_pattern, instruction_lower)
+        
+        return spatial_terms
     
     def _generate_batch_responses(self, prompts: List[str]) -> List[str]:
-        """Generate responses for multiple prompts simultaneously using model's batch capability."""
+        """Generate responses for multiple prompts simultaneously using TRUE BATCH PROCESSING."""
         try:
-            # Set padding token if not already set
-            if self.generation_pipeline.tokenizer.pad_token is None:
-                self.generation_pipeline.tokenizer.pad_token = self.generation_pipeline.tokenizer.eos_token
+            logger.info(f"    🔥 TRUE BATCH PROCESSING: {len(prompts)} combined prompts SIMULTANEOUSLY")
             
-            # Tokenize all prompts at once
+            # Tokenize all prompts together with padding
+            start_time = time.time()
             inputs = self.generation_pipeline.tokenizer(
-                prompts, 
-                return_tensors="pt", 
-                padding=True,  # Pad to same length for batch processing
+                prompts,
+                return_tensors="pt",
+                padding=True,
                 truncation=True,
-                max_length=512
+                max_length=1024
             ).to(self.generation_pipeline.device)
-            
-            logger.info(f"      🔥 Tokenized batch shape: {inputs['input_ids'].shape}")
             
             # Generate responses for all prompts simultaneously
             with torch.no_grad():
@@ -258,6 +346,8 @@ class TrueBatchProcessingPipeline:
                     top_p=0.9,
                     pad_token_id=self.generation_pipeline.tokenizer.eos_token_id
                 )
+            
+            generation_time = time.time() - start_time
             
             # Decode all outputs
             responses = []
@@ -272,35 +362,16 @@ class TrueBatchProcessingPipeline:
             del inputs, outputs
             torch.cuda.empty_cache()
             
+            logger.info(f"    ⚡ Combined prompts completed in {generation_time:.1f}s")
+            logger.info(f"    📊 {len(prompts)} prompts in {generation_time:.1f}s = {generation_time/len(prompts):.2f}s per prompt")
+            logger.info(f"    🎯 EFFICIENCY: 2x improvement (4 prompts vs 8 separate prompts)")
+            
             return responses
             
         except Exception as e:
             logger.error(f"Error in batch response generation: {e}")
             return [""] * len(prompts)
-    
-    def _create_positive_prompt(self, instruction: str) -> str:
-        """Create prompt for positive paraphrases."""
-        return f"""Generate 2 positive paraphrases for this navigation instruction. Preserve all spatial information exactly.
 
-Original: {instruction}
-
-Positive paraphrases (preserve direction, landmarks, spatial relationships):
-1."""
-    
-    def _create_negative_prompt(self, instruction: str) -> str:
-        """Create prompt for negative paraphrases with strategic changes."""
-        return f"""Generate 1 negative paraphrase for this navigation instruction. Make strategic spatial changes to create an incorrect but plausible navigation instruction.
-
-Original: {instruction}
-
-REQUIRED CHANGES (choose 1-2):
-- Change directions: left↔right, north↔south, 3 o'clock→9 o'clock
-- Change landmarks: white→gray, building→house, road→parking lot
-- Change distances or positions significantly
-
-Negative paraphrase (make clear spatial changes):
-1."""
-    
     def _parse_paraphrases(self, response: str, target_count: int = 2) -> List[str]:
         """Parse paraphrases from model response."""
         if not response.strip():
@@ -319,31 +390,47 @@ Negative paraphrase (make clear spatial changes):
                         line = line[len(prefix):].strip()
                         break
                 
-                if len(line) > 10:  # Reasonable minimum length
+                # Remove quotes
+                line = line.strip('"\'')
+                
+                if line and len(line) > 5:  # Minimum length check
                     paraphrases.append(line)
-                    if len(paraphrases) >= target_count:
-                        break
         
         return paraphrases[:target_count]
     
     def _validate_generated_samples(self, original: str, positives: List[str], negatives: List[str], instruction_idx: int) -> Dict:
-        """Validate generated samples and return result."""
+        """Validate generated samples and return result with quality assessment."""
         valid_positives = []
         valid_negatives = []
+        quality_scores = {'positives': [], 'negatives': []}
         
-        # Validate positives
+        # Validate positives with quality assessment
         for pos in positives:
-            result = self.validation_pipeline.validate_positive_paraphrase(original, pos)
-            if result.get('is_valid', False):
-                valid_positives.append(pos)
+            if pos and pos.strip():  # Check if paraphrase exists
+                result = self.validation_pipeline.validate_positive_paraphrase(original, pos)
+                quality_score = self._assess_paraphrase_quality(original, pos, is_positive=True)
+                
+                if result.get('is_valid', False):
+                    valid_positives.append(pos)
+                    quality_scores['positives'].append(quality_score)
         
-        # Validate negatives  
+        # Validate negatives with quality assessment
         for neg in negatives:
-            result = self.validation_pipeline.validate_negative_paraphrase(original, neg)
-            if result.get('is_valid', False):
-                valid_negatives.append(neg)
+            if neg and neg.strip():  # Check if paraphrase exists
+                result = self.validation_pipeline.validate_negative_paraphrase(original, neg)
+                quality_score = self._assess_paraphrase_quality(original, neg, is_positive=False)
+                
+                if result.get('is_valid', False):
+                    valid_negatives.append(neg)
+                    quality_scores['negatives'].append(quality_score)
         
-        success = len(valid_positives) >= 1 or len(valid_negatives) >= 1
+        # FIXED: Success requires BOTH valid positives AND negatives (not OR)
+        # This addresses the false success reporting issue
+        success = len(valid_positives) >= 1 and len(valid_negatives) >= 1
+        
+        # Calculate average quality scores
+        avg_positive_quality = sum(quality_scores['positives']) / len(quality_scores['positives']) if quality_scores['positives'] else 0
+        avg_negative_quality = sum(quality_scores['negatives']) / len(quality_scores['negatives']) if quality_scores['negatives'] else 0
         
         return {
             "success": success,
@@ -356,9 +443,68 @@ Negative paraphrase (make clear spatial changes):
             "validation_summary": {
                 "valid_positives": len(valid_positives),
                 "valid_negatives": len(valid_negatives),
-                "total_generated": len(positives) + len(negatives)
+                "total_generated": len(positives) + len(negatives),
+                "requires_both": True  # Document the requirement
+            },
+            "quality_assessment": {
+                "avg_positive_quality": avg_positive_quality,
+                "avg_negative_quality": avg_negative_quality,
+                "individual_scores": quality_scores
             }
         }
+    
+    def _assess_paraphrase_quality(self, original: str, paraphrase: str, is_positive: bool) -> float:
+        """
+        Assess the quality of a generated paraphrase.
+        Returns a score between 0.0 and 1.0.
+        """
+        try:
+            # Basic quality checks
+            if not paraphrase or not paraphrase.strip():
+                return 0.0
+            
+            # Length reasonableness (not too short or too long)
+            orig_words = len(original.split())
+            para_words = len(paraphrase.split())
+            length_ratio = min(para_words, orig_words) / max(para_words, orig_words)
+            
+            # Avoid exact copies
+            if original.lower().strip() == paraphrase.lower().strip():
+                return 0.0
+            
+            # Natural language quality (avoid repetitive patterns)
+            words = paraphrase.lower().split()
+            unique_words = len(set(words))
+            diversity_score = unique_words / len(words) if words else 0
+            
+            # Spatial coherence (check for spatial terms)
+            spatial_terms_count = 0
+            spatial_indicators = ['left', 'right', 'north', 'south', 'east', 'west', 'forward', 'backward', 
+                                'building', 'road', 'house', 'parking', 'o\'clock', 'turn', 'go', 'fly']
+            
+            for term in spatial_indicators:
+                if term in paraphrase.lower():
+                    spatial_terms_count += 1
+            
+            spatial_coherence = min(spatial_terms_count / 3, 1.0)  # Normalize to max 1.0
+            
+            # Navigation feasibility (basic check for navigation verbs)
+            navigation_verbs = ['turn', 'go', 'fly', 'move', 'head', 'navigate', 'proceed']
+            has_navigation_verb = any(verb in paraphrase.lower() for verb in navigation_verbs)
+            
+            # Combine scores
+            quality_score = (
+                0.2 * length_ratio +           # Length appropriateness
+                0.3 * diversity_score +        # Lexical diversity
+                0.3 * spatial_coherence +      # Spatial content
+                0.2 * (1.0 if has_navigation_verb else 0.5)  # Navigation feasibility
+            )
+            
+            return min(quality_score, 1.0)
+            
+        except Exception as e:
+            logger.error(f"Error assessing paraphrase quality: {e}")
+            return 0.0
 
 def test_true_batch_processing():
     """Test the true batch processing pipeline."""
