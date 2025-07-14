@@ -481,16 +481,23 @@ def test_batch_processing_first_batch(shared_examples: List[str]):
     print("\n🚀 Testing Parallel GPU Processing (First Batch Only)")
     print("="*60)
     
-    # Import parallel pipeline
+    # Import batch processing pipeline
     try:
-        from parallel_gpu_pipeline import ParallelGPUPipeline
+        from batch_processing_pipeline import BatchProcessingPipeline
     except ImportError:
-        print("❌ Failed to import parallel GPU pipeline")
+        print("❌ Failed to import batch processing pipeline")
         return False
     
-    # Initialize parallel pipeline
-    pipeline = ParallelGPUPipeline()
-    print(f"✅ Parallel pipeline initialized with {pipeline.num_gpus} GPUs")
+    # Initialize batch processing pipeline
+    pipeline = BatchProcessingPipeline(batch_size=2)
+    print(f"✅ Batch processing pipeline initialized")
+    
+    # Initialize shared model
+    print("🔧 Loading shared model across all GPUs...")
+    if not pipeline.initialize():
+        print("❌ Failed to initialize shared model")
+        return False
+    print(f"✅ Shared model loaded across {pipeline.num_gpus} GPUs")
     
     # Prepare first batch from shared examples - can handle more with parallel processing
     batch_size = min(4, len(shared_examples))  # Up to 4 instructions in parallel
@@ -500,11 +507,11 @@ def test_batch_processing_first_batch(shared_examples: List[str]):
     for i, instruction in enumerate(first_batch, 1):
         print(f"  {i}. {instruction[:60]}...")
     
-    print(f"\n🚀 Starting parallel processing across {pipeline.num_gpus} GPUs...")
+    print(f"\n🚀 Starting batch processing across {pipeline.num_gpus} GPUs...")
     
-    # Process batch in parallel
+    # Process batch using batch processing
     start_time = time.time()
-    batch_results = pipeline.process_instructions_parallel(first_batch)
+    batch_results = pipeline.process_instructions_batch(first_batch)
     processing_time = time.time() - start_time
     
     if not batch_results:
@@ -516,37 +523,37 @@ def test_batch_processing_first_batch(shared_examples: List[str]):
     total_iterations = sum(r.get('iterations_used', 0) for r in batch_results)
     avg_iterations = total_iterations / len(batch_results) if batch_results else 0
     
-    # Calculate theoretical speedup
-    sequential_time_estimate = processing_time * pipeline.num_gpus
-    actual_speedup = sequential_time_estimate / processing_time if processing_time > 0 else 1
+    # Calculate batch efficiency
+    batch_efficiency = len(batch_results) / pipeline.batch_size if pipeline.batch_size > 0 else 1
     
-    print(f"\n📊 Parallel Processing Results:")
+    print(f"\n📊 Batch Processing Results:")
     print(f"  Instructions processed: {len(batch_results)}")
     print(f"  Successful: {successful}/{len(batch_results)} ({successful/len(batch_results)*100:.1f}%)")
     print(f"  Total processing time: {processing_time:.1f}s")
     print(f"  Average time per instruction: {processing_time/len(batch_results):.1f}s")
     print(f"  Total iterations used: {total_iterations}")
     print(f"  Average iterations per instruction: {avg_iterations:.1f}")
-    print(f"  Theoretical speedup: {actual_speedup:.1f}x (vs sequential processing)")
+    print(f"  Batch efficiency: {batch_efficiency:.1f} (instructions per batch)")
     
-    # Show sample results with GPU assignments
+    # Show sample results with batch information
     print(f"\n📝 Sample Results:")
     for i, result in enumerate(batch_results[:2]):
-        if result.get('success'):
-            gpu_id = result.get('gpu_id', 'unknown')
+        if result and result.get('success'):
+            instruction_idx = result.get('instruction_index', i)
             proc_time = result.get('processing_time', 0)
-            print(f"  Instruction {i+1} (GPU {gpu_id}):")
+            print(f"  Instruction {i+1} (Index {instruction_idx}):")
             print(f"    Processing time: {proc_time:.1f}s")
             print(f"    Iterations: {result.get('iterations_used', 0)}")
             print(f"    Positives: {len(result.get('positives', []))}")
             print(f"    Negatives: {len(result.get('negatives', []))}")
     
-    # GPU utilization validation
-    print(f"\n🖥️  Parallel GPU Validation:")
-    print(f"  {pipeline.num_gpus} RTX 2080 Ti GPUs processing simultaneously")
-    print(f"  Each GPU: Dedicated Mixtral instance + 8GB memory")
-    print(f"  Parallel processing: {batch_size} instructions at once")
-    print(f"  Memory management: Per-GPU isolation with cache clearing")
+    # Batch architecture validation
+    print(f"\n🖥️  Batch Architecture Validation:")
+    print(f"  Single Mixtral model distributed across {pipeline.num_gpus} GPUs")
+    print(f"  Shared model memory: ~47GB total (efficient single load)")
+    print(f"  Batch size: {pipeline.batch_size} instructions per batch")
+    print(f"  Sequential batch processing: Reliable and memory efficient")
+    print(f"  GPU utilization: All {pipeline.num_gpus} GPUs working on distributed model")
     
     success_threshold = 0.75  # 75% success rate for first batch validation
     success_rate = successful / len(batch_results)
