@@ -607,27 +607,41 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
         # Modify feature preservation and validation
         feature_preservation = {}
         for category in orig_features.keys():
+            # Ensure the category exists in para_features
+            if category not in para_features or not para_features[category]:
+                feature_preservation[category] = False
+                continue
+                
             # More flexible feature matching
             if category == 'directions':
                 # Flexible direction matching with cardinal direction awareness
-                preserved = any(
-                    any(
-                        orig_term in para_features[category] or
-                        (orig_term in ['north', 'south', 'east', 'west'] and 
-                         any(orig_term in p.lower() for p in para_features[category]))
-                    )
-                    for orig_term in orig_features[category]
-                )
+                preserved = False
+                for orig_term in orig_features[category]:
+                    if orig_term in para_features[category]:
+                        preserved = True
+                        break
+                    elif orig_term in ['north', 'south', 'east', 'west']:
+                        for p in para_features[category]:
+                            if orig_term in p.lower():
+                                preserved = True
+                                break
+                        if preserved:
+                            break
+                            
             elif category == 'landmarks':
                 # Semantic landmark matching
-                preserved = any(
-                    any(
-                        orig_term in para_features[category] or
-                        (orig_term == 'building' and 'structure' in para_features[category]) or
-                        (orig_term == 'road' and 'street' in para_features[category])
-                    )
-                    for orig_term in orig_features[category]
-                )
+                preserved = False
+                for orig_term in orig_features[category]:
+                    if orig_term in para_features[category]:
+                        preserved = True
+                        break
+                    elif (orig_term == 'building' and 'structure' in para_features[category]):
+                        preserved = True
+                        break
+                    elif (orig_term == 'road' and 'street' in para_features[category]):
+                        preserved = True
+                        break
+                        
             else:
                 # Standard feature preservation
                 preserved = any(
@@ -650,6 +664,7 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 advanced_similarity['landmark_similarity'] > 0.5
             )
             validation_result = spatial_terms_preserved
+            spatial_validation_score = spatial_terms_preserved
         
         # Validation logic for negative paraphrases
         else:
@@ -659,6 +674,7 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 advanced_similarity['landmark_similarity'] < 0.3
             )
             validation_result = spatial_terms_changed
+            spatial_validation_score = spatial_terms_changed
         
         # Detailed logging
         logger.info(f"\n--- Spatial Accuracy Validation ---")
@@ -685,10 +701,11 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
         logger.info(f"Validation Result: {validation_result}")
 
         return {
-            'spatial_terms_preserved': spatial_terms_preserved if is_positive else spatial_terms_changed,
+            'spatial_validation_score': spatial_validation_score,
             'validation_result': validation_result,
             'similarity_metrics': similarity_metrics,
-            'feature_preservation': feature_preservation
+            'feature_preservation': feature_preservation,
+            'advanced_similarity': advanced_similarity
         }
 
 # Test function
