@@ -233,6 +233,10 @@ class TrueBatchProcessingPipeline:
     def _generate_batch_responses(self, prompts: List[str]) -> List[str]:
         """Generate responses for multiple prompts simultaneously using model's batch capability."""
         try:
+            # Set padding token if not already set
+            if self.generation_pipeline.tokenizer.pad_token is None:
+                self.generation_pipeline.tokenizer.pad_token = self.generation_pipeline.tokenizer.eos_token
+            
             # Tokenize all prompts at once
             inputs = self.generation_pipeline.tokenizer(
                 prompts, 
@@ -286,12 +290,17 @@ Positive paraphrases (preserve direction, landmarks, spatial relationships):
 1."""
     
     def _create_negative_prompt(self, instruction: str) -> str:
-        """Create prompt for negative paraphrases."""
-        return f"""Generate 1 negative paraphrase for this navigation instruction. Change spatial information to make it incorrect.
+        """Create prompt for negative paraphrases with strategic changes."""
+        return f"""Generate 1 negative paraphrase for this navigation instruction. Make strategic spatial changes to create an incorrect but plausible navigation instruction.
 
 Original: {instruction}
 
-Negative paraphrase (change direction OR landmarks):
+REQUIRED CHANGES (choose 1-2):
+- Change directions: left↔right, north↔south, 3 o'clock→9 o'clock
+- Change landmarks: white→gray, building→house, road→parking lot
+- Change distances or positions significantly
+
+Negative paraphrase (make clear spatial changes):
 1."""
     
     def _parse_paraphrases(self, response: str, target_count: int = 2) -> List[str]:
