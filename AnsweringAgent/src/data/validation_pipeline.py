@@ -33,11 +33,14 @@ class ValidationPipeline:
         # Spatial feature definitions for validation
         self.spatial_features = {
             'directions': {
-                'patterns': [
+                'regex_patterns': [
                     r'\d+\s*o\'?clock', r'one\s+o\'?clock', r'two\s+o\'?clock', r'three\s+o\'?clock', 
                     r'four\s+o\'?clock', r'five\s+o\'?clock', r'six\s+o\'?clock', r'seven\s+o\'?clock',
                     r'eight\s+o\'?clock', r'nine\s+o\'?clock', r'ten\s+o\'?clock', r'eleven\s+o\'?clock',
-                    r'twelve\s+o\'?clock', 'north', 'south', 'east', 'west', 
+                    r'twelve\s+o\'?clock'
+                ],
+                'string_patterns': [
+                    'north', 'south', 'east', 'west', 
                     'northwest', 'northeast', 'southwest', 'southeast',
                     'left', 'right', 'forward', 'ahead', 'straight', 'backwards', 'backward', 'reverse'
                 ],
@@ -49,7 +52,7 @@ class ValidationPipeline:
                 }
             },
             'landmarks': {
-                'patterns': [
+                'string_patterns': [
                     'building', 'structure', 'road', 'street', 'highway', 'house',
                     'parking', 'lot', 'area', 'destination', 'target', 'goal', 'construction', 'edifice'
                 ],
@@ -60,7 +63,7 @@ class ValidationPipeline:
                 }
             },
             'movement_verbs': {
-                'patterns': ['move', 'go', 'turn', 'head', 'fly', 'navigate', 'reverse', 'pivot', 'proceed', 'advance'],
+                'string_patterns': ['move', 'go', 'turn', 'head', 'fly', 'navigate', 'reverse', 'pivot', 'proceed', 'advance'],
                 'synonyms': {
                     'move': ['move', 'go', 'head', 'proceed', 'travel', 'navigate', 'advance'],
                     'turn': ['turn', 'rotate', 'pivot', 'swing', 'veer'],
@@ -69,7 +72,7 @@ class ValidationPipeline:
                 }
             },
             'spatial_relations': {
-                'patterns': [
+                'string_patterns': [
                     'next to', 'beside', 'near', 'in front of', 
                     'across', 'over', 'through', 'around'
                 ],
@@ -145,15 +148,18 @@ class ValidationPipeline:
         
         for category, category_data in self.spatial_features.items():
             found_features = []
-            for pattern in category_data['patterns']:
-                if isinstance(pattern, str):
-                    # Simple string matching
-                    if re.search(r'\b' + re.escape(pattern) + r'\b', text_lower):
-                        found_features.append(pattern)
-                else:
-                    # Regex pattern matching
+            
+            # Process regex patterns
+            if 'regex_patterns' in category_data:
+                for pattern in category_data['regex_patterns']:
                     matches = re.findall(pattern, text_lower)
                     found_features.extend(matches)
+            
+            # Process string patterns
+            if 'string_patterns' in category_data:
+                for pattern in category_data['string_patterns']:
+                    if re.search(r'\b' + re.escape(pattern) + r'\b', text_lower):
+                        found_features.append(pattern)
             
             if found_features:
                 features[category] = list(set(found_features))

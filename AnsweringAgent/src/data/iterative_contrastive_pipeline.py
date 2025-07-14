@@ -69,28 +69,33 @@ class IterativeContrastivePipeline:
     
     def generate_contrastive_samples(self, instruction: str) -> Dict[str, any]:
         """
-        Generate high-quality contrastive samples with iterative refinement.
+        Generate contrastive samples with iterative refinement.
         
         Args:
-            instruction: Original navigation instruction
+            instruction: Navigation instruction to paraphrase
             
         Returns:
-            Dictionary with validated positive and negative samples
+            Dictionary containing generated samples and metadata
         """
         logger.info(f"Generating contrastive samples for: {instruction}")
         
+        generation_start = time.time()
+        
+        # Initialize accumulated results across iterations
+        accumulated_positives = []
+        accumulated_negatives = []
+        all_validation_results = []
+        
         best_result = {
-            'original': instruction,
+            'success': False,
+            'original_instruction': instruction,
             'positives': [],
             'negatives': [],
-            'validation_results': {},
             'iterations_used': 0,
-            'success': False,
+            'validation_results': None,
             'generation_time': 0,
             'validation_time': 0
         }
-        
-        generation_start = time.time()
         
         for iteration in range(1, self.max_iterations + 1):
             logger.info(f"--- Iteration {iteration}/{self.max_iterations} ---")
@@ -114,39 +119,56 @@ class IterativeContrastivePipeline:
             )
             validation_time = time.time() - validation_start
             
-            # Step 3: Check if we have sufficient valid samples
-            valid_positives = [
+            # Step 3: Extract valid samples from this iteration
+            iteration_valid_positives = [
                 result for result in validation_results['positive_results'] 
                 if result['is_valid']
             ]
-            valid_negatives = [
+            iteration_valid_negatives = [
                 result for result in validation_results['negative_results'] 
                 if result['is_valid']
             ]
             
-            logger.info(f"Valid samples: {len(valid_positives)} positives, {len(valid_negatives)} negatives")
+            # Step 4: ACCUMULATE valid samples across iterations
+            for valid_pos in iteration_valid_positives:
+                if len(accumulated_positives) < self.target_positives:
+                    # Avoid duplicates
+                    if valid_pos['text'] not in [p['text'] for p in accumulated_positives]:
+                        accumulated_positives.append(valid_pos)
             
-            # Update best result if this iteration is better
-            if (len(valid_positives) >= len(best_result['positives']) and 
-                len(valid_negatives) >= len(best_result['negatives'])):
-                
-                best_result.update({
-                    'positives': [r['text'] for r in valid_positives[:self.target_positives]],
-                    'negatives': [r['text'] for r in valid_negatives[:self.target_negatives]],
-                    'validation_results': validation_results,
-                    'iterations_used': iteration,
-                    'validation_time': best_result['validation_time'] + validation_time
-                })
+            for valid_neg in iteration_valid_negatives:
+                if len(accumulated_negatives) < self.target_negatives:
+                    # Avoid duplicates
+                    if valid_neg['text'] not in [n['text'] for n in accumulated_negatives]:
+                        accumulated_negatives.append(valid_neg)
             
-            # Check success criteria
-            if (len(valid_positives) >= self.target_positives and 
-                len(valid_negatives) >= self.target_negatives):
+            # Store validation results for this iteration
+            all_validation_results.append(validation_results)
+            
+            logger.info(f"Iteration {iteration}: +{len(iteration_valid_positives)} positives, +{len(iteration_valid_negatives)} negatives")
+            logger.info(f"Accumulated total: {len(accumulated_positives)} positives, {len(accumulated_negatives)} negatives")
+            
+            # Step 5: Update best result with accumulated samples
+            best_result.update({
+                'positives': [r['text'] for r in accumulated_positives],
+                'negatives': [r['text'] for r in accumulated_negatives],
+                'validation_results': all_validation_results[-1],  # Most recent validation
+                'iterations_used': iteration,
+                'validation_time': best_result['validation_time'] + validation_time
+            })
+            
+            # Step 6: Check success criteria with ACCUMULATED samples
+            if (len(accumulated_positives) >= self.target_positives and 
+                len(accumulated_negatives) >= self.target_negatives):
                 
                 best_result['success'] = True
-                logger.info(f"✅ Success! Generated {len(valid_positives)} valid positives and {len(valid_negatives)} valid negatives")
+                logger.info(f"✅ Success! Accumulated {len(accumulated_positives)} valid positives and {len(accumulated_negatives)} valid negatives")
                 break
             
-            logger.info(f"Iteration {iteration} incomplete: need {self.target_positives - len(valid_positives)} more positives, {self.target_negatives - len(valid_negatives)} more negatives")
+            # Show what we still need
+            positives_needed = max(0, self.target_positives - len(accumulated_positives))
+            negatives_needed = max(0, self.target_negatives - len(accumulated_negatives))
+            logger.info(f"Still need: {positives_needed} more positives, {negatives_needed} more negatives")
         
         best_result['generation_time'] = time.time() - generation_start
         
@@ -368,7 +390,7 @@ def test_iterative_pipeline():
     test_instruction = "Turn right and fly over the white building at 3 o'clock"
     result = pipeline.generate_contrastive_samples(test_instruction)
     
-    print(f"Original: {result['original']}")
+    print(f"Original: {result['original_instruction']}")
     print(f"Success: {result['success']}")
     print(f"Iterations: {result['iterations_used']}")
     print(f"Positives: {result['positives']}")
