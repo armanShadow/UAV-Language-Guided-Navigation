@@ -249,33 +249,34 @@ class TrueBatchProcessingPipeline:
 
 Original: "{instruction}"
 
-Generate EXACTLY:
-1. 2 positive paraphrases that maintain the same spatial meaning
-2. 1 negative paraphrase that changes spatial meaning strategically
+Generate EXACTLY 3 paraphrases in this EXACT format:
 
-POSITIVE PARAPHRASES (preserve spatial accuracy):
+POSITIVE 1: [paraphrase that maintains same spatial meaning]
+POSITIVE 2: [paraphrase that maintains same spatial meaning]
+NEGATIVE 1: [paraphrase that changes spatial meaning strategically]
+
+POSITIVE PARAPHRASES:
 - Use natural language variation
 - Preserve key spatial terms exactly (landmarks, directions, clock references)
 - Maintain the same navigation intent
 
-NEGATIVE PARAPHRASE (strategic spatial changes):
+NEGATIVE PARAPHRASE:
 {substitution_guidance}- Make correlated changes (e.g., "right + white building" → "left + gray structure")
 - Ensure changes are logically consistent
 - Create plausible but incorrect navigation instruction
 
-Format your response as:
-POSITIVE 1: [paraphrase]
-POSITIVE 2: [paraphrase]
-NEGATIVE 1: [paraphrase]
-
-NO EXPLANATIONS OR NOTES - ONLY THE PARAPHRASES. [/INST]"""
+CRITICAL: Use EXACTLY the format shown above. No explanations, no notes, no extra text.
+[/INST]"""
     
     def _parse_combined_response(self, response: str) -> Dict[str, List[str]]:
         """Parse combined response into positives and negatives."""
         result = {'positives': [], 'negatives': []}
         
         if not response.strip():
+            logger.warning("    ⚠️  Empty response received")
             return result
+        
+        logger.info(f"    📝 Parsing response: {response[:100]}...")  # Log first 100 chars
         
         lines = [line.strip() for line in response.split('\n') if line.strip()]
         
@@ -285,14 +286,30 @@ NO EXPLANATIONS OR NOTES - ONLY THE PARAPHRASES. [/INST]"""
                 paraphrase = line.replace('POSITIVE 1:', '').strip()
                 if paraphrase:
                     result['positives'].append(paraphrase)
+                    logger.info(f"    ✅ Found POSITIVE 1: {paraphrase}")
             elif line.startswith('POSITIVE 2:'):
                 paraphrase = line.replace('POSITIVE 2:', '').strip()
                 if paraphrase:
                     result['positives'].append(paraphrase)
+                    logger.info(f"    ✅ Found POSITIVE 2: {paraphrase}")
             elif line.startswith('NEGATIVE 1:'):
                 paraphrase = line.replace('NEGATIVE 1:', '').strip()
                 if paraphrase:
                     result['negatives'].append(paraphrase)
+                    logger.info(f"    ✅ Found NEGATIVE 1: {paraphrase}")
+            # Also try to catch variations in formatting
+            elif 'positive' in line.lower() and ':' in line:
+                paraphrase = line.split(':', 1)[1].strip()
+                if paraphrase and len(result['positives']) < 2:
+                    result['positives'].append(paraphrase)
+                    logger.info(f"    ✅ Found positive (variant): {paraphrase}")
+            elif 'negative' in line.lower() and ':' in line:
+                paraphrase = line.split(':', 1)[1].strip()
+                if paraphrase and len(result['negatives']) < 1:
+                    result['negatives'].append(paraphrase)
+                    logger.info(f"    ✅ Found negative (variant): {paraphrase}")
+        
+        logger.info(f"    📊 Parsed: {len(result['positives'])} positives, {len(result['negatives'])} negatives")
         
         return result
     
@@ -326,6 +343,28 @@ NO EXPLANATIONS OR NOTES - ONLY THE PARAPHRASES. [/INST]"""
         try:
             logger.info(f"    🔥 TRUE BATCH PROCESSING: {len(prompts)} combined prompts SIMULTANEOUSLY")
             
+            # Fix tokenizer padding token issue
+            if self.generation_pipeline.tokenizer.pad_token is None:
+                self.generation_pipeline.tokenizer.pad_token = self.generation_pipeline.tokenizer.eos_token
+                logger.info("    🔧 Set pad_token to eos_token for batch processing")
+            
+            # Calculate appropriate max_length to prevent truncation
+            # Estimate token lengths for combined prompts (they're longer than separate prompts)
+            estimated_prompt_length = max(len(prompt.split()) * 1.3 for prompt in prompts)  # 1.3 factor for tokens vs words
+            estimated_response_length = 150  # Estimated response tokens needed
+            total_max_length = int(estimated_prompt_length + estimated_response_length)
+            
+            # Ensure we don't exceed model's maximum context length
+            model_max_length = getattr(self.generation_pipeline.tokenizer, 'model_max_length', 2048)
+            if model_max_length > 10000:  # Some tokenizers report very large numbers
+                model_max_length = 2048
+            
+            # Use conservative max_length to prevent truncation
+            safe_max_length = min(total_max_length, model_max_length - 200)  # Leave buffer for response
+            safe_max_length = max(safe_max_length, 1024)  # Minimum reasonable length
+            
+            logger.info(f"    📏 Using max_length: {safe_max_length} (estimated needed: {total_max_length})")
+            
             # Tokenize all prompts together with padding
             start_time = time.time()
             inputs = self.generation_pipeline.tokenizer(
@@ -333,18 +372,27 @@ NO EXPLANATIONS OR NOTES - ONLY THE PARAPHRASES. [/INST]"""
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=1024
+                max_length=safe_max_length
             ).to(self.generation_pipeline.device)
+            
+            # Check if any prompts were truncated
+            input_lengths = [len(ids) for ids in inputs['input_ids']]
+            max_input_length = max(input_lengths)
+            if max_input_length >= safe_max_length - 50:  # Close to max length
+                logger.warning(f"    ⚠️  Prompts may be truncated (max length: {max_input_length}/{safe_max_length})")
+            else:
+                logger.info(f"    ✅ No truncation detected (max length: {max_input_length}/{safe_max_length})")
             
             # Generate responses for all prompts simultaneously
             with torch.no_grad():
                 outputs = self.generation_pipeline.model.generate(
                     **inputs,
-                    max_new_tokens=200,
+                    max_new_tokens=200,  # Sufficient for our structured response format
                     temperature=0.7,
                     do_sample=True,
                     top_p=0.9,
-                    pad_token_id=self.generation_pipeline.tokenizer.eos_token_id
+                    pad_token_id=self.generation_pipeline.tokenizer.pad_token_id,
+                    eos_token_id=self.generation_pipeline.tokenizer.eos_token_id
                 )
             
             generation_time = time.time() - start_time
