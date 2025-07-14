@@ -198,8 +198,6 @@ Original instruction: "{main_instruction}"
 CRITICAL NOTE GENERATION RULES:
 1. DO NOT generate explanatory notes or additional context
 2. FOCUS SOLELY on generating the paraphrased navigation instruction
-3. Any attempt to add notes or explanatory text is STRICTLY FORBIDDEN
-4. Your output should be ONLY the paraphrased navigation instruction
 5. Preserve the core spatial and navigational meaning
 
 Generate:
@@ -220,7 +218,6 @@ For negative:
 - Create a plausible but incorrect navigation instruction
 - Focus on spatial accuracy changes that would lead to different navigation outcomes
 - Ensure both changes work together coherently (e.g., "turn left at the gray building" not "turn left at the blue sky")
-- ABSOLUTELY NO ADDITIONAL NOTES OR EXPLANATORY TEXT
 
 Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
         
@@ -400,48 +397,37 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
     
     def validate_spatial_accuracy(self, original: str, paraphrase: str, is_positive: bool = True) -> Dict[str, bool]:
         def clean_text(text):
-            """
-            Clean text by removing notes, extra whitespace, and normalizing
-            """
-            # Remove any text in parentheses or quotes that might be explanatory notes
-            text = re.sub(r'\(.*?\)', '', text)
-            text = re.sub(r'".*?"', '', text)
-            
-            # Remove punctuation and convert to lowercase
-            text = re.sub(r'[^\w\s]', '', text.lower()).strip()
-            return text
+            """Clean text by removing punctuation and converting to lowercase"""
+            return re.sub(r'[^\w\s]', '', text.lower()).strip()
         
         def extract_spatial_features(text):
             """
-            Extract comprehensive spatial features with advanced matching
+            Enhanced spatial feature extraction with more comprehensive matching
             """
             # Expanded feature dictionaries with synonyms and related terms
             direction_synonyms = {
-                'ahead': ['forward', 'straight', 'directly', 'in front'],
-                'left': ['port', 'leftward'],
-                'right': ['starboard', 'rightward'],
-                'north': ['northward'],
-                'south': ['southward'],
-                'east': ['eastward'],
-                'west': ['westward']
+                'directions': [
+                    r'\d+\s*o\'?clock', 'north', 'south', 'east', 'west', 
+                    'northwest', 'northeast', 'southwest', 'southeast',
+                    'left', 'right', 'forward', 'ahead', 'straight'
+                ],
+                'movement_verbs': ['move', 'go', 'turn', 'head', 'fly', 'navigate']
             }
             
             landmark_categories = {
-                'destination': ['destination', 'target', 'goal', 'endpoint'],
-                'structure': ['structure', 'building', 'object', 'landmark'],
-                'area': ['area', 'region', 'location', 'space']
+                'landmarks': [
+                    'building', 'structure', 'road', 'street', 'highway', 
+                    'parking', 'lot', 'area', 'destination', 'target'
+                ]
             }
             
-            movement_verb_synonyms = {
-                'go': ['move', 'proceed', 'advance', 'travel'],
-                'turn': ['pivot', 'rotate', 'switch', 'change direction'],
-                'continue': ['keep going', 'proceed', 'move forward']
+            spatial_relation_synonyms = {
+                'spatial_relations': [
+                    'next to', 'beside', 'near', 'in front of', 
+                    'across', 'over', 'through', 'around'
+                ]
             }
             
-            # Normalize and clean text
-            text_lower = text.lower()
-            
-            # Extract features with synonym expansion
             features = {
                 'directions': [],
                 'landmarks': [],
@@ -449,32 +435,30 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 'spatial_relations': []
             }
             
-            # Directions
-            for base_dir, synonyms in direction_synonyms.items():
-                if any(syn in text_lower for syn in synonyms + [base_dir]):
-                    features['directions'].append(base_dir)
+            # Comprehensive feature matching
+            for category, synonyms in direction_synonyms.items():
+                for syn in synonyms:
+                    matches = re.findall(syn, text.lower())
+                    if matches:
+                        features[category].extend(matches)
             
-            # Landmarks
             for category, synonyms in landmark_categories.items():
-                if any(syn in text_lower for syn in synonyms):
-                    features['landmarks'].append(category)
+                for syn in synonyms:
+                    matches = re.findall(r'\b' + syn + r'\b', text.lower())
+                    if matches:
+                        features[category].extend(matches)
             
-            # Movement Verbs
-            for base_verb, synonyms in movement_verb_synonyms.items():
-                if any(syn in text_lower for syn in synonyms + [base_verb]):
-                    features['movement_verbs'].append(base_verb)
-            
-            # Spatial Relations
-            spatial_relations = ['in front of', 'next to', 'near', 'beside', 'across', 'over', 'under']
-            features['spatial_relations'] = [
-                rel for rel in spatial_relations if rel in text_lower
-            ]
+            for category, synonyms in spatial_relation_synonyms.items():
+                for syn in synonyms:
+                    if syn in text.lower():
+                        features[category].append(syn)
             
             return features
         
         def compute_similarity(orig_text, para_text):
             """
             Advanced similarity computation with multiple metrics
+            Focuses on preserving spatial and navigational semantics
             """
             # Clean texts
             orig_clean = clean_text(orig_text).split()
@@ -493,8 +477,8 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
             # Semantic keyword preservation
             semantic_keywords = {
                 'navigation': ['destination', 'target', 'ahead', 'forward', 'go'],
-                'direction': ['left', 'right', 'north', 'south', 'east', 'west'],
-                'movement': ['turn', 'move', 'go', 'continue']
+                'direction': ['left', 'right', 'north', 'south', 'east', 'west', 'o\'clock'],
+                'movement': ['turn', 'move', 'go', 'navigate']
             }
             
             keyword_preservation = {
@@ -505,7 +489,7 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 for category, keywords in semantic_keywords.items()
             }
             
-            # Compute overall similarity score
+            # Compute overall similarity score with weighted components
             similarity_score = (
                 0.4 * overlap_ratio + 
                 0.3 * length_similarity + 
@@ -526,34 +510,38 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
         # Compute similarity
         similarity_metrics = compute_similarity(original, paraphrase)
         
-        # Feature preservation check
-        feature_preservation = {
-            category: any(
-                term in para_features[category] 
-                for term in orig_features[category]
+        # More flexible feature preservation check
+        feature_preservation = {}
+        for category in orig_features.keys():
+            # Check if any original feature is preserved or has a close synonym
+            preserved = any(
+                any(
+                    orig_term in para_features[category] or 
+                    (category == 'directions' and 
+                     orig_term.replace('o\'clock', '') in [p.replace('o\'clock', '') for p in para_features[category]])
+                for orig_term in orig_features[category]
             )
-            for category in orig_features.keys()
-        }
+            feature_preservation[category] = preserved
         
         # Validation logic for positive paraphrases
         if is_positive:
             # Positive paraphrase should:
-            # 1. Have high similarity score
-            # 2. Preserve most spatial features
+            # 1. Have moderate to high similarity score
+            # 2. Preserve most spatial features with more flexibility
             spatial_terms_preserved = (
                 similarity_metrics['similarity_score'] > 0.5 and
-                sum(feature_preservation.values()) / len(feature_preservation) > 0.7
+                sum(feature_preservation.values()) / len(feature_preservation) > 0.6
             )
             validation_result = spatial_terms_preserved
         
         # Validation logic for negative paraphrases
         else:
             # Negative paraphrase should:
-            # 1. Have low similarity score
+            # 1. Have lower similarity score
             # 2. Change most spatial features
             spatial_terms_changed = (
-                similarity_metrics['similarity_score'] < 0.4 or
-                sum(feature_preservation.values()) / len(feature_preservation) < 0.3
+                similarity_metrics['similarity_score'] < 0.5 or
+                sum(feature_preservation.values()) / len(feature_preservation) < 0.4
             )
             validation_result = spatial_terms_changed
         
