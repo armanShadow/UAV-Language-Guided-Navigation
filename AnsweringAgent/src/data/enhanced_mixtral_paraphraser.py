@@ -515,10 +515,13 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
         for category in orig_features.keys():
             # Check if any original feature is preserved or has a close synonym
             preserved = any(
-                any(
-                    orig_term in para_features[category] or 
-                    (category == 'directions' and 
-                     orig_term.replace('o\'clock', '') in [p.replace('o\'clock', '') for p in para_features[category]])
+                orig_term in para_features[category] or 
+                (category == 'directions' and 
+                    any(
+                        orig_term.replace('o\'clock', '') in p.replace('o\'clock', '') 
+                        for p in para_features[category]
+                    )
+                )
                 for orig_term in orig_features[category]
             )
             feature_preservation[category] = preserved
@@ -536,13 +539,34 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
         
         # Validation logic for negative paraphrases
         else:
-            # Negative paraphrase should:
-            # 1. Have lower similarity score
-            # 2. Change most spatial features
-            spatial_terms_changed = (
-                similarity_metrics['similarity_score'] < 0.5 or
-                sum(feature_preservation.values()) / len(feature_preservation) < 0.4
+            # Compute similarity score
+            similarity_score = similarity_metrics['similarity_score']
+            is_low_similarity = similarity_score < 0.4
+            
+            # Calculate feature preservation ratio
+            preservation_values = list(feature_preservation.values())
+            feature_preservation_ratio = sum(preservation_values) / len(preservation_values)
+            is_few_features_preserved = feature_preservation_ratio < 0.3
+            
+            # Check landmark changes
+            orig_landmarks = set(orig_features['landmarks'])
+            para_landmarks = set(para_features['landmarks'])
+            is_no_common_landmarks = len(orig_landmarks & para_landmarks) == 0
+            
+            # Check spatial context change
+            context_categories = ['directions', 'landmarks', 'spatial_relations']
+            is_context_changed = any(
+                len(set(para_features[cat]) - set(orig_features[cat])) > 0
+                for cat in context_categories
             )
+            
+            # Combine validation conditions
+            spatial_terms_changed = (
+                is_low_similarity and 
+                (is_few_features_preserved or is_no_common_landmarks) and 
+                is_context_changed
+            )
+            
             validation_result = spatial_terms_changed
         
         # Detailed logging
