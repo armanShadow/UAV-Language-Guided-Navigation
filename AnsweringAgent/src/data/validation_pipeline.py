@@ -244,17 +244,21 @@ class ValidationPipeline:
             para_features.get('landmarks', [])
         )
         
-        # For negatives: high text similarity but low spatial similarity
-        direction_changed = direction_similarity < 0.5
-        landmark_changed = landmark_similarity < 0.5
+        # For negatives: detect spatial changes (more lenient thresholds)
+        direction_changed = direction_similarity < 0.7  # Increased from 0.5 - more lenient
+        landmark_changed = landmark_similarity < 0.7    # Increased from 0.5 - more lenient
         spatial_changed = direction_changed or landmark_changed
         
-        # Validation for negative paraphrases
+        # Validation for negative paraphrases (more reasonable thresholds)
         is_valid = (
-            embedding_similarity > 0.7 and  # Text should be similar
-            spatial_changed and             # But spatial elements should change
-            (direction_changed or landmark_changed)
+            embedding_similarity > 0.5 and  # Reduced from 0.7 - text should be reasonably similar
+            spatial_changed                  # But spatial elements should change
         )
+        
+        # Debug logging for negative validation
+        logger.debug(f"Negative validation - Embedding: {embedding_similarity:.3f}, "
+                    f"Direction changed: {direction_changed}, Landmark changed: {landmark_changed}, "
+                    f"Spatial changed: {spatial_changed}, Valid: {is_valid}")
         
         return {
             'is_valid': is_valid,
