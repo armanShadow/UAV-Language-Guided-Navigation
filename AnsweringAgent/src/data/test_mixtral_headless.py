@@ -43,31 +43,51 @@ def load_random_avdn_examples(num_examples: int = 4) -> List[str]:
                 with open(path, 'r') as f:
                     episodes = json.load(f)
                 
-                # Extract all answers from dialogs
+                # Extract all instructions from episodes
                 all_instructions = []
                 for episode in episodes:
+                    # Add first_instruction if it exists
+                    if 'first_instruction' in episode and episode['first_instruction']:
+                        instruction = episode['first_instruction'].strip()
+                        if instruction and len(instruction) > 10:  # Filter out empty/short instructions
+                            all_instructions.append(instruction)
+                    
+                    # Add dialog answers if they exist
                     if 'dialogs' in episode:
                         for dialog in episode['dialogs']:
-                            if 'message' in dialog:
-                                all_instructions.append(dialog['message'])
+                            if 'answer' in dialog and dialog['answer']:
+                                answer = dialog['answer'].strip()
+                                if answer and len(answer) > 10:  # Filter out empty/short answers
+                                    all_instructions.append(answer)
+                
+                logger.info(f"📊 Extracted {len(all_instructions)} instructions from dataset")
                 
                 # Return random sample
-                import random
-                random.shuffle(all_instructions)
-                return all_instructions[:num_examples]
+                if all_instructions:
+                    import random
+                    random.shuffle(all_instructions)
+                    return all_instructions[:num_examples]
+                else:
+                    logger.warning("No valid instructions found in dataset")
                 
             except Exception as e:
                 logger.warning(f"Failed to load from {path}: {e}")
                 continue
     
-    # Fallback examples if no dataset found
-    logger.warning("No AVDN dataset found, using fallback examples")
-    return [
+    # Fallback examples if no dataset found or no valid instructions
+    logger.warning("No AVDN dataset found or no valid instructions, using fallback examples")
+    fallback_examples = [
         "Turn right and fly over the white building at 3 o'clock",
         "Go straight ahead towards the gray road near the parking area", 
         "Navigate to the brown house at 6 o'clock position",
-        "Fly north over the highway and turn left at the intersection"
+        "Fly north over the highway and turn left at the intersection",
+        "Head forward towards 6 o'clock direction, after passing a road and few buildings",
+        "Make a left turn and continue straight until you reach the parking lot",
+        "Fly over the intersection and look for the gray building on your right",
+        "Go north towards the highway and turn right at the traffic light"
     ]
+    
+    return fallback_examples[:num_examples]
 
 def test_mixtral_paraphrasing():
     """Test Mixtral paraphrasing pipeline with TRUE BATCH PROCESSING."""
