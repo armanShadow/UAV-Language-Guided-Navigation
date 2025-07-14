@@ -481,12 +481,11 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 'movement': ['go', 'move', 'turn', 'head', 'navigate']
             }
             
-            keyword_preservation = {
-                category: any(
-                    any(keyword in orig_clean or keyword in para_clean for keyword in keywords)
-                    for category, keywords in semantic_keywords.items()
+            keyword_preservation = {}
+            for category, keywords in semantic_keywords.items():
+                keyword_preservation[category] = any(
+                    keyword in orig_clean or keyword in para_clean for keyword in keywords
                 )
-            }
             
             # Compute overall similarity score with weighted components
             similarity_score = (
