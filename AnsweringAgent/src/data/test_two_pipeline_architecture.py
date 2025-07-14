@@ -489,8 +489,8 @@ def test_batch_processing_first_batch(shared_examples: List[str]):
     
     print("✅ Pipeline initialized successfully")
     
-    # Prepare first batch from shared examples
-    batch_size = 4  # Small batch for validation
+    # Prepare first batch from shared examples - very conservative for memory
+    batch_size = 2  # Reduced to 2 for GPU memory safety
     first_batch = shared_examples[:batch_size]
     
     print(f"\n📦 Testing with first batch of {len(first_batch)} instructions:")

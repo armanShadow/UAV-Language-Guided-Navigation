@@ -10,9 +10,13 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import re
 import json
 import random
+import os
 from typing import List, Dict, Tuple, Optional
 import logging
 from pathlib import Path
+
+# Set PyTorch memory allocator for better GPU memory management
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -58,32 +62,25 @@ class ParaphraseGenerationPipeline:
                 llm_int8_enable_fp32_cpu_offload=True,  # Enable CPU offloading for insufficient GPU memory
             )
             
-            # Configure multi-GPU device map for 10x RTX 2080 Ti (11GB each)
-            device_map = {
-                "model.embed_tokens": 0,
-                "model.layers.0": 0, "model.layers.1": 0, "model.layers.2": 0, "model.layers.3": 0,
-                "model.layers.4": 1, "model.layers.5": 1, "model.layers.6": 1, "model.layers.7": 1,
-                "model.layers.8": 2, "model.layers.9": 2, "model.layers.10": 2, "model.layers.11": 2,
-                "model.layers.12": 3, "model.layers.13": 3, "model.layers.14": 3, "model.layers.15": 3,
-                "model.layers.16": 4, "model.layers.17": 4, "model.layers.18": 4, "model.layers.19": 4,
-                "model.layers.20": 5, "model.layers.21": 5, "model.layers.22": 5, "model.layers.23": 5,
-                "model.layers.24": 6, "model.layers.25": 6, "model.layers.26": 6, "model.layers.27": 6,
-                "model.layers.28": 7, "model.layers.29": 7, "model.layers.30": 7, "model.layers.31": 7,
-                "model.norm": 8, "lm_head": 9
-            }
+            # Use automatic device mapping for optimal GPU distribution
+            # transformers will handle layer placement across available GPUs
             
-            # Memory allocation for 10x RTX 2080 Ti (11GB each, use 10GB per GPU)
-            max_memory = {i: "10GB" for i in range(10)}
-            max_memory["cpu"] = "50GB"
+            # Conservative memory allocation - leave more headroom for generation
+            max_memory = {i: "7GB" for i in range(10)}  # Reduced to 7GB per GPU for safety
+            max_memory["cpu"] = "30GB"
             
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
                 torch_dtype=torch.float16,
-                device_map=device_map,
+                device_map="auto",  # Let transformers optimize distribution
                 trust_remote_code=True,
                 quantization_config=quantization_config,
-                max_memory=max_memory,  # Distribute across all 10 GPUs
+                max_memory=max_memory,  # Conservative limits across all 10 GPUs
             )
+            
+            # Enable gradient checkpointing to reduce memory usage
+            if hasattr(self.model, 'gradient_checkpointing_enable'):
+                self.model.gradient_checkpointing_enable()
             
             logger.info("Paraphrase generation model loaded successfully!")
             return True
@@ -297,8 +294,12 @@ Provide ONLY the paraphrases, NO EXPLANATIONS: [/INST]"""
         return results
     
     def _generate_response(self, prompt: str, max_length: int = 512) -> str:
-        """Generate response from Mixtral model."""
+        """Generate response from Mixtral model with memory management."""
         try:
+            # Clear GPU cache before generation to prevent memory accumulation
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
             
             with torch.no_grad():
@@ -315,6 +316,11 @@ Provide ONLY the paraphrases, NO EXPLANATIONS: [/INST]"""
             input_length = inputs['input_ids'].shape[1]
             generated_tokens = outputs[0][input_length:]
             generated_text = self.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+            
+            # Clear intermediate tensors and cache again
+            del inputs, outputs, generated_tokens
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             
             return generated_text
             
