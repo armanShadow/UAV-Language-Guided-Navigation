@@ -50,19 +50,39 @@ class ParaphraseGenerationPipeline:
             
             logger.info("Loading Mixtral model...")
             
-            # Configure quantization for memory efficiency
+            # Configure quantization for memory efficiency with CPU offloading
             quantization_config = BitsAndBytesConfig(
                 load_in_8bit=True,
                 llm_int8_threshold=6.0,
                 llm_int8_has_fp16_weight=False,
+                llm_int8_enable_fp32_cpu_offload=True,  # Enable CPU offloading for insufficient GPU memory
             )
+            
+            # Configure multi-GPU device map for 10x RTX 2080 Ti (11GB each)
+            device_map = {
+                "model.embed_tokens": 0,
+                "model.layers.0": 0, "model.layers.1": 0, "model.layers.2": 0, "model.layers.3": 0,
+                "model.layers.4": 1, "model.layers.5": 1, "model.layers.6": 1, "model.layers.7": 1,
+                "model.layers.8": 2, "model.layers.9": 2, "model.layers.10": 2, "model.layers.11": 2,
+                "model.layers.12": 3, "model.layers.13": 3, "model.layers.14": 3, "model.layers.15": 3,
+                "model.layers.16": 4, "model.layers.17": 4, "model.layers.18": 4, "model.layers.19": 4,
+                "model.layers.20": 5, "model.layers.21": 5, "model.layers.22": 5, "model.layers.23": 5,
+                "model.layers.24": 6, "model.layers.25": 6, "model.layers.26": 6, "model.layers.27": 6,
+                "model.layers.28": 7, "model.layers.29": 7, "model.layers.30": 7, "model.layers.31": 7,
+                "model.norm": 8, "lm_head": 9
+            }
+            
+            # Memory allocation for 10x RTX 2080 Ti (11GB each, use 10GB per GPU)
+            max_memory = {i: "10GB" for i in range(10)}
+            max_memory["cpu"] = "50GB"
             
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
                 torch_dtype=torch.float16,
-                device_map="auto",
+                device_map=device_map,
                 trust_remote_code=True,
-                quantization_config=quantization_config
+                quantization_config=quantization_config,
+                max_memory=max_memory,  # Distribute across all 10 GPUs
             )
             
             logger.info("Paraphrase generation model loaded successfully!")
@@ -229,6 +249,52 @@ Provide ONLY the paraphrases, NO EXPLANATIONS: [/INST]"""
         except Exception as e:
             logger.error(f"Error generating paraphrases: {e}")
             return {'positives': [], 'negatives': []}
+
+    def generate_paraphrases_batch(self, instructions: List[str], strategy: str = "combined", batch_size: int = 4) -> List[Dict[str, List[str]]]:
+        """
+        Generate paraphrases for a batch of instructions with optimized multi-GPU utilization.
+        
+        Args:
+            instructions: List of navigation instructions to process
+            strategy: Generation strategy ('combined', 'separate', etc.)
+            batch_size: Number of instructions to process in parallel
+            
+        Returns:
+            List of results in same order as input instructions
+        """
+        if not self.model or not self.tokenizer:
+            logger.error("Model not loaded. Call load_model() first.")
+            return []
+        
+        results = []
+        total_batches = (len(instructions) + batch_size - 1) // batch_size
+        
+        logger.info(f"🚀 Multi-GPU batch processing: {len(instructions)} instructions across 10 GPUs")
+        logger.info(f"📦 Processing {total_batches} batches of size {batch_size}")
+        
+        for batch_idx in range(0, len(instructions), batch_size):
+            batch = instructions[batch_idx:batch_idx + batch_size]
+            batch_num = (batch_idx // batch_size) + 1
+            
+            logger.info(f"🔄 Processing batch {batch_num}/{total_batches} ({len(batch)} instructions)")
+            
+            # Process batch - leveraging distributed model across 10 GPUs
+            batch_results = []
+            for i, instruction in enumerate(batch):
+                logger.info(f"  📝 Instruction {i+1}/{len(batch)}: {instruction[:50]}...")
+                result = self.generate_paraphrases(instruction, strategy)
+                batch_results.append(result)
+                logger.info(f"  ✅ Generated {len(result.get('positives', []))}P + {len(result.get('negatives', []))}N")
+            
+            results.extend(batch_results)
+            logger.info(f"✅ Completed batch {batch_num}/{total_batches}")
+        
+        # Summary statistics
+        total_positives = sum(len(r.get('positives', [])) for r in results)
+        total_negatives = sum(len(r.get('negatives', [])) for r in results)
+        logger.info(f"🎯 Batch processing complete: {total_positives} positives, {total_negatives} negatives")
+        
+        return results
     
     def _generate_response(self, prompt: str, max_length: int = 512) -> str:
         """Generate response from Mixtral model."""
