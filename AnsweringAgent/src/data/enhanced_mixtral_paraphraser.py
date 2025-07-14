@@ -407,7 +407,10 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
             # Expanded feature dictionaries with synonyms and related terms
             direction_synonyms = {
                 'directions': [
-                    r'\d+\s*o\'?clock', 'north', 'south', 'east', 'west', 
+                    r'\d+\s*o\'?clock', r'one\s+o\'?clock', r'two\s+o\'?clock', r'three\s+o\'?clock', 
+                    r'four\s+o\'?clock', r'five\s+o\'?clock', r'six\s+o\'?clock', r'seven\s+o\'?clock',
+                    r'eight\s+o\'?clock', r'nine\s+o\'?clock', r'ten\s+o\'?clock', r'eleven\s+o\'?clock',
+                    r'twelve\s+o\'?clock', 'north', 'south', 'east', 'west', 
                     'northwest', 'northeast', 'southwest', 'southeast',
                     'left', 'right', 'forward', 'ahead', 'straight'
                 ],
@@ -507,7 +510,7 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
             """
             # Directional similarity
             def compute_direction_similarity(orig_dirs, para_dirs):
-                # Handle cardinal and compound directions
+                # Handle cardinal, compound directions, clock directions, and spatial synonyms
                 cardinal_directions = {
                     'north': ['north', 'n'],
                     'south': ['south', 's'],
@@ -519,26 +522,100 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                     'southeast': ['southeast', 'se']
                 }
                 
+                # Spatial direction synonyms - CRITICAL for semantic equivalence
+                direction_synonyms = {
+                    'forward': ['forward', 'ahead', 'straight', 'front'],
+                    'backward': ['backward', 'back', 'behind'],
+                    'left': ['left', 'port'],
+                    'right': ['right', 'starboard'],
+                    'up': ['up', 'above', 'upward'],
+                    'down': ['down', 'below', 'downward']
+                }
+                
+                # Clock direction mappings (both numeric and word forms)
+                clock_mappings = {
+                    '1': ['1', 'one'],
+                    '2': ['2', 'two'],
+                    '3': ['3', 'three'],
+                    '4': ['4', 'four'],
+                    '5': ['5', 'five'],
+                    '6': ['6', 'six'],
+                    '7': ['7', 'seven'],
+                    '8': ['8', 'eight'],
+                    '9': ['9', 'nine'],
+                    '10': ['10', 'ten'],
+                    '11': ['11', 'eleven'],
+                    '12': ['12', 'twelve']
+                }
+                
+                def extract_clock_hour(direction_text):
+                    """Extract clock hour from direction text"""
+                    import re
+                    # Match numeric clock (e.g., "5 o'clock")
+                    numeric_match = re.search(r'(\d+)\s*o\'?clock', direction_text.lower())
+                    if numeric_match:
+                        return numeric_match.group(1)
+                    
+                    # Match word form clock (e.g., "five o'clock")
+                    for hour, variants in clock_mappings.items():
+                        for variant in variants:
+                            if re.search(rf'\b{variant}\s+o\'?clock', direction_text.lower()):
+                                return hour
+                    return None
+                
                 # Create sets of direction components
                 orig_dir_set = set()
                 para_dir_set = set()
+                orig_clock_hours = set()
+                para_clock_hours = set()
                 
+                # Process original directions
                 for orig_dir in orig_dirs:
+                    # Check for cardinal directions
                     for cardinal, variants in cardinal_directions.items():
                         if any(var in orig_dir.lower() for var in variants):
                             orig_dir_set.add(cardinal)
+                    
+                    # Check for spatial direction synonyms
+                    for base_dir, synonyms in direction_synonyms.items():
+                        if any(syn in orig_dir.lower() for syn in synonyms):
+                            orig_dir_set.add(base_dir)
+                    
+                    # Check for clock directions
+                    clock_hour = extract_clock_hour(orig_dir)
+                    if clock_hour:
+                        orig_clock_hours.add(clock_hour)
+                        orig_dir_set.add(f"clock_{clock_hour}")
                 
+                # Process paraphrase directions
                 for para_dir in para_dirs:
+                    # Check for cardinal directions
                     for cardinal, variants in cardinal_directions.items():
                         if any(var in para_dir.lower() for var in variants):
                             para_dir_set.add(cardinal)
+                    
+                    # Check for spatial direction synonyms
+                    for base_dir, synonyms in direction_synonyms.items():
+                        if any(syn in para_dir.lower() for syn in synonyms):
+                            para_dir_set.add(base_dir)
+                    
+                    # Check for clock directions
+                    clock_hour = extract_clock_hour(para_dir)
+                    if clock_hour:
+                        para_clock_hours.add(clock_hour)
+                        para_dir_set.add(f"clock_{clock_hour}")
                 
                 # Compute direction similarity
                 if not orig_dir_set and not para_dir_set:
                     return 1.0  # No directions in both
                 
+                if not orig_dir_set or not para_dir_set:
+                    return 0.0  # One has directions, other doesn't
+                
                 common_dirs = orig_dir_set & para_dir_set
-                return len(common_dirs) / max(len(orig_dir_set), len(para_dir_set))
+                total_dirs = orig_dir_set | para_dir_set
+                
+                return len(common_dirs) / len(total_dirs)
             
             # Landmark similarity
             def compute_landmark_similarity(orig_landmarks, para_landmarks):
@@ -614,12 +691,44 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                 
             # More flexible feature matching
             if category == 'directions':
-                # Flexible direction matching with cardinal direction awareness
+                # Enhanced direction matching with clock direction equivalence
                 preserved = False
+                
+                def extract_clock_number(direction_text):
+                    """Extract clock number from direction text (handles both numeric and word forms)"""
+                    import re
+                    # Numeric form
+                    numeric_match = re.search(r'(\d+)\s*o\'?clock', direction_text.lower())
+                    if numeric_match:
+                        return int(numeric_match.group(1))
+                    
+                    # Word form mapping
+                    word_to_num = {
+                        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6,
+                        'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10, 'eleven': 11, 'twelve': 12
+                    }
+                    for word, num in word_to_num.items():
+                        if re.search(rf'\b{word}\s+o\'?clock', direction_text.lower()):
+                            return num
+                    return None
+                
+                # Direction synonym mappings for feature preservation
+                direction_synonyms_feature = {
+                    'forward': ['forward', 'ahead', 'straight', 'front'],
+                    'backward': ['backward', 'back', 'behind'],
+                    'left': ['left', 'port'],
+                    'right': ['right', 'starboard'],
+                    'up': ['up', 'above', 'upward'],
+                    'down': ['down', 'below', 'downward']
+                }
+                
                 for orig_term in orig_features[category]:
+                    # Direct term matching
                     if orig_term in para_features[category]:
                         preserved = True
                         break
+                    
+                    # Cardinal direction matching
                     elif orig_term in ['north', 'south', 'east', 'west']:
                         for p in para_features[category]:
                             if orig_term in p.lower():
@@ -627,27 +736,91 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
                                 break
                         if preserved:
                             break
+                    
+                    # Direction synonym matching (CRITICAL FIX)
+                    else:
+                        for base_dir, synonyms in direction_synonyms_feature.items():
+                            if orig_term in synonyms:
+                                # Check if any synonym appears in paraphrase directions
+                                for para_term in para_features[category]:
+                                    if any(syn in para_term.lower() for syn in synonyms):
+                                        preserved = True
+                                        break
+                                if preserved:
+                                    break
+                        
+                        # Clock direction equivalence matching (if not already preserved)
+                        if not preserved:
+                            orig_clock = extract_clock_number(orig_term)
+                            if orig_clock:
+                                for para_term in para_features[category]:
+                                    para_clock = extract_clock_number(para_term)
+                                    if para_clock and orig_clock == para_clock:
+                                        preserved = True
+                                        break
+                                if preserved:
+                                    break
                             
             elif category == 'landmarks':
                 # Semantic landmark matching
                 preserved = False
+                landmark_synonyms_feature = {
+                    'building': ['building', 'structure', 'house', 'edifice'],
+                    'road': ['road', 'street', 'highway', 'path'],
+                    'destination': ['destination', 'target', 'goal', 'endpoint']
+                }
+                
                 for orig_term in orig_features[category]:
                     if orig_term in para_features[category]:
                         preserved = True
                         break
-                    elif (orig_term == 'building' and 'structure' in para_features[category]):
-                        preserved = True
-                        break
-                    elif (orig_term == 'road' and 'street' in para_features[category]):
-                        preserved = True
+                    
+                    # Landmark synonym matching
+                    for base_landmark, synonyms in landmark_synonyms_feature.items():
+                        if orig_term in synonyms:
+                            for para_term in para_features[category]:
+                                if any(syn in para_term.lower() for syn in synonyms):
+                                    preserved = True
+                                    break
+                            if preserved:
+                                break
+                    if preserved:
                         break
                         
             else:
-                # Standard feature preservation
-                preserved = any(
-                    orig_term in para_features[category]
-                    for orig_term in orig_features[category]
-                )
+                # Enhanced feature preservation with synonyms
+                preserved = False
+                
+                # Movement verb synonyms for better semantic matching
+                if category == 'movement_verbs':
+                    movement_synonyms_feature = {
+                        'move': ['move', 'go', 'head', 'proceed', 'travel', 'navigate'],
+                        'turn': ['turn', 'rotate', 'pivot', 'swing'],
+                        'fly': ['fly', 'soar', 'hover', 'pilot']
+                    }
+                    
+                    for orig_term in orig_features[category]:
+                        if orig_term in para_features[category]:
+                            preserved = True
+                            break
+                        
+                        # Movement verb synonym matching
+                        for base_verb, synonyms in movement_synonyms_feature.items():
+                            if orig_term in synonyms:
+                                for para_term in para_features[category]:
+                                    if para_term in synonyms:
+                                        preserved = True
+                                        break
+                                if preserved:
+                                    break
+                        if preserved:
+                            break
+                else:
+                    # Standard feature preservation for other categories
+                    preserved = any(
+                        orig_term in para_features[category]
+                        for orig_term in orig_features[category]
+                    )
             
             feature_preservation[category] = preserved
         
@@ -658,21 +831,27 @@ Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
         
         # Validation logic for positive paraphrases
         if is_positive:
+            # More flexible validation for positive paraphrases
+            # Focus on overall semantic preservation rather than strict feature matching
             spatial_terms_preserved = (
-                advanced_similarity['combined_similarity'] > 0.5 and
-                advanced_similarity['direction_similarity'] > 0.6 and
-                advanced_similarity['landmark_similarity'] > 0.5
+                (advanced_similarity['combined_similarity'] > 0.4 and
+                 advanced_similarity['landmark_similarity'] > 0.7) or
+                (advanced_similarity['direction_similarity'] > 0.8 and
+                 advanced_similarity['landmark_similarity'] > 0.5) or
+                (advanced_similarity['combined_similarity'] > 0.6)
             )
             validation_result = spatial_terms_preserved
             spatial_validation_score = spatial_terms_preserved
         
         # Validation logic for negative paraphrases
         else:
-            spatial_terms_changed = (
-                advanced_similarity['combined_similarity'] < 0.4 or
-                advanced_similarity['direction_similarity'] < 0.3 or
-                advanced_similarity['landmark_similarity'] < 0.3
-            )
+            # For negatives, prioritize spatial feature changes over overall text similarity
+            # Text can be very similar, but spatial elements must change
+            direction_changed = advanced_similarity['direction_similarity'] < 0.5
+            landmark_changed = advanced_similarity['landmark_similarity'] < 0.5
+            
+            # At least one major spatial component must change
+            spatial_terms_changed = direction_changed or landmark_changed
             validation_result = spatial_terms_changed
             spatial_validation_score = spatial_terms_changed
         
