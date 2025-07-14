@@ -153,9 +153,34 @@ class EnhancedMixtralParaphraser:
     def create_combined_prompt(self, instruction: str) -> str:
         """
         Create unified prompt for both positive and negative paraphrases.
-        Focus: Cohesive generation with better contrast understanding.
+        Focus: Cohesive generation with better contrast understanding and note handling.
         """
-        spatial_terms = self.extract_spatial_terms(instruction)
+        # Separate main instruction from any notes
+        def extract_main_instruction_and_notes(text):
+            # Look for common note indicators
+            note_markers = [
+                r'\(.*?\)',   # Text in parentheses
+                r'\[.*?\]',   # Text in square brackets
+                r'Note:.*',   # Explicit "Note:" prefix
+                r'Additional context:.*'  # "Additional context" prefix
+            ]
+            
+            # Remove note markers and extract main instruction
+            main_instruction = text
+            notes = []
+            
+            for marker in note_markers:
+                note_matches = re.findall(marker, text, re.IGNORECASE)
+                if note_matches:
+                    notes.extend(note_matches)
+                    main_instruction = re.sub(marker, '', main_instruction, flags=re.IGNORECASE).strip()
+            
+            return main_instruction.strip(), notes
+        
+        # Extract main instruction and notes
+        main_instruction, notes = extract_main_instruction_and_notes(instruction)
+        
+        spatial_terms = self.extract_spatial_terms(main_instruction)
         
         # Build term substitution guidance based on AVDN frequency analysis
         substitution_guidance = ""
@@ -168,7 +193,14 @@ class EnhancedMixtralParaphraser:
         
         prompt = f"""<s>[INST] You are an expert in UAV navigation instructions. Generate paraphrases for this instruction:
 
-Original instruction: "{instruction}"
+Original instruction: "{main_instruction}"
+
+CRITICAL NOTE GENERATION RULES:
+1. DO NOT generate explanatory notes or additional context
+2. FOCUS SOLELY on generating the paraphrased navigation instruction
+3. Any attempt to add notes or explanatory text is STRICTLY FORBIDDEN
+4. Your output should be ONLY the paraphrased navigation instruction
+5. Preserve the core spatial and navigational meaning
 
 Generate:
 1. 2 positive paraphrases that maintain the same spatial meaning and navigation intent
@@ -178,6 +210,7 @@ For positives:
 - Use natural language variation in word choice and sentence structure
 - Preserve key spatial terms (landmarks, directions, EXACT clock references)
 - Sound like natural human navigation instructions
+- IMPORTANT: NO ADDITIONAL NOTES OR CONTEXT ALLOWED
 
 For negative:
 {substitution_guidance}- Make correlated strategic changes (e.g., direction + landmark, or clock + landmark)
@@ -187,8 +220,9 @@ For negative:
 - Create a plausible but incorrect navigation instruction
 - Focus on spatial accuracy changes that would lead to different navigation outcomes
 - Ensure both changes work together coherently (e.g., "turn left at the gray building" not "turn left at the blue sky")
+- ABSOLUTELY NO ADDITIONAL NOTES OR EXPLANATORY TEXT
 
-Provide ONLY the paraphrases, no explanations: [/INST]"""
+Provide ONLY the paraphrases, NO EXPLANATIONS, NO NOTES: [/INST]"""
         
         return prompt
     
@@ -206,11 +240,36 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
         try:
             # Generate all paraphrases using combined prompt
             logger.info("Generating paraphrases with combined prompt...")
+            
+            # Extract main instruction and notes
+            def extract_main_instruction_and_notes(text):
+                # Look for common note indicators
+                note_markers = [
+                    r'\(.*?\)',   # Text in parentheses
+                    r'\[.*?\]',   # Text in square brackets
+                    r'Note:.*',   # Explicit "Note:" prefix
+                    r'Additional context:.*'  # "Additional context" prefix
+                ]
+                
+                # Remove note markers and extract main instruction
+                main_instruction = text
+                notes = []
+                
+                for marker in note_markers:
+                    note_matches = re.findall(marker, text, re.IGNORECASE)
+                    if note_matches:
+                        notes.extend(note_matches)
+                        main_instruction = re.sub(marker, '', main_instruction, flags=re.IGNORECASE).strip()
+                
+                return main_instruction.strip(), notes
+            
+            main_instruction, notes = extract_main_instruction_and_notes(instruction)
+            
             combined_prompt = self.create_combined_prompt(instruction)
             response = self._generate_response(combined_prompt)
             
             # Parse all paraphrases from response
-            all_paraphrases = self._parse_paraphrases(response, num_positives + num_negatives)
+            all_paraphrases = self._parse_paraphrases(response, num_positives + num_negatives, notes)
             
             # Split into positives and negatives
             if len(all_paraphrases) >= num_positives + num_negatives:
@@ -256,26 +315,51 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
             logger.error(f"Error in text generation: {e}")
             return ""
     
-    def _parse_paraphrases(self, response: str, expected_count: int) -> List[str]:
-        """Parse generated paraphrases from response."""
+    def _parse_paraphrases(self, response: str, expected_count: int, original_notes: List[str] = None) -> List[str]:
+        """
+        Parse generated paraphrases from response with strict note removal.
+        
+        Args:
+            response (str): Generated text from the model
+            expected_count (int): Number of paraphrases to extract
+            original_notes (List[str], optional): Original notes (not used in this version)
+        
+        Returns:
+            List[str]: Extracted paraphrases with all notes removed
+        """
         if not response:
             return []
         
         # Split by lines and clean up
         lines = [line.strip() for line in response.split('\n') if line.strip()]
         
-        # Extract paraphrases (remove numbering, quotes, labels, etc.)
+        # Regex patterns to remove various types of notes or explanatory text
+        note_removal_patterns = [
+            r'\(.*?\)',   # Remove text in parentheses
+            r'\[.*?\]',   # Remove text in square brackets
+            r'Note:.*',   # Remove lines starting with "Note:"
+            r'Additional context:.*',  # Remove lines with additional context
+            r'^[0-9]+\.?\s*',  # Remove numbering
+            r'^(Positive|Negative)\s*Paraphrases?:',  # Remove paraphrase labels
+            r'^(Positives?|Negatives?):',  # Remove section headers
+        ]
+        
+        # Extract paraphrases (remove numbering, quotes, labels, notes, etc.)
         paraphrases = []
         for line in lines:
-            # Remove common prefixes and labels
-            cleaned = re.sub(r'^\d+\.\s*', '', line)  # Remove "1. ", "2. " etc.
-            cleaned = re.sub(r'^["\']|["\']$', '', cleaned)  # Remove quotes
-            cleaned = re.sub(r'^(Positive|Negative)\s+Paraphrases?:\s*', '', cleaned, flags=re.IGNORECASE)  # Remove labels
-            cleaned = re.sub(r'^(Positives?|Negatives?):\s*', '', cleaned, flags=re.IGNORECASE)  # Remove section headers
-            cleaned = cleaned.strip()
+            # Apply all note removal patterns
+            cleaned = line
+            for pattern in note_removal_patterns:
+                cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE).strip()
             
-            # Only include actual instruction text (not labels or empty lines)
-            if cleaned and len(cleaned) > 10 and not cleaned.lower().startswith(('positive', 'negative', 'positives', 'negatives')):
+            # Remove quotes
+            cleaned = re.sub(r'^["\']|["\']$', '', cleaned)
+            
+            # Only include actual instruction text
+            if (cleaned and 
+                len(cleaned) > 10 and 
+                not cleaned.lower().startswith(('positive', 'negative', 'positives', 'negatives')) and
+                not any(keyword in cleaned.lower() for keyword in ['note:', 'additional context', 'explanation:'])):
                 paraphrases.append(cleaned)
         
         # Return expected number or all if fewer
@@ -315,42 +399,111 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
         return normalized_weights
     
     def validate_spatial_accuracy(self, original: str, paraphrase: str, is_positive: bool = True) -> Dict[str, bool]:
-        def preprocess_text(text):
-            """Normalize text for comparison"""
-            return re.sub(r'[^\w\s]', '', text.lower()).split()
+        def clean_text(text):
+            """
+            Clean text by removing notes, extra whitespace, and normalizing
+            """
+            # Remove any text in parentheses or quotes that might be explanatory notes
+            text = re.sub(r'\(.*?\)', '', text)
+            text = re.sub(r'".*?"', '', text)
+            
+            # Remove punctuation and convert to lowercase
+            text = re.sub(r'[^\w\s]', '', text.lower()).strip()
+            return text
         
-        def compute_text_similarity(orig_words, para_words):
+        def extract_spatial_features(text):
             """
-            Compute text similarity with more nuanced approach
-            - Word overlap
-            - Semantic preservation
-            - Structural similarity
+            Extract comprehensive spatial features with advanced matching
             """
-            # Compute word overlap
-            common_words = set(orig_words) & set(para_words)
-            total_words = set(orig_words) | set(para_words)
-            
-            # Compute overlap ratio
-            overlap_ratio = len(common_words) / len(total_words) if total_words else 0
-            
-            # Check key semantic preservation
-            semantic_keywords = {
-                'navigation': ['destination', 'target', 'ahead', 'left', 'right', 'forward'],
-                'landmarks': ['chute', 'building', 'structure', 'road', 'area'],
-                'movement': ['turn', 'move', 'go', 'fly', 'navigate']
+            # Expanded feature dictionaries with synonyms and related terms
+            direction_synonyms = {
+                'ahead': ['forward', 'straight', 'directly', 'in front'],
+                'left': ['port', 'leftward'],
+                'right': ['starboard', 'rightward'],
+                'north': ['northward'],
+                'south': ['southward'],
+                'east': ['eastward'],
+                'west': ['westward']
             }
             
-            # Check preservation of semantic keywords
+            landmark_categories = {
+                'destination': ['destination', 'target', 'goal', 'endpoint'],
+                'structure': ['structure', 'building', 'object', 'landmark'],
+                'area': ['area', 'region', 'location', 'space']
+            }
+            
+            movement_verb_synonyms = {
+                'go': ['move', 'proceed', 'advance', 'travel'],
+                'turn': ['pivot', 'rotate', 'switch', 'change direction'],
+                'continue': ['keep going', 'proceed', 'move forward']
+            }
+            
+            # Normalize and clean text
+            text_lower = text.lower()
+            
+            # Extract features with synonym expansion
+            features = {
+                'directions': [],
+                'landmarks': [],
+                'movement_verbs': [],
+                'spatial_relations': []
+            }
+            
+            # Directions
+            for base_dir, synonyms in direction_synonyms.items():
+                if any(syn in text_lower for syn in synonyms + [base_dir]):
+                    features['directions'].append(base_dir)
+            
+            # Landmarks
+            for category, synonyms in landmark_categories.items():
+                if any(syn in text_lower for syn in synonyms):
+                    features['landmarks'].append(category)
+            
+            # Movement Verbs
+            for base_verb, synonyms in movement_verb_synonyms.items():
+                if any(syn in text_lower for syn in synonyms + [base_verb]):
+                    features['movement_verbs'].append(base_verb)
+            
+            # Spatial Relations
+            spatial_relations = ['in front of', 'next to', 'near', 'beside', 'across', 'over', 'under']
+            features['spatial_relations'] = [
+                rel for rel in spatial_relations if rel in text_lower
+            ]
+            
+            return features
+        
+        def compute_similarity(orig_text, para_text):
+            """
+            Advanced similarity computation with multiple metrics
+            """
+            # Clean texts
+            orig_clean = clean_text(orig_text).split()
+            para_clean = clean_text(para_text).split()
+            
+            # Compute word overlap
+            common_words = set(orig_clean) & set(para_clean)
+            total_words = set(orig_clean) | set(para_clean)
+            
+            # Overlap metrics
+            overlap_ratio = len(common_words) / len(total_words) if total_words else 0
+            
+            # Length similarity
+            length_similarity = 1 - abs(len(orig_clean) - len(para_clean)) / max(len(orig_clean), len(para_clean))
+            
+            # Semantic keyword preservation
+            semantic_keywords = {
+                'navigation': ['destination', 'target', 'ahead', 'forward', 'go'],
+                'direction': ['left', 'right', 'north', 'south', 'east', 'west'],
+                'movement': ['turn', 'move', 'go', 'continue']
+            }
+            
             keyword_preservation = {
                 category: any(
-                    keyword in orig_words or keyword in para_words 
+                    keyword in orig_clean or keyword in para_clean 
                     for keyword in keywords
                 )
                 for category, keywords in semantic_keywords.items()
             }
-            
-            # Structural similarity (length and relative position)
-            length_similarity = 1 - abs(len(orig_words) - len(para_words)) / max(len(orig_words), len(para_words))
             
             # Compute overall similarity score
             similarity_score = (
@@ -362,38 +515,18 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
             return {
                 'similarity_score': similarity_score,
                 'overlap_ratio': overlap_ratio,
-                'keyword_preservation': keyword_preservation,
-                'length_similarity': length_similarity
+                'length_similarity': length_similarity,
+                'keyword_preservation': keyword_preservation
             }
-        
-        def extract_spatial_features(text):
-            """
-            Extract spatial features with more flexible and comprehensive approach
-            """
-            text_lower = text.lower()
-            
-            # Expanded feature extraction
-            features = {
-                'directions': re.findall(r'\b(north|south|east|west|left|right|ahead|forward|back|backward)\b', text_lower),
-                'landmarks': re.findall(r'\b(building|road|chute|structure|area|ramp|target|destination)\b', text_lower),
-                'spatial_relations': re.findall(r'\b(in front of|next to|near|beside|across|over|under)\b', text_lower),
-                'movement_verbs': re.findall(r'\b(turn|move|go|fly|navigate|approach|head)\b', text_lower)
-            }
-            
-            return features
-        
-        # Preprocess texts
-        orig_words = preprocess_text(original)
-        para_words = preprocess_text(paraphrase)
-        
-        # Compute text similarity
-        similarity_metrics = compute_text_similarity(orig_words, para_words)
         
         # Extract spatial features
         orig_features = extract_spatial_features(original)
         para_features = extract_spatial_features(paraphrase)
         
-        # Compute feature preservation
+        # Compute similarity
+        similarity_metrics = compute_similarity(original, paraphrase)
+        
+        # Feature preservation check
         feature_preservation = {
             category: any(
                 term in para_features[category] 
@@ -402,19 +535,25 @@ Provide ONLY the paraphrases, no explanations: [/INST]"""
             for category in orig_features.keys()
         }
         
-        # Validation logic
+        # Validation logic for positive paraphrases
         if is_positive:
-            # Positive paraphrase should maintain semantic and spatial integrity
+            # Positive paraphrase should:
+            # 1. Have high similarity score
+            # 2. Preserve most spatial features
             spatial_terms_preserved = (
                 similarity_metrics['similarity_score'] > 0.5 and
-                all(feature_preservation.values())
+                sum(feature_preservation.values()) / len(feature_preservation) > 0.7
             )
             validation_result = spatial_terms_preserved
+        
+        # Validation logic for negative paraphrases
         else:
-            # Negative paraphrase should differ significantly
+            # Negative paraphrase should:
+            # 1. Have low similarity score
+            # 2. Change most spatial features
             spatial_terms_changed = (
                 similarity_metrics['similarity_score'] < 0.4 or
-                not all(feature_preservation.values())
+                sum(feature_preservation.values()) / len(feature_preservation) < 0.3
             )
             validation_result = spatial_terms_changed
         
