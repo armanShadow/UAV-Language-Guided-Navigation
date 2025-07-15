@@ -75,9 +75,10 @@ class ComprehensiveContrastivePipeline:
             logger.info("Loading ValidationPipeline...")
             self.validation_pipeline = ValidationPipeline(embedding_model=self.validation_model)
             
-            success = self.validation_pipeline.load_model()
-            if not success:
-                logger.error("Failed to initialize ValidationPipeline")
+            # ValidationPipeline automatically loads the embedding model in __init__
+            # Check if tokenizer and model are loaded
+            if not self.validation_pipeline.tokenizer or not self.validation_pipeline.model:
+                logger.error("Failed to initialize ValidationPipeline - embedding model not loaded")
                 return False
             
             logger.info("✅ All pipeline components initialized successfully")
@@ -100,20 +101,22 @@ class ComprehensiveContrastivePipeline:
             logger.info("Generating paraphrases...")
             generation_result = self.generation_pipeline.generate_paraphrases(instruction, strategy=strategy)
             
-            if not generation_result.get('success', False):
-                logger.error(f"Generation failed: {generation_result.get('error', 'Unknown error')}")
+            # ParaphraseGenerationPipeline returns {'positives': [...], 'negatives': [...]} directly
+            positives = generation_result.get('positives', [])
+            negatives = generation_result.get('negatives', [])
+            
+            # Check if generation was successful (has any paraphrases)
+            if not positives and not negatives:
+                logger.error("Generation failed: No paraphrases generated")
                 self.stats['failed_generations'] += 1
                 return {
                     'success': False,
-                    'failure_reason': f"Generation failed: {generation_result.get('error', 'Unknown')}",
+                    'failure_reason': "Generation failed: No paraphrases generated",
                     'positives': [],
                     'negatives': [],
                     'validation_report': {},
                     'processing_time': time.time() - start_time
                 }
-            
-            positives = generation_result.get('positives', [])
-            negatives = generation_result.get('negatives', [])
             
             logger.info(f"Generated {len(positives)} positives, {len(negatives)} negatives")
             
@@ -196,34 +199,34 @@ class ComprehensiveContrastivePipeline:
             # Validate positives
             positive_scores = []
             for positive in positives:
-                result = self.validation_pipeline.validate_positive(original, positive)
+                result = self.validation_pipeline.validate_positive_paraphrase(original, positive)
                 report['validation_details']['positive_results'].append({
                     'paraphrase': positive,
                     'is_valid': result['is_valid'],
-                    'score': result['score'],
+                    'score': result.get('combined_score', result.get('embedding_similarity', 0.0)),
                     'failure_reasons': result.get('failure_reasons', [])
                 })
                 
                 if result['is_valid']:
                     report['valid_positives'].append(positive)
                 
-                positive_scores.append(result['score'])
+                positive_scores.append(result.get('combined_score', result.get('embedding_similarity', 0.0)))
             
             # Validate negatives
             negative_scores = []
             for negative in negatives:
-                result = self.validation_pipeline.validate_negative(original, negative)
+                result = self.validation_pipeline.validate_negative_paraphrase(original, negative)
                 report['validation_details']['negative_results'].append({
                     'paraphrase': negative,
                     'is_valid': result['is_valid'],
-                    'score': result['score'],
+                    'score': result.get('embedding_similarity', 0.0),
                     'failure_reasons': result.get('failure_reasons', [])
                 })
                 
                 if result['is_valid']:
                     report['valid_negatives'].append(negative)
                 
-                negative_scores.append(result['score'])
+                negative_scores.append(result.get('embedding_similarity', 0.0))
             
             # Calculate summary statistics
             if positives:
