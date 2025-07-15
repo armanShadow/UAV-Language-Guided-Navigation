@@ -66,13 +66,12 @@ class SimpleBatchPipeline:
             
             logger.info("✅ Mixtral loaded successfully")
             
-            # Load validation model (sentence transformer)
-            logger.info("Loading validation model...")
-            self.validation_tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-            self.validation_model = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to(self.device)
-            self.validation_model.eval()
+            # Load validation pipeline (use the real one)
+            logger.info("Loading validation pipeline...")
+            from validation_pipeline import ValidationPipeline
+            self.validation_pipeline = ValidationPipeline()
             
-            logger.info("✅ Validation model loaded successfully")
+            logger.info("✅ Validation pipeline loaded successfully")
             return True
             
         except Exception as e:
@@ -157,106 +156,67 @@ NO EXPLANATIONS OR NOTES - ONLY THE PARAPHRASES. [/INST]"""
         
         return {'positives': positives, 'negatives': negatives}
     
-    def simple_validation(self, original: str, positives: List[str], negatives: List[str]) -> Dict:
-        """Simple validation with proper quality scoring and consistent logic."""
-        
-        # Enhanced validation criteria
-        def is_valid_paraphrase(text, is_positive=True):
-            if not text or len(text.strip()) < 10:
-                return False, "Too short"
+    def validate_paraphrases(self, original: str, positives: List[str], negatives: List[str]) -> Dict:
+        """Use the real validation pipeline with proper success criteria."""
+        try:
+            # Use the real validation pipeline
+            validation_result = self.validation_pipeline.validate_paraphrases(
+                original_instruction=original,
+                positive_paraphrases=positives,
+                negative_paraphrases=negatives
+            )
             
-            words = text.lower().split()
-            if len(words) < 3:
-                return False, "Insufficient words"
+            # Extract valid paraphrases
+            valid_positives = validation_result.get('valid_positives', [])
+            valid_negatives = validation_result.get('valid_negatives', [])
             
-            # Check for navigation words
-            navigation_words = ['turn', 'go', 'head', 'move', 'fly', 'navigate', 'proceed', 'advance', 'steer', 'pivot', 'reverse']
-            has_navigation = any(word in text.lower() for word in navigation_words)
+            # SUCCESS CRITERIA: Require 2 valid positives AND 1 valid negative
+            success = len(valid_positives) >= 2 and len(valid_negatives) >= 1
             
-            # Check for spatial words
-            spatial_words = ['left', 'right', 'north', 'south', 'east', 'west', 'forward', 'backward', 'building', 'road', 'o\'clock', 'clock', 'parking', 'destination', 'target', 'direction']
-            has_spatial = any(word in text.lower() for word in spatial_words)
+            # Calculate quality scores (use the real pipeline's scores if available)
+            quality_assessment = validation_result.get('quality_assessment', {})
+            if not quality_assessment:
+                # Fallback quality calculation
+                avg_positive_quality = 0.8 if valid_positives else 0.0
+                avg_negative_quality = 0.8 if valid_negatives else 0.0
+                quality_assessment = {
+                    'avg_positive_quality': avg_positive_quality,
+                    'avg_negative_quality': avg_negative_quality
+                }
             
-            if not has_navigation:
-                return False, "No navigation words"
-            if not has_spatial:
-                return False, "No spatial words"
-                
-            return True, "Valid"
-        
-        # Calculate quality scores (0.0 to 1.0)
-        def calculate_quality_score(text, original_text):
-            if not text:
-                return 0.0
-            
-            # Basic quality factors
-            length_score = min(len(text.split()) / 10, 1.0)  # Normalize to 10 words
-            spatial_words = ['left', 'right', 'north', 'south', 'east', 'west', 'forward', 'building', 'road', 'o\'clock', 'destination']
-            spatial_score = min(sum(1 for word in spatial_words if word in text.lower()) / 3, 1.0)
-            
-            # Combine scores
-            return (length_score * 0.4 + spatial_score * 0.6)
-        
-        # Validate positives
-        valid_positives = []
-        positive_quality_scores = []
-        positive_failures = []
-        
-        for i, pos in enumerate(positives):
-            is_valid, reason = is_valid_paraphrase(pos, is_positive=True)
-            quality_score = calculate_quality_score(pos, original)
-            positive_quality_scores.append(quality_score)
-            
-            if is_valid:
-                valid_positives.append(pos)
-            else:
-                positive_failures.append(f"Positive {i+1}: {reason}")
-        
-        # Validate negatives
-        valid_negatives = []
-        negative_quality_scores = []
-        negative_failures = []
-        
-        for i, neg in enumerate(negatives):
-            is_valid, reason = is_valid_paraphrase(neg, is_positive=False)
-            quality_score = calculate_quality_score(neg, original)
-            negative_quality_scores.append(quality_score)
-            
-            if is_valid:
-                valid_negatives.append(neg)
-            else:
-                negative_failures.append(f"Negative {i+1}: {reason}")
-        
-        # Calculate averages
-        avg_positive_quality = sum(positive_quality_scores) / len(positive_quality_scores) if positive_quality_scores else 0.0
-        avg_negative_quality = sum(negative_quality_scores) / len(negative_quality_scores) if negative_quality_scores else 0.0
-        
-        # Determine success - require at least 1 valid positive AND 1 valid negative
-        success = len(valid_positives) >= 1 and len(valid_negatives) >= 1
-        
-        return {
-            'success': success,
-            'valid_positives': valid_positives,
-            'valid_negatives': valid_negatives,
-            'validation_summary': {
-                'valid_positives': len(valid_positives),
-                'valid_negatives': len(valid_negatives)
-            },
-            'quality_assessment': {
-                'avg_positive_quality': avg_positive_quality,
-                'avg_negative_quality': avg_negative_quality,
-                'positive_scores': positive_quality_scores,
-                'negative_scores': negative_quality_scores
-            },
-            'failure_reasons': {
-                'positive_failures': positive_failures,
-                'negative_failures': negative_failures
+            return {
+                'success': success,
+                'valid_positives': valid_positives,
+                'valid_negatives': valid_negatives,
+                'validation_summary': {
+                    'valid_positives': len(valid_positives),
+                    'valid_negatives': len(valid_negatives)
+                },
+                'quality_assessment': quality_assessment,
+                'detailed_validation': validation_result
             }
-        }
+            
+        except Exception as e:
+            logger.error(f"Validation error: {e}")
+            # Fallback validation
+            return {
+                'success': False,
+                'valid_positives': [],
+                'valid_negatives': [],
+                'validation_summary': {
+                    'valid_positives': 0,
+                    'valid_negatives': 0
+                },
+                'quality_assessment': {
+                    'avg_positive_quality': 0.0,
+                    'avg_negative_quality': 0.0
+                },
+                'error': str(e)
+            }
     
     def process_instructions(self, instructions: List[str]) -> List[Dict]:
         """Process a list of instructions with simple batch processing."""
-        if not self.generation_model or not self.validation_model:
+        if not self.generation_model or not self.validation_pipeline:
             logger.error("Models not loaded. Call load_models() first.")
             return []
         
@@ -287,7 +247,7 @@ NO EXPLANATIONS OR NOTES - ONLY THE PARAPHRASES. [/INST]"""
                 parsed = self.parse_response(response)
                 
                 # Simple validation
-                validation = self.simple_validation(instruction, parsed['positives'], parsed['negatives'])
+                validation = self.validate_paraphrases(instruction, parsed['positives'], parsed['negatives'])
                 
                 # Create result - use only VALID paraphrases, not all generated ones
                 result = {
@@ -299,7 +259,7 @@ NO EXPLANATIONS OR NOTES - ONLY THE PARAPHRASES. [/INST]"""
                     'negatives': validation['valid_negatives'],  # Only valid ones
                     'validation_summary': validation['validation_summary'],
                     'quality_assessment': validation['quality_assessment'],
-                    'failure_reasons': validation['failure_reasons']
+                    'failure_reasons': validation['detailed_validation'].get('failure_reasons', {}) # Use detailed validation for failure reasons
                 }
                 
                 batch_results.append(result)
