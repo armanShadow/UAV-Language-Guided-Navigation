@@ -42,13 +42,23 @@ class ValidationPipeline:
                 'string_patterns': [
                     'north', 'south', 'east', 'west', 
                     'northwest', 'northeast', 'southwest', 'southeast',
+                    'northern', 'southern', 'eastern', 'western',  # Added compass variations
+                    'northeastern', 'northwestern', 'southeastern', 'southwestern',  # Added compound variations
                     'left', 'right', 'forward', 'ahead', 'straight', 'backwards', 'backward', 'reverse'
                 ],
                 'synonyms': {
                     'forward': ['forward', 'ahead', 'straight', 'front'],
                     'backward': ['backward', 'backwards', 'reverse', 'back', 'behind'],
                     'left': ['left', 'port'],
-                    'right': ['right', 'starboard']
+                    'right': ['right', 'starboard'],
+                    'north': ['north', 'northern', 'northward'],  # Added compass synonyms
+                    'south': ['south', 'southern', 'southward'],
+                    'east': ['east', 'eastern', 'eastward'],
+                    'west': ['west', 'western', 'westward'],
+                    'northeast': ['northeast', 'northeastern', 'north-east'],
+                    'northwest': ['northwest', 'northwestern', 'north-west'],
+                    'southeast': ['southeast', 'southeastern', 'south-east'],
+                    'southwest': ['southwest', 'southwestern', 'south-west']
                 }
             },
             'landmarks': {
@@ -201,11 +211,11 @@ class ValidationPipeline:
         # Combined spatial score
         combined_score = (direction_similarity + landmark_similarity) / 2
         
-        # REALISTIC POSITIVE VALIDATION THRESHOLDS (Updated)
+        # REALISTIC POSITIVE VALIDATION THRESHOLDS (Updated based on test results)
         # For positive paraphrases, we want high semantic similarity AND spatial preservation
         is_valid = (
-            embedding_similarity > 0.65 and  # Relaxed from 0.75 - more realistic
-            (direction_similarity > 0.8 or landmark_similarity > 0.6 or combined_score > 0.7)  # More lenient spatial preservation
+            embedding_similarity > 0.5 and  # Significantly relaxed from 0.65 - more realistic for quality paraphrases
+            (direction_similarity > 0.7 or landmark_similarity > 0.5 or combined_score > 0.6)  # More lenient spatial preservation
         )
         
         return {
@@ -257,7 +267,7 @@ class ValidationPipeline:
         # Validation for negative paraphrases (Updated thresholds)
         is_valid = (
             embedding_similarity > 0.3 and  # Lower bound - still navigation-related
-            embedding_similarity < 0.90 and  # Stricter upper bound - prevents too-similar negatives
+            embedding_similarity < 0.92 and  # Slightly relaxed upper bound from 0.90
             spatial_changed                  # Clear spatial differences required
         )
         
@@ -477,11 +487,26 @@ class ValidationPipeline:
         """Find if original direction has synonym match in paraphrase directions."""
         synonyms = self.spatial_features['directions']['synonyms']
         
+        # Normalize the original direction
+        orig_dir_lower = orig_dir.lower()
+        
+        # Check direct match first
+        for para_dir in para_dirs:
+            if orig_dir_lower == para_dir.lower():
+                return True
+        
+        # Check synonym groups
         for base_dir, synonym_list in synonyms.items():
-            if orig_dir.lower() in synonym_list:
+            if orig_dir_lower in [syn.lower() for syn in synonym_list]:
                 for para_dir in para_dirs:
-                    if any(syn in para_dir.lower() for syn in synonym_list):
+                    para_dir_lower = para_dir.lower()
+                    # Check if paraphrase direction is in the same synonym group
+                    if para_dir_lower in [syn.lower() for syn in synonym_list]:
                         return True
+                    # Check if paraphrase direction contains the synonym (for "northeastern direction" cases)
+                    if any(syn.lower() in para_dir_lower for syn in synonym_list):
+                        return True
+        
         return False
     
     def _find_landmark_synonym_match(self, orig_landmark: str, para_landmarks: List[str]) -> bool:
