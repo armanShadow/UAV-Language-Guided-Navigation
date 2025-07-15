@@ -25,7 +25,7 @@ class OptimizedBatchPipeline:
     Batch size 4, optimized for 10 GPU setup.
     """
     
-    def __init__(self, batch_size: int = 4):
+    def __init__(self, batch_size: int = 2):  # Reduced from 4 to 2 for memory efficiency
         self.batch_size = batch_size
         self.num_gpus = torch.cuda.device_count()
         self.generation_pipeline = None
@@ -33,14 +33,15 @@ class OptimizedBatchPipeline:
         self.loaded = False
         
         logger.info(f"🚀 Initializing Optimized Batch Pipeline")
-        logger.info(f"   Batch size: {self.batch_size}")
+        logger.info(f"   Batch size: {self.batch_size} (memory-optimized)")
         logger.info(f"   Available GPUs: {self.num_gpus}")
         
-        # Clear GPU memory
+        # Aggressive GPU memory cleanup
         if torch.cuda.is_available():
             for i in range(self.num_gpus):
                 with torch.cuda.device(i):
                     torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
     
     def initialize(self) -> bool:
         """Initialize generation and validation pipelines."""
@@ -231,61 +232,125 @@ Requirements:
 [/INST]"""
     
     def _generate_batch_responses(self, prompts: List[str]) -> List[str]:
-        """Generate responses for multiple prompts simultaneously."""
+        """Generate responses for multiple prompts with aggressive memory management."""
         try:
-            logger.info(f"    🔥 Batch inference: {len(prompts)} prompts simultaneously")
+            logger.info(f"    🔥 Memory-optimized batch inference: {len(prompts)} prompts")
             
-            # Clear memory
-            torch.cuda.empty_cache()
+            # Aggressive memory cleanup before processing
+            self._aggressive_memory_cleanup()
             
             # Set up tokenizer for batch processing
             if self.generation_pipeline.tokenizer.pad_token is None:
                 self.generation_pipeline.tokenizer.pad_token = self.generation_pipeline.tokenizer.eos_token
             
-            # Tokenize all prompts together
-            inputs = self.generation_pipeline.tokenizer(
-                prompts,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=1000
-            )
-            
-            # Move to model device
-            model_device = next(self.generation_pipeline.model.parameters()).device
-            inputs = {k: v.to(model_device) for k, v in inputs.items()}
-            
-            # Generate responses
-            with torch.no_grad():
-                outputs = self.generation_pipeline.model.generate(
-                    **inputs,
-                    max_new_tokens=200,
-                    temperature=0.7,
-                    do_sample=True,
-                    top_p=0.9,
-                    pad_token_id=self.generation_pipeline.tokenizer.pad_token_id,
-                    eos_token_id=self.generation_pipeline.tokenizer.eos_token_id,
-                    use_cache=False
+            # More conservative tokenization settings
+            try:
+                inputs = self.generation_pipeline.tokenizer(
+                    prompts,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=600  # Reduced from 1000 to save memory
                 )
-            
-            # Decode responses
-            responses = []
-            for i, output in enumerate(outputs):
-                input_length = inputs['input_ids'][i].shape[0]
-                generated_tokens = output[input_length:]
-                response = self.generation_pipeline.tokenizer.decode(
-                    generated_tokens, skip_special_tokens=True
-                ).strip()
-                responses.append(response)
-            
-            # Cleanup
-            del inputs, outputs
-            torch.cuda.empty_cache()
-            
-            return responses
-            
+                
+                # Move to model device
+                model_device = next(self.generation_pipeline.model.parameters()).device
+                inputs = {k: v.to(model_device) for k, v in inputs.items()}
+                
+                # Memory-efficient generation settings
+                with torch.no_grad():
+                    outputs = self.generation_pipeline.model.generate(
+                        **inputs,
+                        max_new_tokens=150,  # Reduced from 200
+                        temperature=0.7,
+                        do_sample=True,
+                        top_p=0.9,
+                        pad_token_id=self.generation_pipeline.tokenizer.pad_token_id,
+                        eos_token_id=self.generation_pipeline.tokenizer.eos_token_id,
+                        use_cache=False,  # Disable cache to save memory
+                        return_dict_in_generate=False,  # Save memory
+                        output_attentions=False,  # Save memory
+                        output_hidden_states=False  # Save memory
+                    )
+                
+                # Decode responses
+                responses = []
+                for i, output in enumerate(outputs):
+                    input_length = inputs['input_ids'][i].shape[0]
+                    generated_tokens = output[input_length:]
+                    response = self.generation_pipeline.tokenizer.decode(
+                        generated_tokens, skip_special_tokens=True
+                    ).strip()
+                    responses.append(response)
+                
+                # Immediate cleanup
+                del inputs, outputs, generated_tokens
+                self._aggressive_memory_cleanup()
+                
+                return responses
+                
+            except torch.cuda.OutOfMemoryError as e:
+                logger.error(f"    ❌ CUDA OOM during batch processing: {e}")
+                logger.info(f"    🔄 Falling back to sequential processing")
+                
+                # Fallback to sequential processing
+                self._aggressive_memory_cleanup()
+                responses = []
+                
+                for i, prompt in enumerate(prompts):
+                    try:
+                        self._aggressive_memory_cleanup()
+                        
+                        # Process single prompt
+                        inputs = self.generation_pipeline.tokenizer(
+                            prompt,
+                            return_tensors="pt",
+                            truncation=True,
+                            max_length=600
+                        )
+                        
+                        model_device = next(self.generation_pipeline.model.parameters()).device
+                        inputs = {k: v.to(model_device) for k, v in inputs.items()}
+                        
+                        with torch.no_grad():
+                            outputs = self.generation_pipeline.model.generate(
+                                **inputs,
+                                max_new_tokens=150,
+                                temperature=0.7,
+                                do_sample=True,
+                                top_p=0.9,
+                                pad_token_id=self.generation_pipeline.tokenizer.pad_token_id,
+                                eos_token_id=self.generation_pipeline.tokenizer.eos_token_id,
+                                use_cache=False,
+                                return_dict_in_generate=False,
+                                output_attentions=False,
+                                output_hidden_states=False
+                            )
+                        
+                        # Decode
+                        input_length = inputs['input_ids'].shape[1]
+                        generated_tokens = outputs[0][input_length:]
+                        response = self.generation_pipeline.tokenizer.decode(
+                            generated_tokens, skip_special_tokens=True
+                        ).strip()
+                        responses.append(response)
+                        
+                        # Cleanup after each
+                        del inputs, outputs, generated_tokens
+                        self._aggressive_memory_cleanup()
+                        
+                        logger.info(f"    ✅ Sequential prompt {i+1}/{len(prompts)} completed")
+                        
+                    except Exception as e:
+                        logger.error(f"    ❌ Error processing prompt {i+1}: {e}")
+                        responses.append("")
+                        self._aggressive_memory_cleanup()
+                
+                return responses
+                
         except Exception as e:
             logger.error(f"❌ Batch generation failed: {e}")
+            self._aggressive_memory_cleanup()
             return [""] * len(prompts)
     
     def _parse_response(self, response: str) -> Dict[str, List[str]]:
@@ -344,6 +409,17 @@ Requirements:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         logger.info("✅ Pipeline cleanup complete")
+
+    def _aggressive_memory_cleanup(self):
+        """Perform aggressive memory cleanup across all GPUs."""
+        if torch.cuda.is_available():
+            for i in range(self.num_gpus):
+                try:
+                    with torch.cuda.device(i):
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                except Exception as e:
+                    logger.warning(f"Memory cleanup failed on GPU {i}: {e}")
 
 def main():
     """Test the optimized batch pipeline."""

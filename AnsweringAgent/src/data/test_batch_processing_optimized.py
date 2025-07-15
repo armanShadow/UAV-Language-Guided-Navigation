@@ -95,10 +95,11 @@ def test_batch_processing_performance():
     print("🚀 OPTIMIZED BATCH PROCESSING TEST")
     print("="*80)
     print("📊 Configuration:")
-    print("   - Batch size: 4 instructions")
-    print("   - Processing: True parallel batch inference")
+    print("   - Batch size: 2 instructions (memory-optimized)")
+    print("   - Processing: True parallel batch inference with fallback")
     print("   - Examples: Real AVDN dataset")
     print("   - Validation: Comprehensive with detailed reporting")
+    print("   - Memory: Aggressive cleanup and conservative settings")
     print("="*80)
     
     # Load real examples
@@ -111,8 +112,8 @@ def test_batch_processing_performance():
     try:
         from true_batch_processing_pipeline import TrueBatchProcessingPipeline
         
-        # Initialize with batch size 4
-        pipeline = TrueBatchProcessingPipeline(batch_size=4)
+        # Initialize with batch size 2 for memory efficiency
+        pipeline = TrueBatchProcessingPipeline(batch_size=2)
         
         logger.info("📦 Loading models across all GPUs...")
         if not pipeline.initialize():
