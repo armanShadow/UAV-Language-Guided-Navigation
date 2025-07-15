@@ -15,9 +15,6 @@ from typing import List, Dict, Tuple, Optional
 import logging
 from pathlib import Path
 
-# Set PyTorch memory allocator for better GPU memory management
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,66 +58,12 @@ class ParaphraseGenerationPipeline:
                 llm_int8_has_fp16_weight=False,
             )
             
-            # Create explicit device mapping for even distribution across all 10 GPUs
-            # Mixtral-8x7B has multiple layers that need to be distributed evenly
-            available_gpus = torch.cuda.device_count()
-            logger.info(f"Distributing model across {available_gpus} GPUs")
-            
-            # Create a more explicit device map to ensure even distribution
-            # Instead of letting auto decide, we'll be more explicit about distribution
-            device_map = {}
-            
-            # Distribute the model layers more evenly
-            if available_gpus >= 8:
-                # For 8+ GPUs, distribute more evenly
-                device_map = {
-                    "model.embed_tokens": 0,
-                    "model.layers.0": 0,
-                    "model.layers.1": 0,
-                    "model.layers.2": 0,
-                    "model.layers.3": 0,
-                    "model.layers.4": 1,
-                    "model.layers.5": 1,
-                    "model.layers.6": 1,
-                    "model.layers.7": 1,
-                    "model.layers.8": 2,
-                    "model.layers.9": 2,
-                    "model.layers.10": 2,
-                    "model.layers.11": 2,
-                    "model.layers.12": 3,
-                    "model.layers.13": 3,
-                    "model.layers.14": 3,
-                    "model.layers.15": 3,
-                    "model.layers.16": 4,
-                    "model.layers.17": 4,
-                    "model.layers.18": 4,
-                    "model.layers.19": 4,
-                    "model.layers.20": 5,
-                    "model.layers.21": 5,
-                    "model.layers.22": 5,
-                    "model.layers.23": 5,
-                    "model.layers.24": 6,
-                    "model.layers.25": 6,
-                    "model.layers.26": 6,
-                    "model.layers.27": 6,
-                    "model.layers.28": 7,
-                    "model.layers.29": 7,
-                    "model.layers.30": 7,
-                    "model.layers.31": 7,
-                    "model.norm": 8,
-                    "lm_head": 9,
-                }
-            else:
-                # Fallback to auto for fewer GPUs
-                device_map = "auto"
-            
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
                 torch_dtype=torch.float16,
-                device_map=device_map,  # Use explicit distribution
+                device_map="auto",
                 trust_remote_code=True,
-                quantization_config=quantization_config,
-                low_cpu_mem_usage=True,
+                quantization_config=quantization_config
             )
             
             # Enable gradient checkpointing to reduce memory usage

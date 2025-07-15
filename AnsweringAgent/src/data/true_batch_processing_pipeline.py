@@ -14,9 +14,6 @@ from pathlib import Path
 import os
 import re
 
-# Set up for efficient GPU usage
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
