@@ -96,15 +96,15 @@ def test_mixtral_paraphrasing():
     print("="*80)
     
     # Load test instructions
-    test_instructions = load_random_avdn_examples(num_examples=8)
+    test_instructions = load_random_avdn_examples(num_examples=6)
     print(f"📊 Loaded {len(test_instructions)} test instructions")
     
     print("\n📝 Test Instructions:")
     for i, instruction in enumerate(test_instructions, 1):
         print(f"  {i}. {instruction}")
     
-    # Initialize TRUE BATCH PROCESSING pipeline
-    print(f"\n🔧 Initializing TRUE BATCH PROCESSING Pipeline...")
+    # Test TRUE BATCH PROCESSING pipeline
+    print("\n🔧 Initializing TRUE BATCH PROCESSING Pipeline...")
     try:
         from true_batch_processing_pipeline import TrueBatchProcessingPipeline
         print("✅ TRUE BATCH pipeline imported successfully")
@@ -113,7 +113,7 @@ def test_mixtral_paraphrasing():
         return False
     
     # Initialize pipeline
-    pipeline = TrueBatchProcessingPipeline(batch_size=4)
+    pipeline = TrueBatchProcessingPipeline(batch_size=3)
     
     print("⏳ Loading Mixtral-8x7B-Instruct model...")
     load_start = time.time()
