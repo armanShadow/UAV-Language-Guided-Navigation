@@ -14,6 +14,9 @@ from pathlib import Path
 import os
 import re
 
+# Set PyTorch memory allocator to avoid fragmentation (as recommended by PyTorch)
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
