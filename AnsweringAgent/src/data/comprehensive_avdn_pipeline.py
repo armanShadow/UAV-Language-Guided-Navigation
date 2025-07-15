@@ -560,7 +560,7 @@ def main():
     """Run the comprehensive AVDN pipeline with options for testing or full processing."""
     
     # Configuration - Change these for different modes
-    TEST_MODE = True  # Set to False for full dataset processing
+    TEST_MODE = False  # Set to False for full dataset processing
     MAX_TEST_EPISODES = 2  # For testing mode only
     
     pipeline = ComprehensiveAVDNPipeline()
