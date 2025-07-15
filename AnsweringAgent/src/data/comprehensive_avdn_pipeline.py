@@ -16,6 +16,7 @@ FEATURES:
 ✅ AVDN dataset structure preservation (keeps Turn 0, adds paraphrases to answers)
 ✅ Memory optimization for 10-GPU setup
 ✅ Comprehensive validation reports and statistics
+✅ Full dataset processing (train, val_seen, val_unseen)
 
 ARCHITECTURE:
 - Generation: ParaphraseGenerationPipeline (GPUs 0-8, Mixtral distributed)
@@ -57,6 +58,7 @@ class ComprehensiveAVDNPipeline:
     2. Comprehensive spatial validation with UAV awareness (GPU 9)
     3. AVDN dataset structure preservation
     4. Memory-optimized processing for 10-GPU setup
+    5. Full dataset processing (train, val_seen, val_unseen)
     
     This replaces all previous separate components with one comprehensive solution.
     """
@@ -65,22 +67,30 @@ class ComprehensiveAVDNPipeline:
         self.generation_pipeline = None
         self.validation_pipeline = None
         
-        # Dataset paths
-        self.dataset_path = "processed_data/train_data.json"
-        self.output_path = "augmented_data/train_data_with_paraphrases.json"
+        # Dataset paths for all splits
+        self.dataset_paths = {
+            'train': "processed_data/train_data.json",
+            'val_seen': "processed_data/val_seen_data.json", 
+            'val_unseen': "processed_data/val_unseen_data.json"
+        }
         
-        # Statistics
+        # Output paths for all splits
+        self.output_paths = {
+            'train': "augmented_data/train_data_with_paraphrases.json",
+            'val_seen': "augmented_data/val_seen_data_with_paraphrases.json",
+            'val_unseen': "augmented_data/val_unseen_data_with_paraphrases.json"
+        }
+        
+        # Statistics tracking for all splits
         self.stats = {
-            'total_episodes': 0,
-            'total_dialog_turns_with_answers': 0,
-            'successful_paraphrases': 0,
-            'failed_paraphrases': 0
+            'train': {'total_episodes': 0, 'total_dialog_turns_with_answers': 0, 'successful_paraphrases': 0, 'failed_paraphrases': 0},
+            'val_seen': {'total_episodes': 0, 'total_dialog_turns_with_answers': 0, 'successful_paraphrases': 0, 'failed_paraphrases': 0},
+            'val_unseen': {'total_episodes': 0, 'total_dialog_turns_with_answers': 0, 'successful_paraphrases': 0, 'failed_paraphrases': 0}
         }
         
         logger.info(f"🚀 Comprehensive AVDN Pipeline initialized")
-        logger.info(f"🎯 Goal: Add paraphrases to dialog turns with answers")
-        logger.info(f"📂 Input: {self.dataset_path}")
-        logger.info(f"💾 Output: {self.output_path}")
+        logger.info(f"🎯 Goal: Add paraphrases to dialog turns with answers across all splits")
+        logger.info(f"📂 Dataset splits: {list(self.dataset_paths.keys())}")
         logger.info(f"🔧 Features: Mixtral generation + comprehensive spatial validation")
         logger.info(f"🎮 Hardware: 10-GPU setup (GPUs 0-8: Mixtral, GPU 9: validation)")
     
@@ -118,40 +128,51 @@ class ComprehensiveAVDNPipeline:
             logger.error(f"❌ Pipeline initialization failed: {e}")
             return False
     
-    def load_avdn_dataset(self, max_episodes: Optional[int] = None) -> List[Dict]:
+    def load_avdn_dataset(self, split: str, max_episodes: Optional[int] = None) -> List[Dict]:
         """
-        Load AVDN dataset keeping original structure.
+        Load AVDN dataset for a specific split keeping original structure.
         
         Args:
+            split: Dataset split ('train', 'val_seen', 'val_unseen')
             max_episodes: Maximum number of episodes to process (None for all)
             
         Returns:
             List of episodes in original AVDN format
         """
         try:
-            logger.info(f"📂 Loading AVDN dataset from {self.dataset_path}...")
+            if split not in self.dataset_paths:
+                raise ValueError(f"Unknown split: {split}. Must be one of {list(self.dataset_paths.keys())}")
             
-            with open(self.dataset_path, 'r') as f:
+            dataset_path = self.dataset_paths[split]
+            logger.info(f"📂 Loading AVDN {split} dataset from {dataset_path}...")
+            
+            if not Path(dataset_path).exists():
+                logger.error(f"❌ Dataset file not found: {dataset_path}")
+                return []
+            
+            with open(dataset_path, 'r') as f:
                 episodes = json.load(f)
             
-            # Limit episodes if specified
+            # Limit episodes if specified (useful for testing)
             if max_episodes:
                 episodes = episodes[:max_episodes]
+                logger.info(f"📊 Limited to {max_episodes} episodes for testing")
             
-            logger.info(f"📊 Loaded {len(episodes)} episodes")
+            logger.info(f"📊 Loaded {len(episodes)} episodes from {split} split")
             
             return episodes
             
         except Exception as e:
-            logger.error(f"❌ Error loading dataset: {e}")
+            logger.error(f"❌ Error loading {split} dataset: {e}")
             return []
     
-    def augment_episode(self, episode: Dict) -> Dict:
+    def augment_episode(self, episode: Dict, split: str) -> Dict:
         """
         Augment a single episode by adding paraphrases to dialog turns with answers.
         
         Args:
             episode: Original episode in AVDN format
+            split: Dataset split name for statistics tracking
             
         Returns:
             Augmented episode with paraphrases added to applicable dialog turns
@@ -192,13 +213,13 @@ class ComprehensiveAVDNPipeline:
                         'validation_analysis': paraphrases_result['validation_report']
                     }
                     
-                    self.stats['successful_paraphrases'] += 1
+                    self.stats[split]['successful_paraphrases'] += 1
                     logger.info(f"  ✅ Turn {turn_idx}: Added paraphrases ({len(paraphrases_result['valid_positives'])} positives, {len(paraphrases_result['valid_negatives'])} negatives)")
                 else:
-                    self.stats['failed_paraphrases'] += 1
+                    self.stats[split]['failed_paraphrases'] += 1
                     logger.error(f"  ❌ Turn {turn_idx}: Failed to generate paraphrases")
                 
-                self.stats['total_dialog_turns_with_answers'] += 1
+                self.stats[split]['total_dialog_turns_with_answers'] += 1
             else:
                 # No answer or answer too short - keep dialog turn as-is
                 if turn_idx == 0:
@@ -210,7 +231,7 @@ class ComprehensiveAVDNPipeline:
         
         # Update the episode with augmented dialogs
         augmented_episode['dialogs'] = augmented_dialogs
-        self.stats['total_episodes'] += 1
+        self.stats[split]['total_episodes'] += 1
         
         logger.info(f"✅ Episode {episode['episode_id']} processed")
         return augmented_episode
@@ -319,30 +340,31 @@ class ComprehensiveAVDNPipeline:
             logger.error(f"Validation error: {e}")
             return {'success': False, 'error': str(e)}
     
-    def process_episodes(self, episodes: List[Dict]) -> List[Dict]:
+    def process_episodes(self, episodes: List[Dict], split: str) -> List[Dict]:
         """
         Process multiple episodes by adding paraphrases.
         This is just a simple loop, not parallel processing.
         
         Args:
             episodes: List of episodes to process
+            split: Dataset split name for statistics tracking
             
         Returns:
             List of augmented episodes
         """
-        logger.info(f"🚀 Processing {len(episodes)} episodes...")
+        logger.info(f"🚀 Processing {len(episodes)} episodes from {split} split...")
         
         augmented_episodes = []
         
         for i, episode in enumerate(episodes, 1):
-            logger.info(f"📝 Processing episode {i}/{len(episodes)}: {episode['episode_id']}")
+            logger.info(f"📝 Processing episode {i}/{len(episodes)}: {episode['episode_id']} ({split})")
             
             # Process single episode
-            augmented_episode = self.augment_episode(episode)
+            augmented_episode = self.augment_episode(episode, split)
             augmented_episodes.append(augmented_episode)
             
             # Log progress
-            success_rate = self.stats['successful_paraphrases'] / max(1, self.stats['total_dialog_turns_with_answers'])
+            success_rate = self.stats[split]['successful_paraphrases'] / max(1, self.stats[split]['total_dialog_turns_with_answers'])
             logger.info(f"📊 Progress: {i}/{len(episodes)} episodes | Paraphrase success rate: {success_rate:.2%}")
             
             # Cleanup between episodes
@@ -350,33 +372,147 @@ class ComprehensiveAVDNPipeline:
         
         return augmented_episodes
     
-    def save_augmented_dataset(self, augmented_episodes: List[Dict]) -> bool:
+    def process_all_splits(self, max_episodes_per_split: Optional[int] = None) -> Dict[str, bool]:
+        """
+        Process all AVDN dataset splits (train, val_seen, val_unseen).
+        
+        Args:
+            max_episodes_per_split: Maximum episodes to process per split (None for all)
+            
+        Returns:
+            Dictionary with success status for each split
+        """
+        results = {}
+        overall_start_time = time.time()
+        
+        for split in ['train', 'val_seen', 'val_unseen']:
+            logger.info(f"\n{'='*60}")
+            logger.info(f"🚀 Processing {split.upper()} dataset split")
+            logger.info(f"{'='*60}")
+            
+            split_start_time = time.time()
+            
+            try:
+                # Load dataset for this split
+                episodes = self.load_avdn_dataset(split, max_episodes_per_split)
+                
+                if not episodes:
+                    logger.error(f"❌ No episodes loaded for {split} split")
+                    results[split] = False
+                    continue
+                
+                # Show what we're processing
+                logger.info(f"📊 {split} dataset overview:")
+                answers_count = 0
+                for episode in episodes:
+                    dialogs = episode.get('dialogs', [])
+                    episode_answers = sum(1 for d in dialogs if d.get('answer') and d['answer'].strip())
+                    answers_count += episode_answers
+                
+                logger.info(f"  Episodes: {len(episodes)}")
+                logger.info(f"  Dialog turns with answers: {answers_count}")
+                
+                # Process episodes for this split
+                augmented_episodes = self.process_episodes(episodes, split)
+                
+                # Save results for this split
+                if self.save_augmented_dataset(augmented_episodes, split):
+                    results[split] = True
+                    split_time = time.time() - split_start_time
+                    logger.info(f"✅ {split} split completed successfully in {split_time:.2f}s")
+                else:
+                    results[split] = False
+                    logger.error(f"❌ Failed to save {split} split results")
+                
+            except Exception as e:
+                logger.error(f"❌ Error processing {split} split: {e}")
+                results[split] = False
+        
+        # Final summary
+        overall_time = time.time() - overall_start_time
+        logger.info(f"\n{'='*60}")
+        logger.info(f"📊 PROCESSING COMPLETE - Total time: {overall_time:.2f}s")
+        logger.info(f"{'='*60}")
+        
+        successful_splits = [split for split, success in results.items() if success]
+        failed_splits = [split for split, success in results.items() if not success]
+        
+        logger.info(f"✅ Successful splits: {successful_splits}")
+        if failed_splits:
+            logger.error(f"❌ Failed splits: {failed_splits}")
+        
+        # Detailed statistics
+        self._log_final_statistics()
+        
+        return results
+    
+    def save_augmented_dataset(self, augmented_episodes: List[Dict], split: str) -> bool:
         """
         Save augmented dataset maintaining original AVDN structure.
         
         Args:
             augmented_episodes: List of augmented episodes
+            split: Dataset split name
             
         Returns:
             Success status
         """
         try:
+            output_path = self.output_paths[split]
+            
             # Create output directory if it doesn't exist
-            output_dir = Path(self.output_path).parent
+            output_dir = Path(output_path).parent
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            logger.info(f"💾 Saving {len(augmented_episodes)} augmented episodes to {self.output_path}...")
+            logger.info(f"💾 Saving {len(augmented_episodes)} augmented episodes to {output_path}...")
             
             # Save in exact same format as original AVDN dataset
-            with open(self.output_path, 'w') as f:
+            with open(output_path, 'w') as f:
                 json.dump(augmented_episodes, f, indent=2)
             
-            logger.info(f"✅ Augmented dataset saved successfully")
+            logger.info(f"✅ Augmented {split} dataset saved successfully")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error saving dataset: {e}")
+            logger.error(f"❌ Error saving {split} dataset: {e}")
             return False
+    
+    def _log_final_statistics(self):
+        """Log comprehensive final statistics for all splits."""
+        logger.info(f"\n📊 COMPREHENSIVE STATISTICS:")
+        logger.info(f"{'='*50}")
+        
+        total_episodes = 0
+        total_turns = 0
+        total_successful = 0
+        total_failed = 0
+        
+        for split, split_stats in self.stats.items():
+            if split_stats['total_episodes'] > 0:  # Only show splits that were processed
+                success_rate = split_stats['successful_paraphrases'] / max(1, split_stats['total_dialog_turns_with_answers'])
+                
+                logger.info(f"\n🎯 {split.upper()} SPLIT:")
+                logger.info(f"  Episodes processed: {split_stats['total_episodes']}")
+                logger.info(f"  Dialog turns with answers: {split_stats['total_dialog_turns_with_answers']}")
+                logger.info(f"  Successful paraphrases: {split_stats['successful_paraphrases']}")
+                logger.info(f"  Failed paraphrases: {split_stats['failed_paraphrases']}")
+                logger.info(f"  Success rate: {success_rate:.2%}")
+                
+                total_episodes += split_stats['total_episodes']
+                total_turns += split_stats['total_dialog_turns_with_answers']
+                total_successful += split_stats['successful_paraphrases']
+                total_failed += split_stats['failed_paraphrases']
+        
+        if total_episodes > 0:
+            overall_success_rate = total_successful / max(1, total_turns)
+            logger.info(f"\n🎯 OVERALL TOTALS:")
+            logger.info(f"  Total episodes: {total_episodes}")
+            logger.info(f"  Total dialog turns with answers: {total_turns}")
+            logger.info(f"  Total successful paraphrases: {total_successful}")
+            logger.info(f"  Total failed paraphrases: {total_failed}")
+            logger.info(f"  Overall success rate: {overall_success_rate:.2%}")
+        
+        logger.info(f"{'='*50}")
     
     def _cleanup_generation_gpus(self):
         """Cleanup GPUs 0-8 (generation GPUs)."""
@@ -421,7 +557,11 @@ class ComprehensiveAVDNPipeline:
         return self.stats.copy()
 
 def main():
-    """Run the comprehensive AVDN pipeline with first few episodes for testing."""
+    """Run the comprehensive AVDN pipeline with options for testing or full processing."""
+    
+    # Configuration - Change these for different modes
+    TEST_MODE = True  # Set to False for full dataset processing
+    MAX_TEST_EPISODES = 2  # For testing mode only
     
     pipeline = ComprehensiveAVDNPipeline()
     
@@ -431,50 +571,74 @@ def main():
             logger.error("❌ Pipeline initialization failed")
             return
         
-        # Load dataset (first 2 episodes for testing)
-        logger.info("📂 Loading first few AVDN episodes...")
-        episodes = pipeline.load_avdn_dataset(max_episodes=2)  # Small test
-        
-        if not episodes:
-            logger.error("❌ No episodes loaded")
-            return
-        
-        # Show what we're processing
-        logger.info(f"📊 Episodes to process:")
-        for episode in episodes:
-            dialogs = episode.get('dialogs', [])
-            answers_count = sum(1 for d in dialogs if d.get('answer') and d['answer'].strip())
-            logger.info(f"  {episode['episode_id']}: {len(dialogs)} dialog turns, {answers_count} with answers")
-        
-        # Process episodes
-        logger.info("\n=== Processing Episodes ===")
-        start_time = time.time()
-        
-        augmented_episodes = pipeline.process_episodes(episodes)
-        
-        total_time = time.time() - start_time
-        
-        # Save results
-        logger.info("\n=== Saving Results ===")
-        if pipeline.save_augmented_dataset(augmented_episodes):
-            logger.info("✅ Dataset saved successfully")
+        if TEST_MODE:
+            # Test mode: Process a few episodes from train split
+            logger.info("🧪 TESTING MODE: Processing few episodes from train split")
+            logger.info("📂 Loading first few AVDN episodes...")
+            episodes = pipeline.load_avdn_dataset(split='train', max_episodes=MAX_TEST_EPISODES)
+            
+            if not episodes:
+                logger.error("❌ No episodes loaded")
+                return
+            
+            # Show what we're processing
+            logger.info(f"📊 Episodes to process:")
+            for episode in episodes:
+                dialogs = episode.get('dialogs', [])
+                answers_count = sum(1 for d in dialogs if d.get('answer') and d['answer'].strip())
+                logger.info(f"  {episode['episode_id']}: {len(dialogs)} dialog turns, {answers_count} with answers")
+            
+            # Process episodes
+            logger.info("\n=== Processing Episodes ===")
+            start_time = time.time()
+            
+            augmented_episodes = pipeline.process_episodes(episodes, 'train')
+            
+            total_time = time.time() - start_time
+            
+            # Save results
+            logger.info("\n=== Saving Results ===")
+            if pipeline.save_augmented_dataset(augmented_episodes, 'train'):
+                logger.info("✅ Dataset saved successfully")
+            else:
+                logger.error("❌ Failed to save dataset")
+            
+            # Show final statistics
+            stats = pipeline.get_statistics()
+            logger.info(f"\n📊 Final Statistics:")
+            for split, split_stats in stats.items():
+                if split_stats['total_episodes'] > 0:
+                    logger.info(f"Dataset Split: {split}")
+                    logger.info(f"Episodes processed: {split_stats['total_episodes']}")
+                    logger.info(f"Dialog turns with answers: {split_stats['total_dialog_turns_with_answers']}")
+                    logger.info(f"Successful paraphrases: {split_stats['successful_paraphrases']}")
+                    logger.info(f"Failed paraphrases: {split_stats['failed_paraphrases']}")
+                    if split_stats['total_dialog_turns_with_answers'] > 0:
+                        success_rate = split_stats['successful_paraphrases'] / split_stats['total_dialog_turns_with_answers']
+                        logger.info(f"Success rate: {success_rate:.2%}")
+            logger.info(f"Total processing time: {total_time:.2f}s")
+            
         else:
-            logger.error("❌ Failed to save dataset")
-        
-        # Show final statistics
-        stats = pipeline.get_statistics()
-        logger.info(f"\n📊 Final Statistics:")
-        logger.info(f"Episodes processed: {stats['total_episodes']}")
-        logger.info(f"Dialog turns with answers: {stats['total_dialog_turns_with_answers']}")
-        logger.info(f"Successful paraphrases: {stats['successful_paraphrases']}")
-        logger.info(f"Failed paraphrases: {stats['failed_paraphrases']}")
-        if stats['total_dialog_turns_with_answers'] > 0:
-            success_rate = stats['successful_paraphrases'] / stats['total_dialog_turns_with_answers']
-            logger.info(f"Success rate: {success_rate:.2%}")
-        logger.info(f"Total processing time: {total_time:.2f}s")
+            # Full processing mode: Process all dataset splits
+            logger.info("🚀 FULL PROCESSING MODE: Processing all dataset splits")
+            logger.info("📊 This will process train, val_seen, and val_unseen splits")
+            
+            # Process all splits
+            results = pipeline.process_all_splits()
+            
+            # Final summary
+            successful_splits = [split for split, success in results.items() if success]
+            failed_splits = [split for split, success in results.items() if not success]
+            
+            logger.info(f"\n🎯 FINAL RESULTS:")
+            logger.info(f"✅ Successfully processed: {successful_splits}")
+            if failed_splits:
+                logger.error(f"❌ Failed to process: {failed_splits}")
+            else:
+                logger.info("🎉 All splits processed successfully!")
         
     except Exception as e:
-        logger.error(f"❌ Pipeline test failed: {e}")
+        logger.error(f"❌ Pipeline failed: {e}")
     finally:
         # Final cleanup
         pipeline._cleanup_all_gpus()

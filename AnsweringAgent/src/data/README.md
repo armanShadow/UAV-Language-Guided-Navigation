@@ -15,92 +15,79 @@ This directory contains the essential components for processing the AVDN dataset
   - Multi-word landmark handling (parking lot)
   - UAV navigation terminology awareness
 - **Processing**: Sequential episode processing with memory optimization
-- **Output**: Augmented AVDN dataset with paraphrases field added to dialog turns
+- **Dataset Coverage**: ALL three AVDN splits (train, val_seen, val_unseen)
+- **Output**: Augmented AVDN datasets with paraphrases field added to dialog turns
+- **Modes**: Test mode (few episodes) and Full mode (entire dataset)
 - **Usage**: `python comprehensive_avdn_pipeline.py`
+
+**Dataset Processing:**
+- **Input**: `processed_data/{train,val_seen,val_unseen}_data.json`
+- **Output**: `augmented_data/{train,val_seen,val_unseen}_data_with_paraphrases.json`
+- **Statistics**: Comprehensive tracking across all splits
+- **Processing Time**: ~2-5 min (test), ~3-8 hours (full dataset)
 
 *This replaces all previous separate components (avdn_dataset_augmenter, paraphrase_validator, paraphrase_generator) with one unified solution.*
 
 ### `paraphrase_generation_pipeline.py`
-**Paraphrase generation component**
+**Paraphrase generation component (cleaned)**
 - Uses Mixtral-8x7B-Instruct model for text generation
-- Generates positive and negative paraphrases
-- Handles spatial term preservation for navigation instructions
+- Generates positive and negative paraphrases with strategic spatial changes
 - Memory-optimized for multi-GPU distributed inference
+- **Cleaned**: Removed redundant spatial extraction (handled by validation pipeline)
+- **Cleaned**: Removed test functions (handled by comprehensive pipeline)
 
 ### `validation_pipeline.py`
-**Paraphrase validation component**
+**Paraphrase validation component (comprehensive)**
 - Uses sentence-transformers for embedding similarity
-- Validates positive paraphrases (preserve meaning)
-- Validates negative paraphrases (change meaning appropriately)
-- Includes spatial feature analysis for navigation context
+- **Comprehensive spatial feature extraction** with regex patterns and synonyms
+- Validates positive paraphrases for spatial preservation
+- Validates negative paraphrases for appropriate spatial changes
+- Clock direction recognition and landmark synonym matching
+- **Cleaned**: Removed test functions (handled by comprehensive pipeline)
 
-## Dataset Processing Files
+## Architecture Benefits
 
-### `analyze_dataset_patterns.py`
-**Dataset analysis utilities**
-- Analyzes AVDN dataset structure and patterns
-- Extracts statistics about dialog turns and answers
-- Identifies spatial terms and navigation language patterns
+### ✅ **Redundancy Elimination:**
+- **Single spatial extraction**: Only in validation pipeline (comprehensive version)
+- **Single testing interface**: Only in comprehensive pipeline
+- **No duplicate dataset loading**: Centralized in comprehensive pipeline
+- **Clean separation**: Generation focuses on text creation, validation on quality assessment
 
-### `format_avdn_dataset.py`
-**Dataset formatting utilities**
-- Preprocesses raw AVDN dataset
-- Formats dialog structure for pipeline processing
-- Handles coordinate transformations and metadata
+### 🔧 **Modular Design:**
+- **ParaphraseGenerationPipeline**: Pure text generation (GPUs 0-8)
+- **ValidationPipeline**: Pure validation logic (GPU 9)
+- **ComprehensiveAVDNPipeline**: Orchestrates both + dataset handling
 
-### `dataset.py`
-**Dataset loading and processing**
-- Core dataset loading functionality
-- Handles different dataset splits (train/val)
-- Provides data iteration and batching utilities
-
-### `Normalizer.py`
-**Text normalization utilities**
-- Normalizes spatial terms and navigation language
-- Handles coordinate system conversions
-- Standardizes text formatting for consistency
-
-## Data Directories
-
-### `processed_data/`
-- `train_data.json` - Processed AVDN training data
-- `val_seen_data.json` - Validation data (seen environments)
-- `val_unseen_data.json` - Validation data (unseen environments)
-- `metadata.json` - Dataset statistics and metadata
-
-### `augmented_data/`
-- Output directory for augmented datasets
-- `avdn_dialog_answers_augmented.json` - Augmented dialog answers with paraphrases
-
-## GPU Configuration
-
-- **GPUs 0-8**: Mixtral model distributed inference (paraphrase generation)
-- **GPU 9**: Validation model (embedding similarity and spatial analysis)
+### 🚀 **Performance Optimized:**
+- No redundant feature extraction during generation
+- Comprehensive validation ensures quality
+- Memory-optimized GPU usage across 10 GPUs
 
 ## Usage
 
-1. **Process AVDN dataset**:
-   ```bash
-   python correct_avdn_pipeline.py
-   ```
+### Quick Test
+```bash
+python comprehensive_avdn_pipeline.py  # TEST_MODE = True (default)
+```
 
-2. **Analyze dataset patterns**:
-   ```bash
-   python analyze_dataset_patterns.py
-   ```
+### Full Processing
+Edit `comprehensive_avdn_pipeline.py`:
+```python
+TEST_MODE = False  # Process all splits
+```
+Then run:
+```bash
+python comprehensive_avdn_pipeline.py
+```
 
-3. **Format raw dataset** (if needed):
-   ```bash
-   python format_avdn_dataset.py
-   ```
+## Dataset Analysis
 
-## Output Format
+### `analyze_dataset_patterns.py`
+Analyzes AVDN dataset for spatial patterns and navigation terminology.
 
-The augmented dataset contains dialog answers with:
-- Original question and answer
-- Generated positive paraphrases (preserve meaning)
-- Generated negative paraphrases (change meaning)
-- Validation analysis and quality scores
-- Processing metadata and timestamps
+### `contrastive_sample_generator.py`
+Generates contrastive learning samples for model training.
 
-This augmented data is used to train the AnsweringAgent to generate appropriate responses to navigation questions. 
+### Supporting Files
+- `dataset.py` - Core dataset loading utilities
+- `Normalizer.py` - Text normalization for consistency 

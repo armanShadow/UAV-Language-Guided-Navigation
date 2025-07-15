@@ -559,54 +559,7 @@ class ValidationPipeline:
             'paraphrase': para_features
         }
 
-# Test function
-def test_validation_pipeline():
-    """Test the validation pipeline."""
-    pipeline = ValidationPipeline()
-    
-    print("=== Validation Pipeline Test ===")
-    print(f"Device: {pipeline.device}")
-    
-    # Test 1: Model loading
-    print("\n1. Testing embedding model loading...")
-    if pipeline.load_embedding_model():
-        print("✅ Embedding model loaded successfully")
-    else:
-        print("❌ Embedding model loading failed")
-        return
-    
-    # Test 2: Feature extraction
-    print("\n2. Testing spatial feature extraction...")
-    test_instruction = "Turn right and fly over the white building at 3 o'clock"
-    features = pipeline.extract_spatial_features(test_instruction)
-    print(f"Original: {test_instruction}")
-    print(f"Features: {features}")
-    
-    # Test 3: Positive validation
-    print("\n3. Testing positive paraphrase validation...")
-    positive_paraphrase = "Make a right turn and navigate above the white structure at 3 o'clock"
-    pos_result = pipeline.validate_positive_paraphrase(test_instruction, positive_paraphrase)
-    print(f"Positive: {positive_paraphrase}")
-    print(f"Valid: {pos_result['is_valid']}")
-    print(f"Scores: embedding={pos_result['embedding_similarity']:.3f}, direction={pos_result['direction_similarity']:.3f}, landmark={pos_result['landmark_similarity']:.3f}")
-    
-    # Test 4: Negative validation
-    print("\n4. Testing negative paraphrase validation...")
-    negative_paraphrase = "Turn left and fly over the gray building at 9 o'clock"
-    neg_result = pipeline.validate_negative_paraphrase(test_instruction, negative_paraphrase)
-    print(f"Negative: {negative_paraphrase}")
-    print(f"Valid: {neg_result['is_valid']}")
-    print(f"Changed: direction={neg_result['direction_changed']}, landmark={neg_result['landmark_changed']}")
-    
-    # Test 5: Batch validation
-    print("\n5. Testing batch validation...")
-    positives = [positive_paraphrase, "Go right and soar over the white edifice at 3 o'clock"]
-    negatives = [negative_paraphrase]
-    
-    batch_result = pipeline.validate_paraphrase_batch(test_instruction, positives, negatives)
-    print(f"Summary: {batch_result['summary']}")
-    
-    print("\n=== Validation Pipeline Test Complete ===")
-
 if __name__ == "__main__":
-    test_validation_pipeline() 
+    # Simple import test - comprehensive testing is handled by comprehensive_avdn_pipeline.py
+    logger.info("ValidationPipeline can be imported successfully")
+    logger.info("Use comprehensive_avdn_pipeline.py for full testing and processing") 
