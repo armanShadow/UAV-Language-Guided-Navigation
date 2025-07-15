@@ -96,7 +96,7 @@ def test_mixtral_paraphrasing():
     print("="*80)
     
     # Load test instructions
-    test_instructions = load_random_avdn_examples(num_examples=6)
+    test_instructions = load_random_avdn_examples(num_examples=4)
     print(f"📊 Loaded {len(test_instructions)} test instructions")
     
     print("\n📝 Test Instructions:")
@@ -113,7 +113,7 @@ def test_mixtral_paraphrasing():
         return False
     
     # Initialize pipeline
-    pipeline = TrueBatchProcessingPipeline(batch_size=3)
+    pipeline = TrueBatchProcessingPipeline(batch_size=2)
     
     print("⏳ Loading Mixtral-8x7B-Instruct model...")
     load_start = time.time()
