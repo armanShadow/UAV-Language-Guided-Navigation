@@ -106,7 +106,7 @@ def test_mixtral_paraphrasing():
     # Test TRUE BATCH PROCESSING pipeline
     print("\n🔧 Initializing TRUE BATCH PROCESSING Pipeline...")
     try:
-        from true_batch_processing_pipeline import TrueBatchProcessingPipeline
+        from simple_batch_pipeline import TrueBatchProcessingPipeline
         print("✅ TRUE BATCH pipeline imported successfully")
     except ImportError as e:
         print(f"❌ Failed to import TRUE BATCH pipeline: {e}")
