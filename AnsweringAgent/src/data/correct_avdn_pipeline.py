@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Correct AVDN Pipeline
-Focuses on dialog answers (turn 1+) for AnsweringAgent training.
-- Skips first instruction (no paraphrasing needed)
-- Paraphrases dialog answers for turns 1+
-- Augments dataset for AnsweringAgent training
+Augments AVDN dataset by adding paraphrases to dialog turns that have answers.
+- Keeps original AVDN structure exactly the same
+- Only adds 'paraphrases' field to dialog turns with answers
+- Preserves Turn 0 (important for AnsweringAgent context)
 """
 
 import os
@@ -15,7 +15,6 @@ import torch
 import gc
 from typing import List, Dict, Optional
 from pathlib import Path
-import random
 
 # Import only the essential components
 from paraphrase_generation_pipeline import ParaphraseGenerationPipeline
@@ -27,41 +26,37 @@ logger = logging.getLogger(__name__)
 
 class CorrectAVDNPipeline:
     """
-    Correct pipeline for AVDN dataset processing.
+    Pipeline that augments AVDN dataset by adding paraphrases to dialog answers.
     - Generation: GPUs 0-8 (Mixtral distributed)
     - Validation: GPU 9 (dedicated)
-    - Focus: Dialog answers (turn 1+) for AnsweringAgent training
+    - Keeps original AVDN structure intact
     """
     
-    def __init__(self, validation_batch_size: int = 4):
-        self.validation_batch_size = validation_batch_size
+    def __init__(self):
         self.generation_pipeline = None
         self.validation_pipeline = None
         
         # Dataset paths
         self.dataset_path = "processed_data/train_data.json"
-        self.output_path = "augmented_data/avdn_dialog_answers_augmented.json"
+        self.output_path = "augmented_data/train_data_with_paraphrases.json"
         
         # Statistics
         self.stats = {
             'total_episodes': 0,
-            'total_dialog_turns': 0,
-            'total_answers_processed': 0,
-            'successful_generations': 0,
-            'failed_generations': 0,
-            'validation_success_rate': 0.0
+            'total_dialog_turns_with_answers': 0,
+            'successful_paraphrases': 0,
+            'failed_paraphrases': 0
         }
         
         logger.info(f"🔧 Correct AVDN Pipeline initialized")
-        logger.info(f"🎯 Focus: Dialog answers (turn 1+) for AnsweringAgent training")
-        logger.info(f"📊 Validation batch size: {validation_batch_size}")
-        logger.info(f"📂 Dataset: {self.dataset_path}")
+        logger.info(f"🎯 Goal: Add paraphrases to dialog turns with answers")
+        logger.info(f"📂 Input: {self.dataset_path}")
         logger.info(f"💾 Output: {self.output_path}")
     
     def initialize(self) -> bool:
         """Initialize pipelines with proper GPU placement."""
         try:
-            logger.info("🚀 Initializing correct pipeline...")
+            logger.info("🚀 Initializing pipeline...")
             
             # Initialize generation pipeline (GPUs 0-8)
             logger.info("📝 Loading ParaphraseGenerationPipeline (GPUs 0-8)...")
@@ -85,7 +80,7 @@ class CorrectAVDNPipeline:
                 logger.warning("⚠️ GPU 9 not available, using default device")
             
             self._log_memory_status("After initialization")
-            logger.info("✅ Correct pipeline initialized successfully")
+            logger.info("✅ Pipeline initialized successfully")
             return True
             
         except Exception as e:
@@ -94,13 +89,13 @@ class CorrectAVDNPipeline:
     
     def load_avdn_dataset(self, max_episodes: Optional[int] = None) -> List[Dict]:
         """
-        Load AVDN dataset and extract dialog answers for paraphrasing.
+        Load AVDN dataset keeping original structure.
         
         Args:
             max_episodes: Maximum number of episodes to process (None for all)
             
         Returns:
-            List of dialog answers that need paraphrasing
+            List of episodes in original AVDN format
         """
         try:
             logger.info(f"📂 Loading AVDN dataset from {self.dataset_path}...")
@@ -108,82 +103,99 @@ class CorrectAVDNPipeline:
             with open(self.dataset_path, 'r') as f:
                 episodes = json.load(f)
             
-            # Process episodes to extract dialog answers
-            dialog_answers = []
+            # Limit episodes if specified
+            if max_episodes:
+                episodes = episodes[:max_episodes]
             
-            for episode in episodes:
-                episode_id = episode['episode_id']
-                dialogs = episode.get('dialogs', [])
-                
-                # Skip episodes without dialogs
-                if not dialogs:
-                    continue
-                
-                # Process each dialog turn (skip turn 0 - no question/answer)
-                for turn_idx, dialog in enumerate(dialogs):
-                    if turn_idx == 0:
-                        # Skip first turn (no question/answer)
-                        continue
-                    
-                    question = dialog.get('question')
-                    answer = dialog.get('answer')
-                    
-                    # Skip if no question or answer
-                    if not question or not answer:
-                        continue
-                    
-                    # Skip if answer is too short
-                    if len(answer.strip().split()) < 3:
-                        continue
-                    
-                    # Create dialog answer entry
-                    dialog_answer = {
-                        'episode_id': episode_id,
-                        'turn_id': turn_idx,
-                        'question': question.strip(),
-                        'answer': answer.strip(),
-                        'first_instruction': episode.get('first_instruction', '').strip(),
-                        'map_name': episode.get('map_name', ''),
-                        'observation': dialog.get('observation', {}),
-                        'original_episode': episode  # Keep reference
-                    }
-                    
-                    dialog_answers.append(dialog_answer)
-                    self.stats['total_dialog_turns'] += 1
-                
-                self.stats['total_episodes'] += 1
-                
-                # Limit episodes if specified
-                if max_episodes and self.stats['total_episodes'] >= max_episodes:
-                    break
+            logger.info(f"📊 Loaded {len(episodes)} episodes")
             
-            logger.info(f"📊 Loaded {len(dialog_answers)} dialog answers from {self.stats['total_episodes']} episodes")
-            logger.info(f"📊 Average {len(dialog_answers)/self.stats['total_episodes']:.1f} dialog turns per episode")
-            
-            return dialog_answers
+            return episodes
             
         except Exception as e:
             logger.error(f"❌ Error loading dataset: {e}")
             return []
     
-    def process_dialog_answer(self, dialog_answer: Dict) -> Dict:
+    def augment_episode(self, episode: Dict) -> Dict:
         """
-        Process a single dialog answer: generate paraphrases and validate.
+        Augment a single episode by adding paraphrases to dialog turns with answers.
         
         Args:
-            dialog_answer: Dialog answer dictionary
+            episode: Original episode in AVDN format
             
         Returns:
-            Augmented dialog answer with paraphrases and validation analysis
+            Augmented episode with paraphrases added to applicable dialog turns
         """
-        start_time = time.time()
-        answer = dialog_answer['answer']
+        logger.info(f"🔄 Processing episode {episode['episode_id']}...")
         
-        logger.info(f"🔄 Processing {dialog_answer['episode_id']}_T{dialog_answer['turn_id']}: {answer[:50]}...")
+        # Create a copy to avoid modifying the original
+        augmented_episode = episode.copy()
+        dialogs = episode.get('dialogs', [])
         
+        if not dialogs:
+            logger.info(f"  ⏭️ No dialogs in episode {episode['episode_id']}, skipping...")
+            return augmented_episode
+        
+        # Process each dialog turn
+        augmented_dialogs = []
+        
+        for turn_idx, dialog in enumerate(dialogs):
+            # Copy the original dialog
+            augmented_dialog = dialog.copy()
+            
+            # Check if this dialog turn has an answer
+            answer = dialog.get('answer')
+            
+            if answer and answer.strip() and len(answer.strip().split()) >= 3:
+                # This dialog turn has an answer - add paraphrases
+                logger.info(f"  📝 Turn {turn_idx}: Processing answer '{answer[:50]}...'")
+                
+                paraphrases_result = self._generate_and_validate_paraphrases(answer)
+                
+                if paraphrases_result['success']:
+                    # Add paraphrases field to this dialog turn
+                    augmented_dialog['paraphrases'] = {
+                        'positives': paraphrases_result['positives'],
+                        'negatives': paraphrases_result['negatives'],
+                        'valid_positives': paraphrases_result['valid_positives'],
+                        'valid_negatives': paraphrases_result['valid_negatives'],
+                        'validation_analysis': paraphrases_result['validation_report']
+                    }
+                    
+                    self.stats['successful_paraphrases'] += 1
+                    logger.info(f"  ✅ Turn {turn_idx}: Added paraphrases ({len(paraphrases_result['valid_positives'])} positives, {len(paraphrases_result['valid_negatives'])} negatives)")
+                else:
+                    self.stats['failed_paraphrases'] += 1
+                    logger.error(f"  ❌ Turn {turn_idx}: Failed to generate paraphrases")
+                
+                self.stats['total_dialog_turns_with_answers'] += 1
+            else:
+                # No answer or answer too short - keep dialog turn as-is
+                if turn_idx == 0:
+                    logger.info(f"  ⏭️ Turn {turn_idx}: No answer (normal for turn 0)")
+                else:
+                    logger.info(f"  ⏭️ Turn {turn_idx}: No valid answer, skipping paraphrases")
+            
+            augmented_dialogs.append(augmented_dialog)
+        
+        # Update the episode with augmented dialogs
+        augmented_episode['dialogs'] = augmented_dialogs
+        self.stats['total_episodes'] += 1
+        
+        logger.info(f"✅ Episode {episode['episode_id']} processed")
+        return augmented_episode
+    
+    def _generate_and_validate_paraphrases(self, answer: str) -> Dict:
+        """
+        Generate paraphrases for an answer and validate them.
+        
+        Args:
+            answer: Dialog answer to paraphrase
+            
+        Returns:
+            Dictionary with paraphrases and validation results
+        """
         try:
             # Step 1: Generate paraphrases (GPUs 0-8)
-            logger.info("📝 Generating paraphrases...")
             self._cleanup_generation_gpus()
             
             generation_result = self.generation_pipeline.generate_paraphrases(
@@ -195,55 +207,31 @@ class CorrectAVDNPipeline:
             negatives = generation_result.get('negatives', [])
             
             if not positives and not negatives:
-                logger.error("❌ Generation failed: No paraphrases generated")
-                return self._create_failed_result(dialog_answer, "Generation failed")
-            
-            logger.info(f"✅ Generated {len(positives)} positives, {len(negatives)} negatives")
+                return {'success': False, 'error': 'No paraphrases generated'}
             
             # Step 2: Validate paraphrases (GPU 9)
-            logger.info("🔍 Validating paraphrases...")
             validation_result = self._validate_paraphrases(answer, positives, negatives)
             
             if not validation_result['success']:
-                logger.error(f"❌ Validation failed: {validation_result.get('error', 'Unknown error')}")
-                return self._create_failed_result(dialog_answer, validation_result.get('error', 'Validation failed'))
+                return {'success': False, 'error': validation_result.get('error', 'Validation failed')}
             
-            # Step 3: Create augmented dialog answer
-            processing_time = time.time() - start_time
-            
-            augmented_dialog_answer = {
-                **dialog_answer,  # Keep original dialog data
-                'paraphrases': {
-                    'positives': positives,
-                    'negatives': negatives,
-                    'valid_positives': validation_result['valid_positives'],
-                    'valid_negatives': validation_result['valid_negatives']
-                },
-                'validation_analysis': validation_result['validation_report'],
-                'processing_metadata': {
-                    'processing_time': processing_time,
-                    'generation_success': True,
-                    'validation_success': validation_result['success'],
-                    'timestamp': time.time()
-                }
+            return {
+                'success': True,
+                'positives': positives,
+                'negatives': negatives,
+                'valid_positives': validation_result['valid_positives'],
+                'valid_negatives': validation_result['valid_negatives'],
+                'validation_report': validation_result['validation_report']
             }
             
-            # Update statistics
-            self.stats['successful_generations'] += 1
-            self.stats['total_answers_processed'] += 1
-            
-            logger.info(f"✅ Dialog answer processed successfully in {processing_time:.2f}s")
-            logger.info(f"📊 Valid: {len(validation_result['valid_positives'])} positives, {len(validation_result['valid_negatives'])} negatives")
-            
-            return augmented_dialog_answer
-            
         except Exception as e:
-            logger.error(f"❌ Error processing dialog answer: {e}")
-            return self._create_failed_result(dialog_answer, str(e))
+            logger.error(f"Error generating paraphrases: {e}")
+            return {'success': False, 'error': str(e)}
     
     def _validate_paraphrases(self, answer: str, positives: List[str], negatives: List[str]) -> Dict:
         """
         Validate paraphrases using GPU 9.
+        Note: This is sequential processing, not parallel.
         
         Args:
             answer: Original dialog answer
@@ -251,7 +239,7 @@ class CorrectAVDNPipeline:
             negatives: List of negative paraphrases
             
         Returns:
-            Validation results with detailed analysis
+            Validation results
         """
         try:
             # Ensure we're using GPU 9
@@ -266,43 +254,24 @@ class CorrectAVDNPipeline:
                 'validation_details': {
                     'positive_results': [],
                     'negative_results': []
-                },
-                'summary': {
-                    'positive_success_rate': 0.0,
-                    'negative_success_rate': 0.0,
-                    'overall_quality_score': 0.0
                 }
             }
             
-            # Validate positives
-            logger.info(f"🔍 Validating {len(positives)} positive paraphrases...")
-            for i, positive in enumerate(positives, 1):
+            # Validate positives (sequential, not parallel)
+            for positive in positives:
                 result = self.validation_pipeline.validate_positive_paraphrase(answer, positive)
                 validation_report['validation_details']['positive_results'].append(result)
                 
                 if result['is_valid']:
                     validation_report['valid_positives'].append(positive)
-                    logger.info(f"  ✅ Positive {i}/{len(positives)} valid")
-                else:
-                    logger.info(f"  ❌ Positive {i}/{len(positives)} invalid")
             
-            # Validate negatives
-            logger.info(f"🔍 Validating {len(negatives)} negative paraphrases...")
-            for i, negative in enumerate(negatives, 1):
+            # Validate negatives (sequential, not parallel)
+            for negative in negatives:
                 result = self.validation_pipeline.validate_negative_paraphrase(answer, negative)
                 validation_report['validation_details']['negative_results'].append(result)
                 
                 if result['is_valid']:
                     validation_report['valid_negatives'].append(negative)
-                    logger.info(f"  ✅ Negative {i}/{len(negatives)} valid")
-                else:
-                    logger.info(f"  ❌ Negative {i}/{len(negatives)} invalid")
-            
-            # Calculate summary statistics
-            if positives:
-                validation_report['summary']['positive_success_rate'] = len(validation_report['valid_positives']) / len(positives)
-            if negatives:
-                validation_report['summary']['negative_success_rate'] = len(validation_report['valid_negatives']) / len(negatives)
             
             # Cleanup GPU 9
             if torch.cuda.is_available():
@@ -316,69 +285,46 @@ class CorrectAVDNPipeline:
             }
             
         except Exception as e:
-            logger.error(f"❌ Validation error: {e}")
+            logger.error(f"Validation error: {e}")
             return {'success': False, 'error': str(e)}
     
-    def _create_failed_result(self, dialog_answer: Dict, error_message: str) -> Dict:
-        """Create a failed result entry."""
-        self.stats['failed_generations'] += 1
-        self.stats['total_answers_processed'] += 1
-        
-        return {
-            **dialog_answer,
-            'paraphrases': {
-                'positives': [],
-                'negatives': [],
-                'valid_positives': [],
-                'valid_negatives': []
-            },
-            'validation_analysis': {},
-            'processing_metadata': {
-                'processing_time': 0.0,
-                'generation_success': False,
-                'validation_success': False,
-                'error': error_message,
-                'timestamp': time.time()
-            }
-        }
-    
-    def process_batch(self, dialog_answers: List[Dict]) -> List[Dict]:
+    def process_episodes(self, episodes: List[Dict]) -> List[Dict]:
         """
-        Process a batch of dialog answers.
+        Process multiple episodes by adding paraphrases.
+        This is just a simple loop, not parallel processing.
         
         Args:
-            dialog_answers: List of dialog answers to process
+            episodes: List of episodes to process
             
         Returns:
-            List of augmented dialog answers
+            List of augmented episodes
         """
-        logger.info(f"🚀 Processing batch of {len(dialog_answers)} dialog answers...")
+        logger.info(f"🚀 Processing {len(episodes)} episodes...")
         
-        results = []
+        augmented_episodes = []
         
-        for i, dialog_answer in enumerate(dialog_answers, 1):
-            logger.info(f"📝 Processing {i}/{len(dialog_answers)}: {dialog_answer['episode_id']}_T{dialog_answer['turn_id']}")
+        for i, episode in enumerate(episodes, 1):
+            logger.info(f"📝 Processing episode {i}/{len(episodes)}: {episode['episode_id']}")
             
-            # Process single dialog answer
-            result = self.process_dialog_answer(dialog_answer)
-            results.append(result)
+            # Process single episode
+            augmented_episode = self.augment_episode(episode)
+            augmented_episodes.append(augmented_episode)
             
             # Log progress
-            if self.stats['total_answers_processed'] > 0:
-                success_rate = self.stats['successful_generations'] / self.stats['total_answers_processed']
-                logger.info(f"📊 Progress: {i}/{len(dialog_answers)} | Success rate: {success_rate:.2%}")
+            success_rate = self.stats['successful_paraphrases'] / max(1, self.stats['total_dialog_turns_with_answers'])
+            logger.info(f"📊 Progress: {i}/{len(episodes)} episodes | Paraphrase success rate: {success_rate:.2%}")
             
-            # Cleanup between dialog answers
+            # Cleanup between episodes
             self._cleanup_all_gpus()
         
-        return results
+        return augmented_episodes
     
-    def save_augmented_dataset(self, augmented_dialog_answers: List[Dict]) -> bool:
+    def save_augmented_dataset(self, augmented_episodes: List[Dict]) -> bool:
         """
-        Save augmented dataset to file.
+        Save augmented dataset maintaining original AVDN structure.
         
         Args:
-            augmented_dialog_answers: List of augmented dialog answers
+            augmented_episodes: List of augmented episodes
             
         Returns:
             Success status
@@ -388,22 +334,11 @@ class CorrectAVDNPipeline:
             output_dir = Path(self.output_path).parent
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            logger.info(f"💾 Saving {len(augmented_dialog_answers)} augmented dialog answers to {self.output_path}...")
+            logger.info(f"💾 Saving {len(augmented_episodes)} augmented episodes to {self.output_path}...")
             
-            # Save with metadata
-            output_data = {
-                'metadata': {
-                    'total_dialog_answers': len(augmented_dialog_answers),
-                    'processing_stats': self.stats,
-                    'timestamp': time.time(),
-                    'pipeline_version': 'CorrectAVDNPipeline_v1.0',
-                    'description': 'Augmented AVDN dialog answers for AnsweringAgent training'
-                },
-                'dialog_answers': augmented_dialog_answers
-            }
-            
+            # Save in exact same format as original AVDN dataset
             with open(self.output_path, 'w') as f:
-                json.dump(output_data, f, indent=2)
+                json.dump(augmented_episodes, f, indent=2)
             
             logger.info(f"✅ Augmented dataset saved successfully")
             return True
@@ -452,15 +387,12 @@ class CorrectAVDNPipeline:
     
     def get_statistics(self) -> Dict:
         """Get processing statistics."""
-        if self.stats['total_answers_processed'] > 0:
-            self.stats['validation_success_rate'] = self.stats['successful_generations'] / self.stats['total_answers_processed']
-        
         return self.stats.copy()
 
 def main():
-    """Test the correct AVDN pipeline with first batch of dialog answers."""
+    """Test the correct AVDN pipeline with first few episodes."""
     
-    pipeline = CorrectAVDNPipeline(validation_batch_size=4)
+    pipeline = CorrectAVDNPipeline()
     
     try:
         # Initialize pipeline
@@ -468,29 +400,32 @@ def main():
             logger.error("❌ Pipeline initialization failed")
             return
         
-        # Load dataset (first 4 episodes for testing)
-        logger.info("📂 Loading first batch of AVDN dialog answers...")
-        dialog_answers = pipeline.load_avdn_dataset(max_episodes=4)  # First 4 episodes
+        # Load dataset (first 2 episodes for testing)
+        logger.info("📂 Loading first few AVDN episodes...")
+        episodes = pipeline.load_avdn_dataset(max_episodes=2)  # Small test
         
-        if not dialog_answers:
-            logger.error("❌ No dialog answers loaded")
+        if not episodes:
+            logger.error("❌ No episodes loaded")
             return
         
-        logger.info(f"📊 Loaded {len(dialog_answers)} dialog answers for processing:")
-        for i, dialog_answer in enumerate(dialog_answers, 1):
-            logger.info(f"  {i}. {dialog_answer['episode_id']}_T{dialog_answer['turn_id']}: Q='{dialog_answer['question'][:40]}...' A='{dialog_answer['answer'][:40]}...'")
+        # Show what we're processing
+        logger.info(f"📊 Episodes to process:")
+        for episode in episodes:
+            dialogs = episode.get('dialogs', [])
+            answers_count = sum(1 for d in dialogs if d.get('answer') and d['answer'].strip())
+            logger.info(f"  {episode['episode_id']}: {len(dialogs)} dialog turns, {answers_count} with answers")
         
-        # Process batch
-        logger.info("\n=== Processing Dialog Answers ===")
+        # Process episodes
+        logger.info("\n=== Processing Episodes ===")
         start_time = time.time()
         
-        augmented_dialog_answers = pipeline.process_batch(dialog_answers)
+        augmented_episodes = pipeline.process_episodes(episodes)
         
         total_time = time.time() - start_time
         
         # Save results
         logger.info("\n=== Saving Results ===")
-        if pipeline.save_augmented_dataset(augmented_dialog_answers):
+        if pipeline.save_augmented_dataset(augmented_episodes):
             logger.info("✅ Dataset saved successfully")
         else:
             logger.error("❌ Failed to save dataset")
@@ -498,13 +433,14 @@ def main():
         # Show final statistics
         stats = pipeline.get_statistics()
         logger.info(f"\n📊 Final Statistics:")
-        logger.info(f"Total episodes processed: {stats['total_episodes']}")
-        logger.info(f"Total dialog answers processed: {stats['total_answers_processed']}")
-        logger.info(f"Successful generations: {stats['successful_generations']}")
-        logger.info(f"Failed generations: {stats['failed_generations']}")
-        logger.info(f"Success rate: {stats['validation_success_rate']:.2%}")
+        logger.info(f"Episodes processed: {stats['total_episodes']}")
+        logger.info(f"Dialog turns with answers: {stats['total_dialog_turns_with_answers']}")
+        logger.info(f"Successful paraphrases: {stats['successful_paraphrases']}")
+        logger.info(f"Failed paraphrases: {stats['failed_paraphrases']}")
+        if stats['total_dialog_turns_with_answers'] > 0:
+            success_rate = stats['successful_paraphrases'] / stats['total_dialog_turns_with_answers']
+            logger.info(f"Success rate: {success_rate:.2%}")
         logger.info(f"Total processing time: {total_time:.2f}s")
-        logger.info(f"Average time per dialog answer: {total_time/len(dialog_answers):.2f}s")
         
     except Exception as e:
         logger.error(f"❌ Pipeline test failed: {e}")
