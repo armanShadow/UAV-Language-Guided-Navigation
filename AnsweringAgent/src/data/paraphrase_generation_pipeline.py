@@ -54,36 +54,24 @@ class ParaphraseGenerationPipeline:
             
             logger.info("Loading Mixtral model...")
             
-            # Configure quantization for memory efficiency with CPU offloading
+            # Configure quantization for memory efficiency
             quantization_config = BitsAndBytesConfig(
                 load_in_8bit=True,
                 llm_int8_threshold=6.0,
                 llm_int8_has_fp16_weight=False,
-                llm_int8_enable_fp32_cpu_offload=True,  # Enable CPU offloading for insufficient GPU memory
             )
             
-            # Better memory distribution - ensure even distribution across all GPUs
-            # Instead of auto, use explicit balanced distribution
-            max_memory = {}
-            available_gpus = torch.cuda.device_count()
-            
-            # More conservative memory allocation to prevent OOM
-            for i in range(available_gpus):
-                max_memory[i] = "4GB"  # Very conservative per GPU to prevent OOM
-            max_memory["cpu"] = "60GB"  # More CPU memory for offloading
-            
-            # Use auto device mapping but with conservative memory limits
-            device_map = "auto"  # Use auto with conservative memory limits
-            
+            # Let the model use full GPU memory - no artificial limits
+            # With 10x RTX 2080 Ti (11GB each), we have 110GB total GPU memory
+            # The model should distribute naturally across all GPUs
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
                 torch_dtype=torch.float16,
-                device_map=device_map,  # Use auto with conservative memory
+                device_map="auto",  # Let transformers distribute optimally
                 trust_remote_code=True,
                 quantization_config=quantization_config,
-                max_memory=max_memory,  # Very conservative limits
-                low_cpu_mem_usage=True,  # Enable low CPU memory usage
-                offload_folder="./offload_cache",  # Offload to disk if needed
+                # No max_memory limits - use full GPU capacity
+                low_cpu_mem_usage=True,  # Still use efficient loading
             )
             
             # Enable gradient checkpointing to reduce memory usage

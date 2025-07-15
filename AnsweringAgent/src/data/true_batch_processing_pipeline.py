@@ -15,7 +15,7 @@ import os
 import re
 
 # Set up for efficient GPU usage with aggressive memory management
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:128"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
