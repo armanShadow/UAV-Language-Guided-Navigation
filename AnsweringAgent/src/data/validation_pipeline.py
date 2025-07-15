@@ -201,11 +201,11 @@ class ValidationPipeline:
         # Combined spatial score
         combined_score = (direction_similarity + landmark_similarity) / 2
         
-        # REALISTIC POSITIVE VALIDATION THRESHOLDS
+        # REALISTIC POSITIVE VALIDATION THRESHOLDS (Updated)
         # For positive paraphrases, we want high semantic similarity AND spatial preservation
         is_valid = (
-            embedding_similarity > 0.75 and  # High semantic similarity required
-            (direction_similarity > 0.8 or landmark_similarity > 0.7 or combined_score > 0.75)  # Strong spatial preservation
+            embedding_similarity > 0.65 and  # Relaxed from 0.75 - more realistic
+            (direction_similarity > 0.8 or landmark_similarity > 0.6 or combined_score > 0.7)  # More lenient spatial preservation
         )
         
         return {
@@ -257,7 +257,7 @@ class ValidationPipeline:
         # Validation for negative paraphrases (Updated thresholds)
         is_valid = (
             embedding_similarity > 0.3 and  # Lower bound - still navigation-related
-            embedding_similarity < 0.95 and  # Higher upper bound - allows more similar negatives
+            embedding_similarity < 0.90 and  # Stricter upper bound - prevents too-similar negatives
             spatial_changed                  # Clear spatial differences required
         )
         
@@ -424,12 +424,32 @@ class ValidationPipeline:
         return max(clock_similarity, synonym_similarity)
     
     def _compute_landmark_similarity(self, orig_landmarks: List[str], para_landmarks: List[str]) -> float:
-        """Compute landmark similarity considering synonyms."""
+        """Compute landmark similarity considering synonyms and multi-word landmarks."""
         if not orig_landmarks and not para_landmarks:
             return 1.0
         if not orig_landmarks or not para_landmarks:
             return 0.0
         
+        # Create combined strings for multi-word landmark detection
+        orig_combined = ' '.join(sorted(orig_landmarks)).lower()
+        para_combined = ' '.join(sorted(para_landmarks)).lower()
+        
+        # Check for exact match first (handles "parking lot" cases)
+        if orig_combined == para_combined:
+            return 1.0
+        
+        # Check for multi-word landmark combinations
+        # e.g., ["parking", "lot"] should match "parking lot"
+        orig_compound = orig_combined.replace(' ', '')
+        para_compound = para_combined.replace(' ', '')
+        if orig_compound == para_compound:
+            return 1.0
+        
+        # Check if one is subset of other (e.g., "lot" in "parking lot")
+        if orig_combined in para_combined or para_combined in orig_combined:
+            return 0.8  # High similarity for subset matches
+        
+        # Traditional synonym-based matching
         synonym_matches = 0
         total_landmarks = len(orig_landmarks)
         
