@@ -14,8 +14,8 @@ from pathlib import Path
 import os
 import re
 
-# Set up for efficient GPU usage
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+# Set up for efficient GPU usage with aggressive memory management
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,7 +28,8 @@ class TrueBatchProcessingPipeline:
     """
     
     def __init__(self, batch_size: int = 4):
-        self.batch_size = batch_size
+        # Reduce batch size for memory safety
+        self.batch_size = min(batch_size, 2)  # Maximum 2 instructions per batch for memory safety
         self.num_gpus = torch.cuda.device_count()
         self.generation_pipeline = None
         self.validation_pipeline = None
@@ -36,8 +37,15 @@ class TrueBatchProcessingPipeline:
         
         logger.info(f"Initializing TRUE batch processing pipeline")
         logger.info(f"  Available GPUs: {self.num_gpus}")
-        logger.info(f"  Batch size: {batch_size}")
+        logger.info(f"  Batch size (memory-optimized): {self.batch_size}")
         
+        # Clear all GPU caches at initialization
+        if torch.cuda.is_available():
+            for i in range(self.num_gpus):
+                with torch.cuda.device(i):
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+
     def initialize(self) -> bool:
         """Initialize pipelines with model distributed across all GPUs."""
         try:
@@ -66,6 +74,17 @@ class TrueBatchProcessingPipeline:
         except Exception as e:
             logger.error(f"Failed to initialize pipeline: {e}")
             return False
+
+    def _aggressive_memory_cleanup(self):
+        """Perform aggressive memory cleanup across all GPUs."""
+        if torch.cuda.is_available():
+            for i in range(self.num_gpus):
+                try:
+                    with torch.cuda.device(i):
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                except Exception as e:
+                    logger.warning(f"Memory cleanup failed on GPU {i}: {e}")
     
     def process_instructions_true_batch(self, instructions: List[str]) -> List[Dict]:
         """
@@ -140,15 +159,21 @@ class TrueBatchProcessingPipeline:
         return all_results
     
     def _process_true_batch(self, batch_instructions: List[str], start_idx: int) -> List[Dict]:
-        """Process a batch using TRUE parallel inference at model level."""
+        """Process a batch using TRUE parallel inference at model level with aggressive memory management."""
         batch_size = len(batch_instructions)
         
         logger.info(f"  ⚡ SIMULTANEOUS GENERATION for {batch_size} instructions")
+        
+        # Aggressive memory cleanup before processing
+        self._aggressive_memory_cleanup()
         
         # Step 1: Generate all paraphrases in TRUE batch mode
         batch_start = time.time()
         generation_results = self._generate_batch_paraphrases(batch_instructions)
         generation_time = time.time() - batch_start
+        
+        # Memory cleanup after generation
+        self._aggressive_memory_cleanup()
         
         logger.info(f"  ⚡ Batch generation completed in {generation_time:.1f}s ({generation_time/batch_size:.1f}s per instruction)")
         
@@ -156,36 +181,46 @@ class TrueBatchProcessingPipeline:
         validation_start = time.time()
         batch_results = []
         
-        for i, (instruction, gen_result) in enumerate(zip(batch_instructions, generation_results)):
-            instruction_idx = start_idx + i
-            
-            if not gen_result or not gen_result.get('success', False):
+        for i, (instruction, generation_result) in enumerate(zip(batch_instructions, generation_results)):
+            if generation_result.get('success', False):
+                positives = generation_result.get('positives', [])
+                negatives = generation_result.get('negatives', [])
+                
+                # Validate with comprehensive logging
+                validation_result = self._validate_with_comprehensive_logging(
+                    instruction, positives, negatives, start_idx + i
+                )
+                
+                batch_results.append({
+                    "success": validation_result["success"],
+                    "instruction_index": start_idx + i,
+                    "original_instruction": instruction,
+                    "positives": positives,
+                    "negatives": negatives,
+                    "valid_positives": validation_result["valid_positives"],
+                    "valid_negatives": validation_result["valid_negatives"],
+                    "validation_summary": validation_result["validation_summary"],
+                    "processing_time": generation_time / batch_size
+                })
+            else:
                 batch_results.append({
                     "success": False,
-                    "error": "Generation failed",
-                    "instruction_index": instruction_idx,
-                    "original_instruction": instruction
+                    "instruction_index": start_idx + i,
+                    "original_instruction": instruction,
+                    "error": generation_result.get('error', 'Generation failed'),
+                    "processing_time": generation_time / batch_size
                 })
-                continue
-            
-            # Validate paraphrases
-            result = self._validate_generated_samples(
-                instruction, 
-                gen_result.get('positives', []),
-                gen_result.get('negatives', []),
-                instruction_idx
-            )
-            
-            batch_results.append(result)
         
         validation_time = time.time() - validation_start
         logger.info(f"  ✅ Batch validation completed in {validation_time:.1f}s")
         
-        # Summary for this batch
-        successful = sum(1 for r in batch_results if r.get("success", False))
-        total_time = generation_time + validation_time
+        # Final memory cleanup
+        self._aggressive_memory_cleanup()
         
-        logger.info(f"  📊 Batch summary: {successful}/{batch_size} successful in {total_time:.1f}s")
+        # Batch summary
+        successful = sum(1 for r in batch_results if r.get('success', False))
+        total_batch_time = generation_time + validation_time
+        logger.info(f"  📊 Batch summary: {successful}/{len(batch_results)} successful in {total_batch_time:.1f}s")
         
         return batch_results
     
@@ -376,83 +411,134 @@ NEGATIVE 1: Turn right at the gray house
         return spatial_terms
     
     def _generate_batch_responses(self, prompts: List[str]) -> List[str]:
-        """Generate responses for multiple prompts simultaneously using TRUE BATCH PROCESSING."""
+        """Generate responses for multiple prompts simultaneously using TRUE BATCH PROCESSING with memory management."""
         try:
             logger.info(f"    🔥 TRUE BATCH PROCESSING: {len(prompts)} combined prompts SIMULTANEOUSLY")
+            
+            # Aggressive memory cleanup before generation
+            self._aggressive_memory_cleanup()
             
             # Fix tokenizer padding token issue
             if self.generation_pipeline.tokenizer.pad_token is None:
                 self.generation_pipeline.tokenizer.pad_token = self.generation_pipeline.tokenizer.eos_token
                 logger.info("    🔧 Set pad_token to eos_token for batch processing")
             
-            # Calculate appropriate max_length to prevent truncation
-            # Estimate token lengths for combined prompts (they're longer than separate prompts)
-            estimated_prompt_length = max(len(prompt.split()) * 1.3 for prompt in prompts)  # 1.3 factor for tokens vs words
-            estimated_response_length = 150  # Estimated response tokens needed
+            # More conservative max_length calculation for memory safety
+            estimated_prompt_length = max(len(prompt.split()) * 1.2 for prompt in prompts)  # Reduced factor
+            estimated_response_length = 100  # Reduced response length
             total_max_length = int(estimated_prompt_length + estimated_response_length)
             
-            # Ensure we don't exceed model's maximum context length
-            model_max_length = getattr(self.generation_pipeline.tokenizer, 'model_max_length', 2048)
-            if model_max_length > 10000:  # Some tokenizers report very large numbers
-                model_max_length = 2048
-            
-            # Use conservative max_length to prevent truncation
-            safe_max_length = min(total_max_length, model_max_length - 200)  # Leave buffer for response
-            safe_max_length = max(safe_max_length, 1024)  # Minimum reasonable length
+            # Even more conservative max_length
+            model_max_length = 1024  # Fixed conservative limit
+            safe_max_length = min(total_max_length, model_max_length - 300)  # Larger buffer
+            safe_max_length = max(safe_max_length, 512)  # Reduced minimum
             
             logger.info(f"    📏 Using max_length: {safe_max_length} (estimated needed: {total_max_length})")
             
-            # Tokenize all prompts together with padding
-            start_time = time.time()
-            inputs = self.generation_pipeline.tokenizer(
-                prompts,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=safe_max_length
-            ).to(self.generation_pipeline.device)
-            
-            # Check if any prompts were truncated
-            input_lengths = [len(ids) for ids in inputs['input_ids']]
-            max_input_length = max(input_lengths)
-            if max_input_length >= safe_max_length - 50:  # Close to max length
-                logger.warning(f"    ⚠️  Prompts may be truncated (max length: {max_input_length}/{safe_max_length})")
-            else:
-                logger.info(f"    ✅ No truncation detected (max length: {max_input_length}/{safe_max_length})")
-            
-            # Generate responses for all prompts simultaneously
-            with torch.no_grad():
-                outputs = self.generation_pipeline.model.generate(
-                    **inputs,
-                    max_new_tokens=200,  # Sufficient for our structured response format
-                    temperature=0.7,
-                    do_sample=True,
-                    top_p=0.9,
-                    pad_token_id=self.generation_pipeline.tokenizer.pad_token_id,
-                    eos_token_id=self.generation_pipeline.tokenizer.eos_token_id
-                )
-            
-            generation_time = time.time() - start_time
-            
-            # Decode all outputs
-            responses = []
-            for i, output in enumerate(outputs):
-                # Extract only the generated tokens (remove input)
-                input_length = inputs['input_ids'][i].shape[0]
-                generated_tokens = output[input_length:]
-                response = self.generation_pipeline.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
-                responses.append(response)
-            
-            # Clean up GPU memory
-            del inputs, outputs
-            torch.cuda.empty_cache()
-            
-            logger.info(f"    ⚡ Combined prompts completed in {generation_time:.1f}s")
-            logger.info(f"    📊 {len(prompts)} prompts in {generation_time:.1f}s = {generation_time/len(prompts):.2f}s per prompt")
-            logger.info(f"    🎯 EFFICIENCY: 2x improvement (4 prompts vs 8 separate prompts)")
-            
-            return responses
-            
+            # Try batch processing with fallback to smaller batches
+            try:
+                # Tokenize all prompts together with padding
+                start_time = time.time()
+                inputs = self.generation_pipeline.tokenizer(
+                    prompts,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=safe_max_length
+                ).to(self.generation_pipeline.device)
+                
+                # Check if any prompts were truncated
+                input_lengths = [len(ids) for ids in inputs['input_ids']]
+                max_input_length = max(input_lengths)
+                if max_input_length >= safe_max_length - 50:
+                    logger.warning(f"    ⚠️  Prompts may be truncated (max length: {max_input_length}/{safe_max_length})")
+                else:
+                    logger.info(f"    ✅ No truncation detected (max length: {max_input_length}/{safe_max_length})")
+                
+                # Generate responses for all prompts simultaneously with conservative settings
+                with torch.no_grad():
+                    outputs = self.generation_pipeline.model.generate(
+                        **inputs,
+                        max_new_tokens=150,  # Reduced from 200
+                        temperature=0.7,
+                        do_sample=True,
+                        top_p=0.9,
+                        pad_token_id=self.generation_pipeline.tokenizer.pad_token_id,
+                        eos_token_id=self.generation_pipeline.tokenizer.eos_token_id,
+                        use_cache=False,  # Disable cache to save memory
+                    )
+                
+                generation_time = time.time() - start_time
+                
+                # Decode all outputs
+                responses = []
+                for i, output in enumerate(outputs):
+                    # Extract only the generated tokens (remove input)
+                    input_length = inputs['input_ids'][i].shape[0]
+                    generated_tokens = output[input_length:]
+                    response = self.generation_pipeline.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+                    responses.append(response)
+                
+                # Aggressive cleanup
+                del inputs, outputs
+                self._aggressive_memory_cleanup()
+                
+                logger.info(f"    ⚡ Combined prompts completed in {generation_time:.1f}s")
+                logger.info(f"    📊 {len(prompts)} prompts in {generation_time:.1f}s = {generation_time/len(prompts):.2f}s per prompt")
+                logger.info(f"    🎯 EFFICIENCY: 2x improvement (4 prompts vs 8 separate prompts)")
+                
+                return responses
+                
+            except torch.cuda.OutOfMemoryError as e:
+                logger.error(f"    ❌ CUDA OOM during batch processing: {e}")
+                logger.info(f"    🔄 Falling back to sequential processing for memory safety")
+                
+                # Fallback to sequential processing
+                responses = []
+                for i, prompt in enumerate(prompts):
+                    try:
+                        # Aggressive cleanup before each prompt
+                        self._aggressive_memory_cleanup()
+                        
+                        # Process single prompt
+                        inputs = self.generation_pipeline.tokenizer(
+                            prompt,
+                            return_tensors="pt",
+                            truncation=True,
+                            max_length=safe_max_length
+                        ).to(self.generation_pipeline.device)
+                        
+                        with torch.no_grad():
+                            outputs = self.generation_pipeline.model.generate(
+                                **inputs,
+                                max_new_tokens=150,
+                                temperature=0.7,
+                                do_sample=True,
+                                top_p=0.9,
+                                pad_token_id=self.generation_pipeline.tokenizer.pad_token_id,
+                                eos_token_id=self.generation_pipeline.tokenizer.eos_token_id,
+                                use_cache=False,
+                            )
+                        
+                        # Decode output
+                        input_length = inputs['input_ids'].shape[1]
+                        generated_tokens = outputs[0][input_length:]
+                        response = self.generation_pipeline.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+                        responses.append(response)
+                        
+                        # Cleanup after each prompt
+                        del inputs, outputs
+                        self._aggressive_memory_cleanup()
+                        
+                        logger.info(f"    ✅ Sequential prompt {i+1}/{len(prompts)} completed")
+                        
+                    except Exception as e:
+                        logger.error(f"    ❌ Error processing prompt {i+1}: {e}")
+                        responses.append("")
+                
+                logger.info(f"    🔄 Sequential fallback completed")
+                return responses
+                
         except Exception as e:
             logger.error(f"Error in batch response generation: {e}")
             return [""] * len(prompts)
@@ -483,7 +569,7 @@ NEGATIVE 1: Turn right at the gray house
         
         return paraphrases[:target_count]
     
-    def _validate_generated_samples(self, original: str, positives: List[str], negatives: List[str], instruction_idx: int) -> Dict:
+    def _validate_with_comprehensive_logging(self, original: str, positives: List[str], negatives: List[str], instruction_idx: int) -> Dict:
         """Validate generated samples and return result with quality assessment and detailed logging."""
         valid_positives = []
         valid_negatives = []
@@ -581,8 +667,8 @@ NEGATIVE 1: Turn right at the gray house
         return {
             "success": success,
             "original_instruction": original,
-            "positives": valid_positives,
-            "negatives": valid_negatives,
+            "positives": positives,
+            "negatives": negatives,
             "generated_positives": positives,
             "generated_negatives": negatives,
             "instruction_index": instruction_idx,

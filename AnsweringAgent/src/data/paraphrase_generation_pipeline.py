@@ -65,9 +65,9 @@ class ParaphraseGenerationPipeline:
             # Use automatic device mapping for optimal GPU distribution
             # transformers will handle layer placement across available GPUs
             
-            # Conservative memory allocation - leave more headroom for generation
-            max_memory = {i: "7GB" for i in range(10)}  # Reduced to 7GB per GPU for safety
-            max_memory["cpu"] = "30GB"
+            # Much more conservative memory allocation - leave significant headroom
+            max_memory = {i: "5GB" for i in range(10)}  # Very conservative 5GB per GPU
+            max_memory["cpu"] = "50GB"  # Increased CPU memory for offloading
             
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
@@ -75,7 +75,9 @@ class ParaphraseGenerationPipeline:
                 device_map="auto",  # Let transformers optimize distribution
                 trust_remote_code=True,
                 quantization_config=quantization_config,
-                max_memory=max_memory,  # Conservative limits across all 10 GPUs
+                max_memory=max_memory,  # Very conservative limits
+                low_cpu_mem_usage=True,  # Enable low CPU memory usage
+                offload_folder="./offload_cache",  # Offload to disk if needed
             )
             
             # Enable gradient checkpointing to reduce memory usage
