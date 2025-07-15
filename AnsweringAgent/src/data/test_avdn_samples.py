@@ -7,6 +7,7 @@ Tests 4 real samples from AVDN dataset through the complete paraphrasing and val
 import logging
 import json
 import time
+import random
 from pathlib import Path
 from comprehensive_contrastive_pipeline import ComprehensiveContrastivePipeline
 
@@ -15,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 def load_avdn_samples(num_samples: int = 4) -> list:
-    """Load real samples from AVDN dataset."""
+    """Load real samples from AVDN dataset with shuffling for variety."""
     dataset_paths = [
         "processed_data/train_data.json",
         "src/data/processed_data/train_data.json",
@@ -33,7 +34,7 @@ def load_avdn_samples(num_samples: int = 4) -> list:
                 
                 # Extract navigation instructions from dialogs
                 instructions = []
-                for episode in episodes[:20]:  # Look at first 20 episodes
+                for episode in episodes[:50]:  # Look at first 50 episodes to get more variety
                     dialogs = episode.get('dialogs', [])
                     for dialog in dialogs:
                         if dialog and dialog.get('answer'):
@@ -45,14 +46,19 @@ def load_avdn_samples(num_samples: int = 4) -> list:
                                 any(word in answer.lower() for word in ['turn', 'go', 'fly', 'head', 'move', 'navigate']) and
                                 any(word in answer.lower() for word in ['right', 'left', 'north', 'south', 'building', 'house', 'road', 'o\'clock'])):
                                 instructions.append(answer)
-                                if len(instructions) >= num_samples:
-                                    break
-                    if len(instructions) >= num_samples:
-                        break
                 
                 if len(instructions) >= num_samples:
-                    logger.info(f"📊 Selected {num_samples} AVDN samples from {len(instructions)} candidates")
-                    return instructions[:num_samples]
+                    # Shuffle for random selection each time
+                    random.shuffle(instructions)
+                    selected_samples = instructions[:num_samples]
+                    logger.info(f"📊 Shuffled and selected {num_samples} random AVDN samples from {len(instructions)} candidates")
+                    
+                    # Log the selected samples for this run
+                    logger.info("🎲 Selected samples for this run:")
+                    for i, sample in enumerate(selected_samples, 1):
+                        logger.info(f"   {i}. {sample}")
+                    
+                    return selected_samples
                 else:
                     logger.warning(f"Only found {len(instructions)} suitable instructions")
                     return instructions
@@ -63,12 +69,30 @@ def load_avdn_samples(num_samples: int = 4) -> list:
     
     # Fallback to high-quality synthetic examples if no dataset found
     logger.warning("❌ Could not find AVDN dataset. Using high-quality synthetic examples.")
-    return [
+    fallback_examples = [
+        "Move toward 3 o'clock direction, turn towards 6 o'clock direction, black colored small square shaped place is your destination.",
+        "Yes, fate is in your field of vision. Go in the 10 o'clock direction from your current position.",
+        "The destination is a large gray rectangular building. Head in the 10 o'clock direction from your current position.",
+        "Fly northeast to the long gray building.",
         "Turn right and fly over the white building at 3 o'clock",
         "Head north towards the red house near the highway",
         "Navigate left around the tall structure and proceed straight",
-        "Fly backward to the parking lot at 9 o'clock"
+        "Fly backward to the parking lot at 9 o'clock",
+        "Go straight and turn left at the intersection near the brown house",
+        "Move southeast towards the gray parking area at 2 o'clock",
+        "Turn around and head west to the white structure",
+        "Fly forward to the building at 12 o'clock position"
     ]
+    
+    # Shuffle and select requested number
+    random.shuffle(fallback_examples)
+    selected_fallback = fallback_examples[:num_samples]
+    
+    logger.info("🎲 Selected fallback samples for this run:")
+    for i, sample in enumerate(selected_fallback, 1):
+        logger.info(f"   {i}. {sample}")
+    
+    return selected_fallback
 
 def test_sample_detailed(pipeline, instruction: str, sample_num: int) -> dict:
     """Test a single sample with detailed analysis."""
