@@ -1,10 +1,33 @@
 #!/usr/bin/env python3
 """
-Correct AVDN Pipeline
-Augments AVDN dataset by adding paraphrases to dialog turns that have answers.
-- Keeps original AVDN structure exactly the same
-- Only adds 'paraphrases' field to dialog turns with answers
-- Preserves Turn 0 (important for AnsweringAgent context)
+Comprehensive AVDN Pipeline
+==========================
+Single comprehensive pipeline for AVDN dataset augmentation with paraphrases.
+
+FEATURES:
+✅ Mixtral-8x7B-Instruct paraphrase generation (GPUs 0-8)
+✅ Comprehensive spatial validation (GPU 9) with:
+   - Embedding similarity validation
+   - Spatial feature analysis (directions, landmarks, movement verbs)
+   - Clock direction recognition (1 o'clock, 2 o'clock, etc.)
+   - Synonym-aware validation (north/northern, building/structure)
+   - Multi-word landmark handling (parking lot)
+   - UAV navigation terminology awareness
+✅ AVDN dataset structure preservation (keeps Turn 0, adds paraphrases to answers)
+✅ Memory optimization for 10-GPU setup
+✅ Comprehensive validation reports and statistics
+
+ARCHITECTURE:
+- Generation: ParaphraseGenerationPipeline (GPUs 0-8, Mixtral distributed)
+- Validation: ValidationPipeline (GPU 9, comprehensive spatial analysis)
+- Processing: Sequential episode processing with GPU memory management
+- Output: Augmented AVDN dataset with paraphrases field added to dialog turns
+
+USAGE:
+    python comprehensive_avdn_pipeline.py
+
+This replaces all previous separate pipeline components (avdn_dataset_augmenter, 
+paraphrase_validator, paraphrase_generator) with a single comprehensive solution.
 """
 
 import os
@@ -24,12 +47,18 @@ from validation_pipeline import ValidationPipeline
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class CorrectAVDNPipeline:
+class ComprehensiveAVDNPipeline:
     """
-    Pipeline that augments AVDN dataset by adding paraphrases to dialog answers.
-    - Generation: GPUs 0-8 (Mixtral distributed)
-    - Validation: GPU 9 (dedicated)
-    - Keeps original AVDN structure intact
+    COMPREHENSIVE AVDN Dataset Augmentation Pipeline
+    ================================================
+    
+    Single unified pipeline that combines:
+    1. Mixtral-8x7B-Instruct paraphrase generation (GPUs 0-8)
+    2. Comprehensive spatial validation with UAV awareness (GPU 9)
+    3. AVDN dataset structure preservation
+    4. Memory-optimized processing for 10-GPU setup
+    
+    This replaces all previous separate components with one comprehensive solution.
     """
     
     def __init__(self):
@@ -48,10 +77,12 @@ class CorrectAVDNPipeline:
             'failed_paraphrases': 0
         }
         
-        logger.info(f"🔧 Correct AVDN Pipeline initialized")
+        logger.info(f"🚀 Comprehensive AVDN Pipeline initialized")
         logger.info(f"🎯 Goal: Add paraphrases to dialog turns with answers")
         logger.info(f"📂 Input: {self.dataset_path}")
         logger.info(f"💾 Output: {self.output_path}")
+        logger.info(f"🔧 Features: Mixtral generation + comprehensive spatial validation")
+        logger.info(f"🎮 Hardware: 10-GPU setup (GPUs 0-8: Mixtral, GPU 9: validation)")
     
     def initialize(self) -> bool:
         """Initialize pipelines with proper GPU placement."""
@@ -390,9 +421,9 @@ class CorrectAVDNPipeline:
         return self.stats.copy()
 
 def main():
-    """Test the correct AVDN pipeline with first few episodes."""
+    """Run the comprehensive AVDN pipeline with first few episodes for testing."""
     
-    pipeline = CorrectAVDNPipeline()
+    pipeline = ComprehensiveAVDNPipeline()
     
     try:
         # Initialize pipeline

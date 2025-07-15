@@ -183,7 +183,7 @@ For negative:
 - Ensure changes are LOGICALLY CONSISTENT and realistic for UAV navigation
 - Use natural language (avoid robotic or template-like phrasing)
 
-Provide ONLY the paraphrases, NO EXPLANATIONS: [/INST]"""
+Provide ONLY the paraphrases, NO EXPLANATIONS OR NOTES: [/INST]"""
         
         return prompt
     

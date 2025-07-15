@@ -4,13 +4,21 @@ This directory contains the essential components for processing the AVDN dataset
 
 ## Core Pipeline Files
 
-### `correct_avdn_pipeline.py` 
-**Main pipeline for AVDN dataset augmentation**
-- Processes dialog answers (turn 1+) from AVDN dataset
-- Generates paraphrases using Mixtral model (GPUs 0-8)
-- Validates paraphrases using embedding similarity (GPU 9)
-- Outputs augmented dataset for AnsweringAgent training
-- **Usage**: `python correct_avdn_pipeline.py`
+### `comprehensive_avdn_pipeline.py` 
+**🚀 SINGLE COMPREHENSIVE PIPELINE for AVDN dataset augmentation**
+- **Generation**: Mixtral-8x7B-Instruct paraphrases (GPUs 0-8, distributed)
+- **Validation**: Comprehensive spatial validation (GPU 9) with:
+  - Embedding similarity validation
+  - Spatial feature analysis (directions, landmarks, movement verbs)  
+  - Clock direction recognition (1 o'clock, 2 o'clock, etc.)
+  - Synonym-aware validation (north/northern, building/structure)
+  - Multi-word landmark handling (parking lot)
+  - UAV navigation terminology awareness
+- **Processing**: Sequential episode processing with memory optimization
+- **Output**: Augmented AVDN dataset with paraphrases field added to dialog turns
+- **Usage**: `python comprehensive_avdn_pipeline.py`
+
+*This replaces all previous separate components (avdn_dataset_augmenter, paraphrase_validator, paraphrase_generator) with one unified solution.*
 
 ### `paraphrase_generation_pipeline.py`
 **Paraphrase generation component**
