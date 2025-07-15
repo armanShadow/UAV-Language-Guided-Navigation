@@ -131,8 +131,19 @@ def test_mixtral_paraphrasing():
     
     load_time = time.time() - load_start
     print(f"✅ Mixtral model loaded successfully in {load_time:.1f}s")
-    print(f"🔧 Using device: {pipeline.generation_pipeline.device}")
-    print(f"🔧 Model device: {pipeline.generation_pipeline.model.device}")
+    
+    # Handle different pipeline structures
+    if hasattr(pipeline, 'generation_pipeline'):
+        # Old pipeline structure
+        print(f"🔧 Using device: {pipeline.generation_pipeline.device}")
+        print(f"🔧 Model device: {pipeline.generation_pipeline.model.device}")
+    elif hasattr(pipeline, 'pipeline'):
+        # New simple pipeline structure
+        print(f"🔧 Using device: {pipeline.pipeline.device}")
+        print(f"🔧 Model device: cuda (distributed)")
+    else:
+        print(f"🔧 Using device: cuda")
+        print(f"🔧 Model device: cuda (distributed)")
     
     # Test TRUE BATCH PROCESSING with COMBINED PROMPTS
     print(f"\n🚀 Testing TRUE BATCH PROCESSING with COMBINED PROMPTS...")
