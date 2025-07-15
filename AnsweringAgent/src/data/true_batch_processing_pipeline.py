@@ -14,8 +14,8 @@ from pathlib import Path
 import os
 import re
 
-# Set up for efficient GPU usage - avoid expandable_segments bug
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
+# Set up for efficient GPU usage
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
