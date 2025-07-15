@@ -196,8 +196,8 @@ class TrueBatchProcessingPipeline:
                     "original_instruction": instruction,
                     "positives": positives,
                     "negatives": negatives,
-                    "valid_positives": validation_result["valid_positives"],
-                    "valid_negatives": validation_result["valid_negatives"],
+                    "valid_positives": validation_result["validation_summary"]["valid_positives"],
+                    "valid_negatives": validation_result["validation_summary"]["valid_negatives"],
                     "validation_summary": validation_result["validation_summary"],
                     "processing_time": generation_time / batch_size
                 })

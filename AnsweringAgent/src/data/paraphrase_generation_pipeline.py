@@ -67,22 +67,21 @@ class ParaphraseGenerationPipeline:
             max_memory = {}
             available_gpus = torch.cuda.device_count()
             
-            # Distribute evenly across all GPUs with conservative limits
+            # More conservative memory allocation to prevent OOM
             for i in range(available_gpus):
-                max_memory[i] = "6GB"  # Conservative but reasonable per GPU
-            max_memory["cpu"] = "40GB"  # CPU memory for offloading
+                max_memory[i] = "4GB"  # Very conservative per GPU to prevent OOM
+            max_memory["cpu"] = "60GB"  # More CPU memory for offloading
             
-            # Create explicit device map for better control
-            # This ensures more even distribution than device_map="auto"
-            device_map = "balanced"  # Use balanced instead of auto for better distribution
+            # Use auto device mapping but with conservative memory limits
+            device_map = "auto"  # Use auto with conservative memory limits
             
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
                 torch_dtype=torch.float16,
-                device_map=device_map,  # Use balanced distribution
+                device_map=device_map,  # Use auto with conservative memory
                 trust_remote_code=True,
                 quantization_config=quantization_config,
-                max_memory=max_memory,  # Balanced limits
+                max_memory=max_memory,  # Very conservative limits
                 low_cpu_mem_usage=True,  # Enable low CPU memory usage
                 offload_folder="./offload_cache",  # Offload to disk if needed
             )
