@@ -158,29 +158,99 @@ NO EXPLANATIONS OR NOTES - ONLY THE PARAPHRASES. [/INST]"""
         return {'positives': positives, 'negatives': negatives}
     
     def simple_validation(self, original: str, positives: List[str], negatives: List[str]) -> Dict:
-        """Simple validation - just check if we have the expected number of paraphrases."""
+        """Simple validation with proper quality scoring and consistent logic."""
         
-        # Basic quality checks
-        def is_valid_paraphrase(text):
-            return (
-                len(text.split()) >= 3 and  # At least 3 words
-                len(text) >= 10 and         # At least 10 characters
-                any(word in text.lower() for word in ['turn', 'go', 'head', 'move', 'fly', 'navigate']) and  # Navigation word
-                any(word in text.lower() for word in ['left', 'right', 'north', 'south', 'east', 'west', 'forward', 'building', 'road', 'o\'clock'])  # Spatial word
-            )
+        # Enhanced validation criteria
+        def is_valid_paraphrase(text, is_positive=True):
+            if not text or len(text.strip()) < 10:
+                return False, "Too short"
+            
+            words = text.lower().split()
+            if len(words) < 3:
+                return False, "Insufficient words"
+            
+            # Check for navigation words
+            navigation_words = ['turn', 'go', 'head', 'move', 'fly', 'navigate', 'proceed', 'advance', 'steer', 'pivot', 'reverse']
+            has_navigation = any(word in text.lower() for word in navigation_words)
+            
+            # Check for spatial words
+            spatial_words = ['left', 'right', 'north', 'south', 'east', 'west', 'forward', 'backward', 'building', 'road', 'o\'clock', 'clock', 'parking', 'destination', 'target', 'direction']
+            has_spatial = any(word in text.lower() for word in spatial_words)
+            
+            if not has_navigation:
+                return False, "No navigation words"
+            if not has_spatial:
+                return False, "No spatial words"
+                
+            return True, "Valid"
         
-        valid_positives = [p for p in positives if is_valid_paraphrase(p)]
-        valid_negatives = [n for n in negatives if is_valid_paraphrase(n)]
+        # Calculate quality scores (0.0 to 1.0)
+        def calculate_quality_score(text, original_text):
+            if not text:
+                return 0.0
+            
+            # Basic quality factors
+            length_score = min(len(text.split()) / 10, 1.0)  # Normalize to 10 words
+            spatial_words = ['left', 'right', 'north', 'south', 'east', 'west', 'forward', 'building', 'road', 'o\'clock', 'destination']
+            spatial_score = min(sum(1 for word in spatial_words if word in text.lower()) / 3, 1.0)
+            
+            # Combine scores
+            return (length_score * 0.4 + spatial_score * 0.6)
         
+        # Validate positives
+        valid_positives = []
+        positive_quality_scores = []
+        positive_failures = []
+        
+        for i, pos in enumerate(positives):
+            is_valid, reason = is_valid_paraphrase(pos, is_positive=True)
+            quality_score = calculate_quality_score(pos, original)
+            positive_quality_scores.append(quality_score)
+            
+            if is_valid:
+                valid_positives.append(pos)
+            else:
+                positive_failures.append(f"Positive {i+1}: {reason}")
+        
+        # Validate negatives
+        valid_negatives = []
+        negative_quality_scores = []
+        negative_failures = []
+        
+        for i, neg in enumerate(negatives):
+            is_valid, reason = is_valid_paraphrase(neg, is_positive=False)
+            quality_score = calculate_quality_score(neg, original)
+            negative_quality_scores.append(quality_score)
+            
+            if is_valid:
+                valid_negatives.append(neg)
+            else:
+                negative_failures.append(f"Negative {i+1}: {reason}")
+        
+        # Calculate averages
+        avg_positive_quality = sum(positive_quality_scores) / len(positive_quality_scores) if positive_quality_scores else 0.0
+        avg_negative_quality = sum(negative_quality_scores) / len(negative_quality_scores) if negative_quality_scores else 0.0
+        
+        # Determine success - require at least 1 valid positive AND 1 valid negative
         success = len(valid_positives) >= 1 and len(valid_negatives) >= 1
         
         return {
             'success': success,
-            'valid_positives': len(valid_positives),
-            'valid_negatives': len(valid_negatives),
+            'valid_positives': valid_positives,
+            'valid_negatives': valid_negatives,
             'validation_summary': {
                 'valid_positives': len(valid_positives),
                 'valid_negatives': len(valid_negatives)
+            },
+            'quality_assessment': {
+                'avg_positive_quality': avg_positive_quality,
+                'avg_negative_quality': avg_negative_quality,
+                'positive_scores': positive_quality_scores,
+                'negative_scores': negative_quality_scores
+            },
+            'failure_reasons': {
+                'positive_failures': positive_failures,
+                'negative_failures': negative_failures
             }
         }
     
@@ -219,21 +289,27 @@ NO EXPLANATIONS OR NOTES - ONLY THE PARAPHRASES. [/INST]"""
                 # Simple validation
                 validation = self.simple_validation(instruction, parsed['positives'], parsed['negatives'])
                 
-                # Create result
+                # Create result - use only VALID paraphrases, not all generated ones
                 result = {
                     'success': validation['success'],
                     'original_instruction': instruction,
-                    'generated_positives': parsed['positives'],
-                    'generated_negatives': parsed['negatives'],
-                    'positives': parsed['positives'],  # For compatibility
-                    'negatives': parsed['negatives'],  # For compatibility
-                    'validation_summary': validation['validation_summary']
+                    'generated_positives': parsed['positives'],  # All generated
+                    'generated_negatives': parsed['negatives'],  # All generated
+                    'positives': validation['valid_positives'],  # Only valid ones
+                    'negatives': validation['valid_negatives'],  # Only valid ones
+                    'validation_summary': validation['validation_summary'],
+                    'quality_assessment': validation['quality_assessment'],
+                    'failure_reasons': validation['failure_reasons']
                 }
                 
                 batch_results.append(result)
                 
                 status = "✅ SUCCESS" if validation['success'] else "❌ FAILED"
-                logger.info(f"    {status}: {len(parsed['positives'])}P + {len(parsed['negatives'])}N")
+                valid_p = len(validation['valid_positives'])
+                valid_n = len(validation['valid_negatives'])
+                total_p = len(parsed['positives'])
+                total_n = len(parsed['negatives'])
+                logger.info(f"    {status}: {valid_p}/{total_p}P + {valid_n}/{total_n}N valid")
             
             results.extend(batch_results)
             logger.info(f"✅ Batch {batch_num}/{total_batches} completed")
