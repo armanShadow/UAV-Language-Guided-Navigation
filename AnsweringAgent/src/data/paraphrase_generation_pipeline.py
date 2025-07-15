@@ -62,20 +62,27 @@ class ParaphraseGenerationPipeline:
                 llm_int8_enable_fp32_cpu_offload=True,  # Enable CPU offloading for insufficient GPU memory
             )
             
-            # Use automatic device mapping for optimal GPU distribution
-            # transformers will handle layer placement across available GPUs
+            # Better memory distribution - ensure even distribution across all GPUs
+            # Instead of auto, use explicit balanced distribution
+            max_memory = {}
+            available_gpus = torch.cuda.device_count()
             
-            # Much more conservative memory allocation - leave significant headroom
-            max_memory = {i: "5GB" for i in range(10)}  # Very conservative 5GB per GPU
-            max_memory["cpu"] = "50GB"  # Increased CPU memory for offloading
+            # Distribute evenly across all GPUs with conservative limits
+            for i in range(available_gpus):
+                max_memory[i] = "6GB"  # Conservative but reasonable per GPU
+            max_memory["cpu"] = "40GB"  # CPU memory for offloading
+            
+            # Create explicit device map for better control
+            # This ensures more even distribution than device_map="auto"
+            device_map = "balanced"  # Use balanced instead of auto for better distribution
             
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
                 torch_dtype=torch.float16,
-                device_map="auto",  # Let transformers optimize distribution
+                device_map=device_map,  # Use balanced distribution
                 trust_remote_code=True,
                 quantization_config=quantization_config,
-                max_memory=max_memory,  # Very conservative limits
+                max_memory=max_memory,  # Balanced limits
                 low_cpu_mem_usage=True,  # Enable low CPU memory usage
                 offload_folder="./offload_cache",  # Offload to disk if needed
             )
