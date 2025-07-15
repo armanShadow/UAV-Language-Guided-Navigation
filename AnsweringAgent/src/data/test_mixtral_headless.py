@@ -105,12 +105,19 @@ def test_mixtral_paraphrasing():
     
     # Test TRUE BATCH PROCESSING pipeline
     print("\n🔧 Initializing TRUE BATCH PROCESSING Pipeline...")
+    print("🔄 Testing with NEW SIMPLE PIPELINE (should avoid CUDA OOM)")
     try:
         from simple_batch_pipeline import TrueBatchProcessingPipeline
-        print("✅ TRUE BATCH pipeline imported successfully")
+        print("✅ Simple batch pipeline imported successfully")
     except ImportError as e:
-        print(f"❌ Failed to import TRUE BATCH pipeline: {e}")
-        return False
+        print(f"❌ Failed to import simple batch pipeline: {e}")
+        print("🔄 Falling back to original pipeline...")
+        try:
+            from true_batch_processing_pipeline import TrueBatchProcessingPipeline
+            print("✅ Original pipeline imported successfully")
+        except ImportError as e2:
+            print(f"❌ Failed to import original pipeline: {e2}")
+            return False
     
     # Initialize pipeline
     pipeline = TrueBatchProcessingPipeline(batch_size=2)
