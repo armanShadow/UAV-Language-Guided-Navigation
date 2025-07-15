@@ -142,52 +142,101 @@ def test_mixtral_paraphrasing():
     
     batch_time = time.time() - batch_start
     
-    # Display results with quality assessment
-    print(f"\n📊 TRUE BATCH PROCESSING Results:")
+    # Display results with detailed validation analysis
+    print(f"\n📊 TRUE BATCH PROCESSING Results with Detailed Validation Analysis:")
     print(f"⏱️  Total batch processing time: {batch_time:.1f}s")
     print(f"⚡ Average time per instruction: {batch_time/len(test_instructions):.1f}s")
     
     successful = 0
     total_quality_scores = {'positives': [], 'negatives': []}
+    validation_insights = {'positive_failures': [], 'negative_failures': []}
     
     for i, result in enumerate(all_results, 1):
-        print(f"\n--- Result {i}/{len(all_results)} ---")
-        print(f"Original: {result['original_instruction']}")
+        print(f"\n{'='*80}")
+        print(f"📋 RESULT {i}/{len(all_results)}")
+        print(f"{'='*80}")
+        print(f"📝 Original: {result['original_instruction']}")
         
+        # Display generated paraphrases (before validation)
+        print(f"\n🔧 Generated Paraphrases:")
+        print(f"  📝 Generated Positives ({len(result.get('generated_positives', []))}):")
+        for j, pos in enumerate(result.get('generated_positives', []), 1):
+            print(f"    {j}. {pos}")
+        
+        print(f"  📝 Generated Negatives ({len(result.get('generated_negatives', []))}):")
+        for j, neg in enumerate(result.get('generated_negatives', []), 1):
+            print(f"    {j}. {neg}")
+        
+        # Display validation results
+        validation_summary = result.get('validation_summary', {})
+        quality_assessment = result.get('quality_assessment', {})
+        
+        print(f"\n🔍 Validation Analysis:")
+        print(f"  ✅ Valid Positives: {validation_summary.get('valid_positives', 0)}/{len(result.get('generated_positives', []))}")
+        print(f"  ✅ Valid Negatives: {validation_summary.get('valid_negatives', 0)}/{len(result.get('generated_negatives', []))}")
+        print(f"  📊 Avg Positive Quality: {quality_assessment.get('avg_positive_quality', 0):.3f}")
+        print(f"  📊 Avg Negative Quality: {quality_assessment.get('avg_negative_quality', 0):.3f}")
+        
+        # Display detailed validation logs if available
+        detailed_logs = result.get('detailed_validation_logs', {})
+        if detailed_logs:
+            print(f"\n🔍 Detailed Validation Analysis:")
+            
+            # Positive validation details
+            for j, log_entry in enumerate(detailed_logs.get('positives', []), 1):
+                validation_result = log_entry.get('validation_result', {})
+                print(f"  📝 Positive {j}: {log_entry.get('paraphrase', '')}")
+                print(f"    ✅ Length: {validation_result.get('length_check', False)}")
+                print(f"    ✅ Unique: {validation_result.get('uniqueness_check', False)}")
+                print(f"    ✅ Navigation: {validation_result.get('has_navigation', False)}")
+                print(f"    ✅ Spatial: {validation_result.get('has_spatial', False)}")
+                print(f"    📊 Quality: {log_entry.get('quality_score', 0):.3f}")
+                if not validation_result.get('is_valid', False):
+                    print(f"    ❌ Failure: {validation_result.get('failure_reason', 'Unknown')}")
+                    validation_insights['positive_failures'].append(validation_result.get('failure_reason', 'Unknown'))
+            
+            # Negative validation details
+            for j, log_entry in enumerate(detailed_logs.get('negatives', []), 1):
+                validation_result = log_entry.get('validation_result', {})
+                print(f"  📝 Negative {j}: {log_entry.get('paraphrase', '')}")
+                print(f"    ✅ Length: {validation_result.get('length_check', False)}")
+                print(f"    ✅ Unique: {validation_result.get('uniqueness_check', False)}")
+                print(f"    ✅ Navigation: {validation_result.get('has_navigation', False)}")
+                print(f"    ✅ Spatial: {validation_result.get('has_spatial', False)}")
+                print(f"    📊 Quality: {log_entry.get('quality_score', 0):.3f}")
+                if not validation_result.get('is_valid', False):
+                    print(f"    ❌ Failure: {validation_result.get('failure_reason', 'Unknown')}")
+                    validation_insights['negative_failures'].append(validation_result.get('failure_reason', 'Unknown'))
+        
+        # Success determination
         if result['success']:
             successful += 1
+            print(f"\n✅ QUALITY-BASED SUCCESS")
             
-            # Display valid paraphrases
-            print(f"✅ SUCCESS - Generated valid paraphrases:")
-            print(f"  Valid Positives ({len(result['positives'])}):")
-            for j, pos in enumerate(result['positives'], 1):
-                print(f"    {j}. {pos}")
+            # Display accepted paraphrases
+            if result['positives']:
+                print(f"  📝 Accepted Positives:")
+                for j, pos in enumerate(result['positives'], 1):
+                    print(f"    {j}. {pos}")
             
-            print(f"  Valid Negatives ({len(result['negatives'])}):")
-            for j, neg in enumerate(result['negatives'], 1):
-                print(f"    {j}. {neg}")
-            
-            # Display quality assessment
-            quality = result.get('quality_assessment', {})
-            print(f"  Quality Scores:")
-            print(f"    Avg Positive Quality: {quality.get('avg_positive_quality', 0):.2f}")
-            print(f"    Avg Negative Quality: {quality.get('avg_negative_quality', 0):.2f}")
-            
-            # Collect quality scores
-            total_quality_scores['positives'].extend(quality.get('individual_scores', {}).get('positives', []))
-            total_quality_scores['negatives'].extend(quality.get('individual_scores', {}).get('negatives', []))
-            
+            if result['negatives']:
+                print(f"  📝 Accepted Negatives:")
+                for j, neg in enumerate(result['negatives'], 1):
+                    print(f"    {j}. {neg}")
         else:
-            print(f"❌ FAILED - Validation did not pass")
-            validation = result.get('validation_summary', {})
-            print(f"  Valid Positives: {validation.get('valid_positives', 0)}")
-            print(f"  Valid Negatives: {validation.get('valid_negatives', 0)}")
-            print(f"  (Requires both positives AND negatives for success)")
+            print(f"\n❌ QUALITY-BASED FAILURE")
+            print(f"  📊 Reason: Quality scores or validation criteria not met")
+        
+        # Collect quality scores
+        total_quality_scores['positives'].extend(quality_assessment.get('individual_scores', {}).get('positives', []))
+        total_quality_scores['negatives'].extend(quality_assessment.get('individual_scores', {}).get('negatives', []))
     
-    # Final summary with quality metrics
+    # Final summary with validation insights
     success_rate = successful / len(all_results) * 100 if all_results else 0
     
-    print(f"\n📊 FINAL RESULTS:")
+    print(f"\n{'='*80}")
+    print(f"📊 FINAL RESULTS & VALIDATION INSIGHTS")
+    print(f"{'='*80}")
     print(f"🎯 SUCCESS RATE: {successful}/{len(all_results)} ({success_rate:.1f}%)")
     print(f"⏱️  TOTAL TIME: {batch_time:.1f}s")
     print(f"⚡ SPEEDUP: TRUE BATCH PROCESSING across {pipeline.num_gpus} GPUs")
@@ -196,11 +245,26 @@ def test_mixtral_paraphrasing():
     # Quality assessment summary
     if total_quality_scores['positives']:
         avg_pos_quality = sum(total_quality_scores['positives']) / len(total_quality_scores['positives'])
-        print(f"📈 AVG POSITIVE QUALITY: {avg_pos_quality:.2f}")
+        print(f"📈 AVG POSITIVE QUALITY: {avg_pos_quality:.3f}")
     
     if total_quality_scores['negatives']:
         avg_neg_quality = sum(total_quality_scores['negatives']) / len(total_quality_scores['negatives'])
-        print(f"📈 AVG NEGATIVE QUALITY: {avg_neg_quality:.2f}")
+        print(f"📈 AVG NEGATIVE QUALITY: {avg_neg_quality:.3f}")
+    
+    # Validation failure analysis
+    print(f"\n🔍 VALIDATION FAILURE ANALYSIS:")
+    if validation_insights['positive_failures']:
+        from collections import Counter
+        pos_failures = Counter(validation_insights['positive_failures'])
+        print(f"  📊 Positive Failure Reasons:")
+        for reason, count in pos_failures.most_common():
+            print(f"    - {reason}: {count} occurrences")
+    
+    if validation_insights['negative_failures']:
+        neg_failures = Counter(validation_insights['negative_failures'])
+        print(f"  📊 Negative Failure Reasons:")
+        for reason, count in neg_failures.most_common():
+            print(f"    - {reason}: {count} occurrences")
     
     # Compare with sequential processing estimate
     sequential_time_estimate = len(test_instructions) * 25  # Assume 25s per instruction sequential
@@ -211,6 +275,11 @@ def test_mixtral_paraphrasing():
     print(f"⚡ TRUE BATCH actual: {batch_time:.1f}s")
     print(f"🔥 SPEEDUP: {speedup:.1f}x faster")
     print(f"🔥 TRUE BATCH PROCESSING: {len(test_instructions)} instructions processed simultaneously")
+    
+    print(f"\n💡 VALIDATION INSIGHTS:")
+    print(f"🔍 This detailed analysis shows exactly why paraphrases pass or fail validation")
+    print(f"📊 Quality scores provide continuous metrics beyond pass/fail")
+    print(f"🎯 Quality-based success is more lenient than strict validation")
     
     return successful > 0
 
