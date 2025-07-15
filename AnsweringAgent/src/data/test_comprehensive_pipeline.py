@@ -174,8 +174,8 @@ def test_validation_only_mode(pipeline):
         return False
 
 def test_multiple_instructions(pipeline):
-    """Test processing multiple instructions sequentially."""
-    logger.info("\n=== Testing Multiple Instructions Processing ===")
+    """Test processing multiple instructions sequentially (deprecated functionality)."""
+    logger.info("\n=== Testing Single Instruction Processing (Multiple Examples) ===")
     
     test_instructions = [
         "Navigate left around the tall structure",
@@ -183,26 +183,38 @@ def test_multiple_instructions(pipeline):
     ]
     
     try:
-        results = pipeline.process_instructions(test_instructions)
-        
-        success_count = sum(1 for r in results if r['success'])
-        logger.info(f"Processed {len(results)} instructions, {success_count} successful")
-        
-        # Show detailed results
-        print(f"\nDetailed Results:")
-        for i, result in enumerate(results, 1):
-            status = "✅" if result['success'] else "❌"
-            print(f"  Instruction {i}: {status}")
+        success_count = 0
+        for i, instruction in enumerate(test_instructions, 1):
+            logger.info(f"\n--- Testing instruction {i}: '{instruction}' ---")
+            result = pipeline.process_instruction(instruction)
+            
             if result['success']:
-                print(f"    Valid: {len(result['positives'])} positives, {len(result['negatives'])} negatives")
+                success_count += 1
+                logger.info(f"✅ Instruction {i} successful: {len(result['positives'])} positives, {len(result['negatives'])} negatives")
             else:
-                print(f"    Reason: {result.get('failure_reason', 'Unknown')}")
+                logger.warning(f"❌ Instruction {i} failed: {result.get('failure_reason', 'Unknown')}")
+                
+                # Show detailed validation information for failed cases
+                if 'validation_report' in result:
+                    report = result['validation_report']
+                    logger.warning(f"  Generated: {report['total_generated']['positives']} pos, {report['total_generated']['negatives']} neg")
+                    logger.warning(f"  Valid: {len(report['valid_positives'])} pos, {len(report['valid_negatives'])} neg")
+                    
+                    # Show why positives failed
+                    for j, pos_result in enumerate(report['validation_details']['positive_results'], 1):
+                        if not pos_result['is_valid']:
+                            logger.warning(f"    Positive {j} failed: '{pos_result['paraphrase'][:50]}...'")
+                            logger.warning(f"      Scores: emb={pos_result.get('embedding_similarity', 0):.3f}, "
+                                         f"dir={pos_result.get('direction_similarity', 0):.3f}, "
+                                         f"landmark={pos_result.get('landmark_similarity', 0):.3f}")
+        
+        logger.info(f"Overall success: {success_count}/{len(test_instructions)}")
         
         if success_count > 0:
             logger.info("✅ Multiple instruction processing successful")
             return True
         else:
-            logger.warning("❌ No successful instructions in batch")
+            logger.warning("❌ No successful instructions")
             return False
             
     except Exception as e:

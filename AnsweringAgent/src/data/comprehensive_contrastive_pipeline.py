@@ -198,33 +198,85 @@ class ComprehensiveContrastivePipeline:
             
             # Validate positives
             positive_scores = []
-            for positive in positives:
+            for i, positive in enumerate(positives, 1):
+                logger.info(f"Validating positive {i}/{len(positives)}: '{positive}'")
                 result = self.validation_pipeline.validate_positive_paraphrase(original, positive)
+                
+                # Detailed logging for validation results
+                logger.info(f"  Positive {i} validation result:")
+                logger.info(f"    Is valid: {result['is_valid']}")
+                logger.info(f"    Embedding similarity: {result.get('embedding_similarity', 0.0):.3f}")
+                logger.info(f"    Direction similarity: {result.get('direction_similarity', 0.0):.3f}")
+                logger.info(f"    Landmark similarity: {result.get('landmark_similarity', 0.0):.3f}")
+                logger.info(f"    Combined score: {result.get('combined_score', 0.0):.3f}")
+                
+                # Log failure reasons if invalid
+                if not result['is_valid']:
+                    logger.warning(f"    Positive {i} failed validation:")
+                    logger.warning(f"      Original features: {result.get('original_features', {})}")
+                    logger.warning(f"      Paraphrase features: {result.get('paraphrase_features', {})}")
+                
                 report['validation_details']['positive_results'].append({
                     'paraphrase': positive,
                     'is_valid': result['is_valid'],
                     'score': result.get('combined_score', result.get('embedding_similarity', 0.0)),
-                    'failure_reasons': result.get('failure_reasons', [])
+                    'failure_reasons': result.get('failure_reasons', []),
+                    'embedding_similarity': result.get('embedding_similarity', 0.0),
+                    'direction_similarity': result.get('direction_similarity', 0.0),
+                    'landmark_similarity': result.get('landmark_similarity', 0.0),
+                    'combined_score': result.get('combined_score', 0.0)
                 })
                 
                 if result['is_valid']:
                     report['valid_positives'].append(positive)
+                    logger.info(f"    ✅ Positive {i} PASSED validation")
+                else:
+                    logger.warning(f"    ❌ Positive {i} FAILED validation")
                 
                 positive_scores.append(result.get('combined_score', result.get('embedding_similarity', 0.0)))
             
             # Validate negatives
             negative_scores = []
-            for negative in negatives:
+            for i, negative in enumerate(negatives, 1):
+                logger.info(f"Validating negative {i}/{len(negatives)}: '{negative}'")
                 result = self.validation_pipeline.validate_negative_paraphrase(original, negative)
+                
+                # Detailed logging for validation results
+                logger.info(f"  Negative {i} validation result:")
+                logger.info(f"    Is valid: {result['is_valid']}")
+                logger.info(f"    Embedding similarity: {result.get('embedding_similarity', 0.0):.3f}")
+                logger.info(f"    Direction similarity: {result.get('direction_similarity', 0.0):.3f}")
+                logger.info(f"    Landmark similarity: {result.get('landmark_similarity', 0.0):.3f}")
+                logger.info(f"    Direction changed: {result.get('direction_changed', False)}")
+                logger.info(f"    Landmark changed: {result.get('landmark_changed', False)}")
+                logger.info(f"    Spatial changed: {result.get('spatial_changed', False)}")
+                
+                # Log failure reasons if invalid
+                if not result['is_valid']:
+                    logger.warning(f"    Negative {i} failed validation:")
+                    logger.warning(f"      Original features: {result.get('original_features', {})}")
+                    logger.warning(f"      Paraphrase features: {result.get('paraphrase_features', {})}")
+                    logger.warning(f"      Embedding similarity: {result.get('embedding_similarity', 0.0):.3f} (should be 0.3-0.95)")
+                    logger.warning(f"      Spatial changed: {result.get('spatial_changed', False)} (should be True)")
+                
                 report['validation_details']['negative_results'].append({
                     'paraphrase': negative,
                     'is_valid': result['is_valid'],
                     'score': result.get('embedding_similarity', 0.0),
-                    'failure_reasons': result.get('failure_reasons', [])
+                    'failure_reasons': result.get('failure_reasons', []),
+                    'embedding_similarity': result.get('embedding_similarity', 0.0),
+                    'direction_similarity': result.get('direction_similarity', 0.0),
+                    'landmark_similarity': result.get('landmark_similarity', 0.0),
+                    'direction_changed': result.get('direction_changed', False),
+                    'landmark_changed': result.get('landmark_changed', False),
+                    'spatial_changed': result.get('spatial_changed', False)
                 })
                 
                 if result['is_valid']:
                     report['valid_negatives'].append(negative)
+                    logger.info(f"    ✅ Negative {i} PASSED validation")
+                else:
+                    logger.warning(f"    ❌ Negative {i} FAILED validation")
                 
                 negative_scores.append(result.get('embedding_similarity', 0.0))
             
@@ -254,29 +306,14 @@ class ComprehensiveContrastivePipeline:
     def process_instructions(self, instructions: List[str], strategy: str = "combined") -> List[Dict]:
         """
         Process multiple instructions sequentially.
-        Returns list of results for each instruction.
+        NOTE: This method is deprecated - focusing on single instruction processing only.
         """
-        logger.info(f"Processing {len(instructions)} instructions sequentially...")
+        logger.warning("⚠️  process_instructions is deprecated - use process_instruction for single instructions only")
         
         results = []
-        total_start_time = time.time()
-        
-        for i, instruction in enumerate(instructions, 1):
-            logger.info(f"\n--- Processing instruction {i}/{len(instructions)} ---")
+        for instruction in instructions:
             result = self.process_instruction(instruction, strategy=strategy)
             results.append(result)
-            
-            # Brief pause between instructions
-            if i < len(instructions):
-                time.sleep(0.5)
-        
-        total_time = time.time() - total_start_time
-        logger.info(f"\n🏁 Batch processing complete in {total_time:.2f}s")
-        logger.info(f"Average time per instruction: {total_time/len(instructions):.2f}s")
-        
-        # Summary statistics
-        successful = sum(1 for r in results if r['success'])
-        logger.info(f"Success rate: {successful}/{len(instructions)} ({successful/len(instructions)*100:.1f}%)")
         
         return results
     
@@ -292,8 +329,18 @@ class ComprehensiveContrastivePipeline:
         try:
             logger.info(f"Generating paraphrases for: '{instruction}' (strategy: {strategy})")
             result = self.generation_pipeline.generate_paraphrases(instruction, strategy=strategy)
-            logger.info(f"Generated {len(result.get('positives', []))} positives, {len(result.get('negatives', []))} negatives")
-            return result
+            
+            # Add success field since generate_paraphrases returns {'positives': [...], 'negatives': [...]}
+            positives = result.get('positives', [])
+            negatives = result.get('negatives', [])
+            
+            logger.info(f"Generated {len(positives)} positives, {len(negatives)} negatives")
+            
+            return {
+                'success': True,
+                'positives': positives,
+                'negatives': negatives
+            }
             
         except Exception as e:
             logger.error(f"Error in generation-only mode: {e}")
