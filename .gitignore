@@ -6,7 +6,6 @@
 **/__pycache__
 documents/
 /AnsweringAgent/src/data/processed_data
-/AnsweringAgent/src/data/augmented_data
 /AnsweringAgent/outputs/logs
 /Mirror/
 /thesis_materials/
