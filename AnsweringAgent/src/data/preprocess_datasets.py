@@ -14,6 +14,10 @@ USAGE:
 import os
 import sys
 from transformers import T5Tokenizer
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config import Config
 from data.dataset import AnsweringDataset
 from utils.logger import setup_logger

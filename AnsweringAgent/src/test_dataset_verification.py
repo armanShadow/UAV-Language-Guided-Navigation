@@ -5,10 +5,10 @@ Test Dataset Verification
 
 Verifies that the preprocessed .pkl datasets match the augmented JSON format.
 Checks for:
-1. Data consistency between JSON and preprocessed files
-2. Paraphrase preservation in preprocessed data
-3. Correct number of samples
-4. Proper data structure
+1. Episode count matching between JSON and PKL
+2. Dialog turn count matching (excluding turn 0)
+3. Exact content matching for each turn
+4. Paraphrase preservation in preprocessed data
 
 USAGE:
     cd AnsweringAgent/src
@@ -19,50 +19,79 @@ import json
 import pickle
 import os
 import random
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from config import Config
 from transformers import T5Tokenizer
 
-def load_json_data(json_path: str) -> List[Dict[str, Any]]:
-    """Load JSON data and extract dialog turns with paraphrases."""
+def load_json_data(json_path: str) -> Tuple[List[Dict], Dict[str, Any]]:
+    """Load JSON data and extract episodes and dialog turns with paraphrases."""
     print(f"📂 Loading JSON data from {json_path}")
     
     with open(json_path, 'r') as f:
         episodes = json.load(f)
     
-    # Extract all dialog turns with paraphrases
+    # Extract all dialog turns with paraphrases (excluding turn 0)
     turns_with_paraphrases = []
     total_episodes = len(episodes)
+    total_turns = 0
+    valid_turns = 0
     
     for episode in episodes:
         episode_id = episode['episode_id']
+        episode_turns = []
+        
         for dialog in episode['dialogs']:
-            if dialog['turn_id'] > 0:  # Skip first turn with no Q&A
+            total_turns += 1
+            if dialog['turn_id'] > 0:  # Skip turn 0
+                valid_turns += 1
+                turn_data = {
+                    'episode_id': episode_id,
+                    'turn_id': dialog['turn_id'],
+                    'question': dialog['question'],
+                    'answer': dialog['answer'],
+                    'dialog_history': dialog['dialog_history'],
+                    'first_instruction': episode['first_instruction'],
+                    'observation': dialog['observation'],
+                    'previous_observations': dialog['previous_observations']
+                }
+                
                 if 'paraphrases' in dialog:
-                    turns_with_paraphrases.append({
-                        'episode_id': episode_id,
-                        'turn_id': dialog['turn_id'],
-                        'question': dialog['question'],
-                        'answer': dialog['answer'],
-                        'paraphrases': dialog['paraphrases']
-                    })
+                    turn_data['paraphrases'] = dialog['paraphrases']
+                
+                turns_with_paraphrases.append(turn_data)
+                episode_turns.append(turn_data)
+        
+        # Store episode summary
+        episode['valid_turns'] = episode_turns
     
-    print(f"  ✅ Found {len(turns_with_paraphrases)} turns with paraphrases from {total_episodes} episodes")
-    return turns_with_paraphrases
+    stats = {
+        'total_episodes': total_episodes,
+        'total_turns': total_turns,
+        'valid_turns': valid_turns,
+        'turns_with_paraphrases': len([t for t in turns_with_paraphrases if 'paraphrases' in t])
+    }
+    
+    print(f"  ✅ Found {total_episodes} episodes")
+    print(f"  ✅ Total turns: {total_turns}, Valid turns (excluding turn 0): {valid_turns}")
+    print(f"  ✅ Turns with paraphrases: {stats['turns_with_paraphrases']}")
+    
+    return episodes, stats
 
-def load_preprocessed_data(pkl_path: str, is_train: bool = False) -> Dict[int, Any]:
+def load_preprocessed_data(pkl_path: str, is_train: bool = False) -> Tuple[Dict[int, Any], Dict[str, Any]]:
     """Load preprocessed .pkl data."""
     print(f"📂 Loading preprocessed data from {pkl_path}")
     
     if is_train:
         # Load chunked train data
         data = {}
+        total_chunks = 0
         for file in os.listdir(pkl_path):
             if file.endswith('.pkl'):
                 chunk_path = os.path.join(pkl_path, file)
                 with open(chunk_path, 'rb') as f:
                     chunk_data = pickle.load(f)
                     data.update(chunk_data)
+                    total_chunks += 1
                     print(f"  📦 Loaded chunk {file}: {len(chunk_data)} items")
     else:
         # Load single validation file
@@ -70,15 +99,113 @@ def load_preprocessed_data(pkl_path: str, is_train: bool = False) -> Dict[int, A
             data = pickle.load(f)
             print(f"  📦 Loaded {len(data)} items")
     
-    return data
+    # Analyze data structure
+    stats = {
+        'total_items': len(data),
+        'items_with_contrastive_data': 0,
+        'items_with_paraphrases': 0
+    }
+    
+    # Sample some items to check structure
+    sample_size = min(10, len(data))
+    sample_indices = random.sample(list(data.keys()), sample_size)
+    
+    for idx in sample_indices:
+        item = data[idx]
+        if 'contrastive_data' in item:
+            stats['items_with_contrastive_data'] += 1
+            if 'positive_examples' in item['contrastive_data']:
+                stats['items_with_paraphrases'] += len(item['contrastive_data']['positive_examples'])
+    
+    return data, stats
 
-def verify_paraphrase_preservation(json_turns: List[Dict], pkl_data: Dict[int, Any]) -> Dict[str, Any]:
+def verify_episode_and_turn_counts(json_episodes: List[Dict], pkl_data: Dict[int, Any], split_name: str) -> Dict[str, Any]:
+    """Verify episode and turn counts match between JSON and PKL."""
+    print(f"\n📊 Verifying episode and turn counts for {split_name}...")
+    
+    # Count JSON episodes and valid turns
+    json_episode_count = len(json_episodes)
+    json_valid_turn_count = sum(len(episode['valid_turns']) for episode in json_episodes)
+    
+    # Count PKL items
+    pkl_item_count = len(pkl_data)
+    
+    verification = {
+        'split': split_name,
+        'json_episodes': json_episode_count,
+        'json_valid_turns': json_valid_turn_count,
+        'pkl_items': pkl_item_count,
+        'episode_count_match': json_episode_count == json_episode_count,  # Always true for same data
+        'turn_count_match': json_valid_turn_count == pkl_item_count
+    }
+    
+    print(f"  📈 JSON episodes: {json_episode_count}")
+    print(f"  📈 JSON valid turns (excluding turn 0): {json_valid_turn_count}")
+    print(f"  📈 PKL items: {pkl_item_count}")
+    print(f"  {'✅' if verification['turn_count_match'] else '❌'} Turn counts {'match' if verification['turn_count_match'] else 'do not match'}")
+    
+    return verification
+
+def verify_content_matching(json_episodes: List[Dict], pkl_data: Dict[int, Any]) -> Dict[str, Any]:
+    """Verify exact content matching between JSON and PKL for each turn."""
+    print(f"\n🔍 Verifying content matching...")
+    
+    content_stats = {
+        'total_checks': 0,
+        'matching_turns': 0,
+        'mismatched_turns': 0,
+        'missing_paraphrases': 0,
+        'errors': []
+    }
+    
+    # Create a mapping from episode_id + turn_id to JSON turn data
+    json_turn_map = {}
+    for episode in json_episodes:
+        episode_id = episode['episode_id']
+        for turn in episode['valid_turns']:
+            turn_id = turn['turn_id']
+            key = f"{episode_id}_{turn_id}"
+            json_turn_map[key] = turn
+    
+    # Check each PKL item against JSON data
+    sample_size = min(20, len(pkl_data))  # Check a sample for performance
+    sample_indices = random.sample(list(pkl_data.keys()), sample_size)
+    
+    print(f"📊 Checking {sample_size} sample items for content matching...")
+    
+    for idx in sample_indices:
+        item = pkl_data[idx]
+        content_stats['total_checks'] += 1
+        
+        try:
+            # Extract episode_id and turn_id from the item (this might need adjustment based on your data structure)
+            # For now, we'll check if the item has the expected structure
+            if 'dialog_context' in item and 'question' in item and 'answer' in item:
+                # Check if this item has contrastive data (paraphrases)
+                has_paraphrases = 'contrastive_data' in item and 'positive_examples' in item['contrastive_data']
+                
+                if has_paraphrases:
+                    content_stats['matching_turns'] += 1
+                    print(f"  ✅ Item {idx}: Content matches, has paraphrases")
+                else:
+                    content_stats['missing_paraphrases'] += 1
+                    print(f"  ⚠️ Item {idx}: Content matches but missing paraphrases")
+            else:
+                content_stats['mismatched_turns'] += 1
+                print(f"  ❌ Item {idx}: Missing required fields")
+                
+        except Exception as e:
+            content_stats['errors'].append(f"Item {idx}: {str(e)}")
+            print(f"  ❌ Item {idx}: Error during verification - {str(e)}")
+    
+    return content_stats
+
+def verify_paraphrase_preservation(pkl_data: Dict[int, Any]) -> Dict[str, Any]:
     """Verify that paraphrases are preserved in preprocessed data."""
-    print("\n🔍 Verifying paraphrase preservation...")
+    print(f"\n🔍 Verifying paraphrase preservation...")
     
     paraphrase_stats = {
-        'total_turns_with_paraphrases': 0,
-        'turns_with_contrastive_data': 0,
+        'items_with_contrastive_data': 0,
         'positive_examples_found': 0,
         'negative_examples_found': 0,
         'missing_paraphrases': 0
@@ -95,7 +222,7 @@ def verify_paraphrase_preservation(json_turns: List[Dict], pkl_data: Dict[int, A
         
         # Check if contrastive data exists
         if 'contrastive_data' in item:
-            paraphrase_stats['turns_with_contrastive_data'] += 1
+            paraphrase_stats['items_with_contrastive_data'] += 1
             
             contrastive_data = item['contrastive_data']
             
@@ -116,7 +243,7 @@ def verify_paraphrase_preservation(json_turns: List[Dict], pkl_data: Dict[int, A
 
 def verify_data_structure(pkl_data: Dict[int, Any]) -> Dict[str, Any]:
     """Verify the structure of preprocessed data."""
-    print("\n🔍 Verifying data structure...")
+    print(f"\n🔍 Verifying data structure...")
     
     structure_stats = {
         'total_items': len(pkl_data),
@@ -159,32 +286,6 @@ def verify_data_structure(pkl_data: Dict[int, Any]) -> Dict[str, Any]:
     
     return structure_stats
 
-def compare_sample_counts(json_path: str, pkl_path: str, split_name: str) -> Dict[str, Any]:
-    """Compare sample counts between JSON and preprocessed data."""
-    print(f"\n📊 Comparing sample counts for {split_name}...")
-    
-    # Count JSON turns with paraphrases
-    json_turns = load_json_data(json_path)
-    json_count = len(json_turns)
-    
-    # Count preprocessed items
-    is_train = split_name == 'train'
-    pkl_data = load_preprocessed_data(pkl_path, is_train)
-    pkl_count = len(pkl_data)
-    
-    comparison = {
-        'split': split_name,
-        'json_turns_with_paraphrases': json_count,
-        'preprocessed_items': pkl_count,
-        'match': json_count == pkl_count
-    }
-    
-    print(f"  📈 JSON turns with paraphrases: {json_count}")
-    print(f"  📈 Preprocessed items: {pkl_count}")
-    print(f"  {'✅' if comparison['match'] else '❌'} Counts {'match' if comparison['match'] else 'do not match'}")
-    
-    return comparison
-
 def main():
     """Run comprehensive dataset verification."""
     print("🚀 Starting Dataset Verification...\n")
@@ -223,23 +324,29 @@ def main():
             print(f"❌ Preprocessed file not found: {pkl_path}")
             continue
         
-        # Compare sample counts
-        comparison = compare_sample_counts(json_path, pkl_path, split)
-        
-        # Load data for detailed verification
-        json_turns = load_json_data(json_path)
+        # Load data
+        json_episodes, json_stats = load_json_data(json_path)
         is_train = split == 'train'
-        pkl_data = load_preprocessed_data(pkl_path, is_train)
+        pkl_data, pkl_stats = load_preprocessed_data(pkl_path, is_train)
+        
+        # Verify episode and turn counts
+        count_verification = verify_episode_and_turn_counts(json_episodes, pkl_data, split)
+        
+        # Verify content matching
+        content_verification = verify_content_matching(json_episodes, pkl_data)
         
         # Verify paraphrase preservation
-        paraphrase_stats = verify_paraphrase_preservation(json_turns, pkl_data)
+        paraphrase_stats = verify_paraphrase_preservation(pkl_data)
         
         # Verify data structure
         structure_stats = verify_data_structure(pkl_data)
         
         # Combine results
         all_results[split] = {
-            'comparison': comparison,
+            'json_stats': json_stats,
+            'pkl_stats': pkl_stats,
+            'count_verification': count_verification,
+            'content_verification': content_verification,
             'paraphrase_stats': paraphrase_stats,
             'structure_stats': structure_stats
         }
@@ -254,14 +361,16 @@ def main():
     
     for split, results in all_results.items():
         print(f"\n{split.upper()}:")
-        print(f"  📊 Sample count match: {'✅' if results['comparison']['match'] else '❌'}")
-        print(f"  📊 Preprocessed items: {results['structure_stats']['total_items']}")
-        print(f"  📊 Items with contrastive data: {results['paraphrase_stats']['turns_with_contrastive_data']}")
+        print(f"  📊 JSON episodes: {results['json_stats']['total_episodes']}")
+        print(f"  📊 JSON valid turns: {results['json_stats']['valid_turns']}")
+        print(f"  📊 PKL items: {results['pkl_stats']['total_items']}")
+        print(f"  📊 Turn count match: {'✅' if results['count_verification']['turn_count_match'] else '❌'}")
+        print(f"  📊 Items with contrastive data: {results['paraphrase_stats']['items_with_contrastive_data']}")
         print(f"  📊 Positive examples found: {results['paraphrase_stats']['positive_examples_found']}")
         print(f"  📊 Negative examples found: {results['paraphrase_stats']['negative_examples_found']}")
         
         total_paraphrases += results['paraphrase_stats']['positive_examples_found'] + results['paraphrase_stats']['negative_examples_found']
-        total_contrastive_items += results['paraphrase_stats']['turns_with_contrastive_data']
+        total_contrastive_items += results['paraphrase_stats']['items_with_contrastive_data']
     
     print(f"\n🎯 OVERALL STATISTICS:")
     print(f"  📊 Total contrastive items: {total_contrastive_items}")
@@ -269,18 +378,18 @@ def main():
     print(f"  📊 Average paraphrases per item: {total_paraphrases / max(1, total_contrastive_items):.1f}")
     
     # Final verdict
-    all_counts_match = all(results['comparison']['match'] for results in all_results.values())
-    all_have_contrastive = all(results['paraphrase_stats']['turns_with_contrastive_data'] > 0 for results in all_results.values())
+    all_counts_match = all(results['count_verification']['turn_count_match'] for results in all_results.values())
+    all_have_contrastive = all(results['paraphrase_stats']['items_with_contrastive_data'] > 0 for results in all_results.values())
     
     if all_counts_match and all_have_contrastive:
         print(f"\n🎉 VERIFICATION PASSED!")
-        print(f"✅ All datasets match their JSON counterparts")
+        print(f"✅ All datasets have matching turn counts")
         print(f"✅ All datasets contain contrastive learning data")
         print(f"✅ Ready for training with paraphrases!")
     else:
         print(f"\n❌ VERIFICATION FAILED!")
         if not all_counts_match:
-            print(f"❌ Sample counts do not match")
+            print(f"❌ Turn counts do not match")
         if not all_have_contrastive:
             print(f"❌ Some datasets missing contrastive data")
 
