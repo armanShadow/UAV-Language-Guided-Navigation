@@ -284,68 +284,129 @@ class AnsweringAgentNormalizer:
     def process_contrastive_samples(self, dialog_turn: Dict[str, Any], max_length: int = 128) -> Dict[str, Any]:
         """Process contrastive samples in a dialog turn.
         
+        This method handles both legacy contrastive_samples format and new paraphrases format
+        from the comprehensive AVDN pipeline.
+        
         Args:
-            dialog_turn: Dialog turn data containing contrastive samples
-            max_length: Maximum sequence length for tokenization
+            dialog_turn: Dialog turn data containing contrastive samples or paraphrases
+            max_length: Maximum sequence length for tokenization (default 128 for short answers/paraphrases)
             
         Returns:
             Dict containing processed contrastive samples
         """
         contrastive_data = {}
         
-        # Process positive examples
-        if "contrastive_samples" in dialog_turn and "positive_examples" in dialog_turn["contrastive_samples"]:
-            positive_examples = dialog_turn["contrastive_samples"]["positive_examples"]
-            contrastive_data["positive_examples"] = []
+        # Process paraphrases from comprehensive AVDN pipeline (NEW FORMAT)
+        if "paraphrases" in dialog_turn:
+            paraphrases = dialog_turn["paraphrases"]
             
-            for example in positive_examples:
-                # Tokenize the positive example
-                tokenized = self.tokenizer(
-                    example["text"],
-                    max_length=max_length,
-                    padding="max_length",
-                    truncation=True,
-                    return_tensors="pt"
-                )
+            # Process positive paraphrases
+            if "positives" in paraphrases and paraphrases["positives"]:
+                contrastive_data["positive_examples"] = []
                 
-                contrastive_data["positive_examples"].append({
-                    "text": example["text"],
-                    "tokenized": {
-                        "input_ids": tokenized["input_ids"],
-                        "attention_mask": tokenized["attention_mask"]
-                    },
-                    "similarity": example.get("similarity", 1.0),
-                    "type": example.get("type", "paraphrase")
-                })
-        
-        # Process negative examples
-        if "contrastive_samples" in dialog_turn and "negative_examples" in dialog_turn["contrastive_samples"]:
-            negative_examples = dialog_turn["contrastive_samples"]["negative_examples"]
-            contrastive_data["negative_examples"] = []
+                for positive_text in paraphrases["positives"]:
+                    # Tokenize the positive paraphrase
+                    tokenized = self.tokenizer(
+                        positive_text,
+                        max_length=max_length,
+                        padding="max_length",
+                        truncation=True,
+                        return_tensors="pt"
+                    )
+                    
+                    contrastive_data["positive_examples"].append({
+                        "text": positive_text,
+                        "tokenized": {
+                            "input_ids": tokenized["input_ids"],
+                            "attention_mask": tokenized["attention_mask"]
+                        },
+                        "similarity": 1.0,  # High similarity for positive paraphrases
+                        "type": "paraphrase"
+                    })
             
-            for example in negative_examples:
-                # Tokenize the negative example
-                tokenized = self.tokenizer(
-                    example["text"],
-                    max_length=max_length,
-                    padding="max_length",
-                    truncation=True,
-                    return_tensors="pt"
-                )
+            # Process negative paraphrases
+            if "negatives" in paraphrases and paraphrases["negatives"]:
+                contrastive_data["negative_examples"] = []
                 
-                contrastive_data["negative_examples"].append({
-                    "text": example["text"],
-                    "tokenized": {
-                        "input_ids": tokenized["input_ids"],
-                        "attention_mask": tokenized["attention_mask"]
-                    },
-                    "similarity": example.get("similarity", 0.0),
-                    "type": example.get("type", "unrelated")
-                })
+                for negative_text in paraphrases["negatives"]:
+                    # Tokenize the negative paraphrase
+                    tokenized = self.tokenizer(
+                        negative_text,
+                        max_length=max_length,
+                        padding="max_length",
+                        truncation=True,
+                        return_tensors="pt"
+                    )
+                    
+                    contrastive_data["negative_examples"].append({
+                        "text": negative_text,
+                        "tokenized": {
+                            "input_ids": tokenized["input_ids"],
+                            "attention_mask": tokenized["attention_mask"]
+                        },
+                        "similarity": 0.0,  # Low similarity for negative paraphrases
+                        "type": "spatial_variation"
+                    })
+            
+            # Add validation analysis if present
+            if "validation_analysis" in paraphrases:
+                contrastive_data["validation_analysis"] = paraphrases["validation_analysis"]
         
-        # Add complexity metadata if present
-        if "complexity_metadata" in dialog_turn:
-            contrastive_data["complexity_metadata"] = dialog_turn["complexity_metadata"]
+        # Process legacy contrastive_samples format (LEGACY FORMAT)
+        elif "contrastive_samples" in dialog_turn:
+            # Process positive examples
+            if "positive_examples" in dialog_turn["contrastive_samples"]:
+                positive_examples = dialog_turn["contrastive_samples"]["positive_examples"]
+                contrastive_data["positive_examples"] = []
+                
+                for example in positive_examples:
+                    # Tokenize the positive example
+                    tokenized = self.tokenizer(
+                        example["text"],
+                        max_length=max_length,
+                        padding="max_length",
+                        truncation=True,
+                        return_tensors="pt"
+                    )
+                    
+                    contrastive_data["positive_examples"].append({
+                        "text": example["text"],
+                        "tokenized": {
+                            "input_ids": tokenized["input_ids"],
+                            "attention_mask": tokenized["attention_mask"]
+                        },
+                        "similarity": example.get("similarity", 1.0),
+                        "type": example.get("type", "paraphrase")
+                    })
+            
+            # Process negative examples
+            if "negative_examples" in dialog_turn["contrastive_samples"]:
+                negative_examples = dialog_turn["contrastive_samples"]["negative_examples"]
+                contrastive_data["negative_examples"] = []
+                
+                for example in negative_examples:
+                    # Tokenize the negative example
+                    tokenized = self.tokenizer(
+                        example["text"],
+                        max_length=max_length,
+                        padding="max_length",
+                        truncation=True,
+                        return_tensors="pt"
+                    )
+                    
+                    contrastive_data["negative_examples"].append({
+                        "text": example["text"],
+                        "tokenized": {
+                            "input_ids": tokenized["input_ids"],
+                            "attention_mask": tokenized["attention_mask"]
+                        },
+                        "similarity": example.get("similarity", 0.0),
+                        "type": example.get("type", "unrelated")
+                    })
+            
+            # Add complexity metadata if present
+            if "complexity_metadata" in dialog_turn:
+                contrastive_data["complexity_metadata"] = dialog_turn["complexity_metadata"]
         
         return contrastive_data
 
@@ -417,50 +478,51 @@ class AnsweringAgentNormalizer:
             result['destination_image'] = torch.tensor(destination_view)
             result['destination_coords'] = dest_coords
         
-        # Process dialog history
+        # Process dialog history and current question
+        # Note: dialog_history already contains formatted conversation including first instruction
         dialog_history = []
         if 'dialog_history' in dialog_turn and len(dialog_turn['dialog_history']) > 0:
             dialog_history = dialog_turn['dialog_history'][-max_history:]
-        
-        # Process first instruction
-        first_instruction = episode.get('first_instruction', '')
-        result['first_instruction'] = first_instruction
         
         # Process current question and answer
         question = dialog_turn.get('question', '')
         answer = dialog_turn.get('answer', '')
         
-        # Create dialog context by combining history, first instruction, and current question
-        dialog_ctx = []
-        if first_instruction:
-            dialog_ctx.append(f"First Instruction: {first_instruction}")
+        # Create dialog context
+        # dialog_history already contains: ["First Instruction: ...", "Question: ... Answer: ..."]
+        dialog_ctx = dialog_history.copy()  # Use existing formatted history
         
-        for hist in dialog_history:
-            dialog_ctx.append(hist)
-            
+        # Add current question if present
         if question:
             dialog_ctx.append(f"Question: {question}")
             
         # Combine dialog context
         dialog_context = " ".join(dialog_ctx)
         
+        # Store first instruction separately for reference (even though it's in dialog_history)
+        first_instruction = episode.get('first_instruction', '')
+        result['first_instruction'] = first_instruction
+        
         # Tokenize input and answer
         if self.tokenizer:
-            max_length = self.config.data.max_seq_length if self.config else 512
+            # Use 512 for input context (can be long with dialog history)
+            input_max_length = self.config.data.max_seq_length if self.config else 512
+            # Use 128 for answers (navigation instructions are short)
+            answer_max_length = self.config.model.max_answer_length if self.config else 128
             
             result['tokenized_input'] = self.tokenizer(
                 dialog_context, 
-                max_length=max_length,
+                max_length=input_max_length,
                 padding="max_length",
-            truncation=True,
+                truncation=True,
                 return_tensors="pt"
-        )
+            )
 
             result['tokenized_answer'] = self.tokenizer(
                 answer,
-                max_length=max_length,
+                max_length=answer_max_length,
                 padding="max_length",
-            truncation=True,
+                truncation=True,
                 return_tensors="pt"
             )
         
@@ -469,11 +531,13 @@ class AnsweringAgentNormalizer:
         result['question'] = question
         result['answer'] = answer
         
-        # Process contrastive samples if present
-        if "contrastive_samples" in dialog_turn or "complexity_metadata" in dialog_turn:
+        # Process contrastive samples if present (legacy format or new paraphrases format)
+        if "contrastive_samples" in dialog_turn or "complexity_metadata" in dialog_turn or "paraphrases" in dialog_turn:
+            # Use 128 for paraphrases (they are paraphrases of short answers)
+            paraphrase_max_length = self.config.model.max_answer_length if self.config else 128
             result['contrastive_data'] = self.process_contrastive_samples(
                 dialog_turn,
-                max_length=self.config.data.max_seq_length if self.config else 512
+                max_length=paraphrase_max_length
             )
         
         return result

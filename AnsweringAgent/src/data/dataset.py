@@ -67,13 +67,13 @@ class AnsweringDataset(Dataset):
         
         # Determine data paths based on split
         if split == 'train':
-            json_path = config.data.train_json_path
+            json_path = config.data.get_json_path('train')
             processed_data_path = config.data.train_processed_path_dir
         elif split == 'val_seen':
-            json_path = config.data.val_seen_json_path
+            json_path = config.data.get_json_path('val_seen')
             processed_data_path = config.data.val_seen_processed_path
         elif split == 'val_unseen':
-            json_path = config.data.val_unseen_json_path
+            json_path = config.data.get_json_path('val_unseen')
             processed_data_path = config.data.val_unseen_processed_path
         else:
             raise ValueError(f"Unknown split: {split}. Must be one of ['train', 'val_seen', 'val_unseen']")
@@ -144,13 +144,13 @@ class AnsweringDataset(Dataset):
         # Determine which processed file to load based on split
         if split == 'train':
             preprocessed_path = config.data.train_processed_path_dir
-            json_path = config.data.train_json_path
+            json_path = config.data.get_json_path('train')
         elif split == 'val_seen':
             preprocessed_path = config.data.val_seen_processed_path
-            json_path = config.data.val_seen_json_path
+            json_path = config.data.get_json_path('val_seen')
         elif split == 'val_unseen':
             preprocessed_path = config.data.val_unseen_processed_path
-            json_path = config.data.val_unseen_json_path
+            json_path = config.data.get_json_path('val_unseen')
         else:
             raise ValueError(f"Unknown split: {split}. Must be one of ['train', 'val_seen', 'val_unseen']")
 

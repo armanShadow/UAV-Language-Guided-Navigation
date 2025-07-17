@@ -63,7 +63,7 @@ class TrainingConfig:
     ce_loss_weight_end: float = 1.0
     
     # Contrastive Learning Parameters
-    use_contrastive_learning: bool = False  # Enable/disable contrastive learning
+    use_contrastive_learning: bool = True  # Enable/disable contrastive learning (ENABLED for paraphrases)
     contrastive_loss_type: str = "triplet"  # Options: "triplet", "infonce", "supcon"
     contrastive_margin: float = 0.5  # Margin for triplet loss
     contrastive_temperature: float = 0.07  # Temperature for InfoNCE loss
@@ -87,6 +87,13 @@ class DataConfig:
     train_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/processed_data/train_data.json")
     val_seen_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/processed_data/val_seen_data.json")
     val_unseen_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/processed_data/val_unseen_data.json")
+    
+    # Augmented dataset paths with paraphrases (NEW - for contrastive learning)
+    use_augmented_data: bool = True  # Toggle to use augmented data with paraphrases
+    train_augmented_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/augmented_data/train_data_with_paraphrases.json")
+    val_seen_augmented_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/augmented_data/val_seen_data_with_paraphrases.json")
+    val_unseen_augmented_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/augmented_data/val_unseen_data_with_paraphrases.json")
+    
     avdn_image_dir: str = str(DATASET_ROOT / "AVDN/train_images")
     darknet_config_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/yolo_v3.cfg")
     darknet_weights_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/best.pt")
@@ -97,11 +104,40 @@ class DataConfig:
 
     def __post_init__(self):
         """Verify paths exist."""
-        paths = [self.train_json_path, self.avdn_image_dir,
-                self.darknet_config_path, self.darknet_weights_path]
+        if self.use_augmented_data:
+            # Check augmented data paths
+            paths = [self.train_augmented_json_path, self.val_seen_augmented_json_path, 
+                    self.val_unseen_augmented_json_path, self.avdn_image_dir,
+                    self.darknet_config_path, self.darknet_weights_path]
+        else:
+            # Check original data paths
+            paths = [self.train_json_path, self.val_seen_json_path, self.val_unseen_json_path,
+                    self.avdn_image_dir, self.darknet_config_path, self.darknet_weights_path]
+        
         for path in paths:
             if not os.path.exists(path):
-                print(f"Error: Path does not exist: {path}")
+                print(f"Warning: Path does not exist: {path}")
+                if self.use_augmented_data and "augmented_data" in path:
+                    print(f"  Hint: Run comprehensive_avdn_pipeline.py to generate augmented data")
+    
+    def get_json_path(self, split: str) -> str:
+        """Get the appropriate JSON path for a dataset split."""
+        if self.use_augmented_data:
+            if split == 'train':
+                return self.train_augmented_json_path
+            elif split == 'val_seen':
+                return self.val_seen_augmented_json_path
+            elif split == 'val_unseen':
+                return self.val_unseen_augmented_json_path
+        else:
+            if split == 'train':
+                return self.train_json_path
+            elif split == 'val_seen':
+                return self.val_seen_json_path
+            elif split == 'val_unseen':
+                return self.val_unseen_json_path
+        
+        raise ValueError(f"Unknown split: {split}")
 
 @dataclass
 class Config:
