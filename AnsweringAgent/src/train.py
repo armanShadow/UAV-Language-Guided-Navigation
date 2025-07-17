@@ -886,6 +886,8 @@ def main():
     parser.add_argument('--single-gpu', action='store_true', help='Force running on a single GPU even with torchrun')
     parser.add_argument('--batch-size', type=int, help='Per-GPU batch size (overrides config value)', default=None)
     parser.add_argument('--grad-steps', type=int, help='Gradient accumulation steps (overrides config value)', default=None)
+    parser.add_argument('--use-augmented-data', action='store_true', help='Use augmented dataset with paraphrases for contrastive learning')
+    parser.add_argument('--no-augmented-data', action='store_true', help='Use original dataset without augmented paraphrases')
     args = parser.parse_args()
     
     # Check CUDA availability first
@@ -966,6 +968,25 @@ def main():
         config.training.gradient_accumulation_steps = args.grad_steps
         if rank == 0:
             logger.info(f"Overriding gradient accumulation steps with command-line value: {args.grad_steps}")
+    
+    # Handle augmented data arguments
+    if args.no_augmented_data:
+        config.data.use_augmented_data = False
+        if rank == 0:
+            logger.info("Using original dataset (augmented data disabled via --no-augmented-data)")
+    elif args.use_augmented_data:
+        config.data.use_augmented_data = True
+        if rank == 0:
+            logger.info("Using augmented dataset with paraphrases (enabled via --use-augmented-data)")
+    
+    # Log dataset configuration
+    if rank == 0:
+        status = "enabled" if config.data.use_augmented_data else "disabled"
+        logger.info(f"Dataset configuration - Augmented data: {status}")
+        logger.info(f"  Train: {config.data.get_json_path('train')}")
+        logger.info(f"  Val Seen: {config.data.get_json_path('val_seen')}")
+        logger.info(f"  Val Unseen: {config.data.get_json_path('val_unseen')}")
+        logger.info(f"  Contrastive Learning: {'enabled' if config.training.use_contrastive_learning else 'disabled'}")
     
     # Silence non-rank-0 processes by setting logger level
     if rank != 0:
