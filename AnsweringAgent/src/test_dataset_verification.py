@@ -145,7 +145,10 @@ def verify_data_structure(pkl_data: Dict[int, Any]) -> Dict[str, Any]:
         
         if 'previous_views_image' in item:
             structure_stats['items_with_previous_views'] += 1
-            print(f"  ✅ Item {idx}: Previous views shape {item['previous_views_image'].shape}")
+            if isinstance(item['previous_views_image'], list):
+                print(f"  ✅ Item {idx}: Previous views (list of {len(item['previous_views_image'])} tensors)")
+            else:
+                print(f"  ✅ Item {idx}: Previous views shape {item['previous_views_image'].shape}")
         
         if 'destination_image' in item:
             structure_stats['items_with_destination'] += 1

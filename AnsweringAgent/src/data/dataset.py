@@ -241,3 +241,101 @@ class AnsweringDataset(Dataset):
             datasets[split] = AnsweringDataset(config, split=split, tokenizer=tokenizer)
 
         return datasets
+    
+    @staticmethod
+    def preprocess_and_save(config: Config, tokenizer, split='train', logger=None):
+        """
+        Preprocess and save a dataset split.
+        
+        Args:
+            config: Configuration object
+            tokenizer: Tokenizer for text processing
+            split: Dataset split ('train', 'val_seen', 'val_unseen')
+            logger: Logger for output messages
+            
+        Returns:
+            str: Path to the saved preprocessed data
+        """
+        if logger is None:
+            import logging
+            logger = logging.getLogger(__name__)
+        
+        logger.info(f"📊 Preprocessing {split} dataset...")
+        
+        # Get JSON file path
+        json_path = config.data.get_json_path(split)
+        if not os.path.exists(json_path):
+            raise FileNotFoundError(f"JSON file not found: {json_path}")
+        
+        # Get image directory
+        if split == 'train':
+            image_dir = config.data.train_images_dir
+        elif split == 'val_seen':
+            image_dir = config.data.val_seen_images_dir
+        else:  # val_unseen
+            image_dir = config.data.val_unseen_images_dir
+        
+        if not os.path.exists(image_dir):
+            raise FileNotFoundError(f"Image directory not found: {image_dir}")
+        
+        # Initialize normalizer
+        normalizer = AnsweringAgentNormalizer(tokenizer, config)
+        
+        # Load and filter JSON data (skip turn 0)
+        logger.info(f"Loading JSON data from {json_path}")
+        with open(json_path, 'r') as f:
+            episodes = json.load(f)
+        
+        # Filter out turn 0 (which has no Q&A and no paraphrases)
+        filtered_episodes = []
+        total_turns = 0
+        filtered_turns = 0
+        
+        for episode in episodes:
+            episode_turns = []
+            for dialog in episode["dialogs"]:
+                total_turns += 1
+                # Skip turn 0 (no Q&A, no paraphrases)
+                if dialog["turn_id"] > 0:
+                    episode_turns.append(dialog)
+                    filtered_turns += 1
+            
+            if episode_turns:  # Only keep episodes with valid turns
+                episode_copy = episode.copy()
+                episode_copy["dialogs"] = episode_turns
+                filtered_episodes.append(episode_copy)
+        
+        logger.info(f"Filtered {total_turns} total turns to {filtered_turns} valid turns (excluding turn 0)")
+        
+        # Preprocess data using normalizer
+        logger.info("Processing data with normalizer...")
+        processed_data = normalizer.preprocess_all_data(
+            filtered_episodes,  # Pass filtered episodes directly
+            image_dir,
+            output_size=(224, 224),
+            apply_augmentation=config.data.use_augmentation
+        )
+        
+        # Save processed data
+        if split == 'train':
+            output_dir = config.data.train_processed_path_dir
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Save in chunks for train data
+            chunk_size = 1000
+            AnsweringDataset.save_in_chunks(processed_data, chunk_size, output_dir)
+            logger.info(f"✅ Train data saved in chunks to {output_dir}")
+            return output_dir
+        else:
+            # Save as single file for validation data
+            if split == 'val_seen':
+                output_path = config.data.val_seen_processed_path
+            else:  # val_unseen
+                output_path = config.data.val_unseen_processed_path
+            
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            with open(output_path, 'wb') as f:
+                pickle.dump(processed_data, f)
+            
+            logger.info(f"✅ {split} data saved to {output_path}")
+            return output_path

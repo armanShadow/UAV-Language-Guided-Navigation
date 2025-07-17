@@ -542,14 +542,14 @@ class AnsweringAgentNormalizer:
         
         return result
 
-    def preprocess_all_data(self, data_path: str, image_dir: str, 
+    def preprocess_all_data(self, episodes: List[Dict[str, Any]], image_dir: str, 
                            output_size: Tuple[int, int] = (224, 224), 
                            apply_augmentation: bool = False):
         """
-        Preprocess all data in the JSON file at once.
+        Preprocess all data from episodes list.
         
         Args:
-            data_path: Path to the JSON dataset file
+            episodes: List of episode dictionaries (already filtered)
             image_dir: Directory containing satellite images
             output_size: Size of the output image (width, height)
             apply_augmentation: Whether to apply visual augmentations
@@ -557,11 +557,7 @@ class AnsweringAgentNormalizer:
         Returns:
             Dict: Dictionary where keys are indices and values are processed data items
         """
-        print(f"Pre-processing data from {data_path}...")
-        
-        # Load the JSON file
-        with open(data_path, 'r') as f:
-            episodes = json.load(f)
+        print(f"Pre-processing {len(episodes)} episodes...")
         
         # Create flattened list of turns for processing
         flattened_turns = []
@@ -668,8 +664,12 @@ if __name__ == '__main__':
     json_file = "processed_data/train_data.json"
     image_dir = "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images"
     
+    # Load episodes from JSON file
+    with open(json_file, 'r') as f:
+        episodes = json.load(f)
+    
     # Process data
-    processed_data = normalizer.preprocess_all_data(json_file, image_dir, apply_augmentation=True)
+    processed_data = normalizer.preprocess_all_data(episodes, image_dir, apply_augmentation=True)
 
     max_length = 0
     max_length_answer = 0
