@@ -1059,14 +1059,9 @@ def main():
         # Load dataset
         try:
             if rank == 0:
-                logger.info("Creating datasets...")
-                for split in ['train', 'val_seen', 'val_unseen']:
-                    AnsweringDataset.preprocess_and_save(config, tokenizer, split=split, logger=logger)
+                logger.info("Loading datasets...")
 
-            if dist.is_initialized():
-                dist.barrier()
-
-            datasets = AnsweringDataset.create_datasets(config, logger=logger, splits=['train', 'val_seen'], tokenizer=tokenizer, exhuastive_loading=False)
+            datasets = AnsweringDataset.create_datasets(config, logger=logger, splits=['train', 'val_seen'], tokenizer=tokenizer)
 
         except Exception as e:
             logger.error(f"Critical error loading dataset: {str(e)}")

@@ -48,94 +48,14 @@ class AnsweringDataset(Dataset):
                     data.update(pickle.load(f))
         return data 
 
-    @staticmethod
-    def preprocess_and_save(config: Config, tokenizer, split='train', logger=None):
-        """
-        Static method to preprocess the dataset once and save to disk.
-        This should be called only on rank 0 before initializing datasets.
-        
-        Args:
-            config: Configuration object
-            split: Dataset split ('train', 'val_seen', 'val_unseen')
-            logger: Logger for output messages
-            
-        Returns:
-            str: Path to the preprocessed data file
-        """
-        if logger:
-            logger.info(f"Starting {split} dataset preprocessing...")
-        
-        # Determine data paths based on split
-        if split == 'train':
-            json_path = config.data.get_json_path('train')
-            processed_data_path = config.data.train_processed_path_dir
-        elif split == 'val_seen':
-            json_path = config.data.get_json_path('val_seen')
-            processed_data_path = config.data.val_seen_processed_path
-        elif split == 'val_unseen':
-            json_path = config.data.get_json_path('val_unseen')
-            processed_data_path = config.data.val_unseen_processed_path
-        else:
-            raise ValueError(f"Unknown split: {split}. Must be one of ['train', 'val_seen', 'val_unseen']")
-        
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(processed_data_path), exist_ok=True)
-        
-        # Check if preprocessed data already exists
-        if os.path.exists(processed_data_path):
-            if logger:
-                logger.info(f"Preprocessed {split} data already exists at {processed_data_path}. Skipping preprocessing.")
-            return processed_data_path
-        
-        # Check if JSON data exists
-        if not os.path.exists(json_path):
-            raise FileNotFoundError(f"{split} JSON data file not found at {json_path}")
-            
-        if logger:
-            logger.info(f"Loading {split} JSON data from {json_path}...")
-        
-        # Initialize normalizer
-        normalizer = AnsweringAgentNormalizer(tokenizer, config)
-        
-        # Use preprocess_all_data method to process all items efficiently
-        if logger:
-            logger.info(f"Processing {split} data from {json_path}...")
-        
-        # Apply augmentation only to training data
-        apply_augmentation = config.training.use_augmentation and split == 'train'
-        
-        processed_items = normalizer.preprocess_all_data(
-            json_path,
-            config.data.avdn_image_dir,
-            output_size=(config.model.img_size, config.model.img_size),
-            apply_augmentation=apply_augmentation
-        )
-        
-        if split == 'train':
-            AnsweringDataset.save_in_chunks(processed_items, config.training.train_chunk_size, processed_data_path)
-        else:
-            # Save the processed data to disk
-            with open(processed_data_path, 'wb') as f:
-                if logger:
-                    logger.info(f"Saving preprocessed {split} data to {processed_data_path}")
-                pickle.dump(processed_items, f)
-            
-        
-        if logger:
-            logger.info(f"{split} preprocessing complete. {len(processed_items)} items saved to {processed_data_path}")
-        
-        return processed_data_path
-    
-    def __init__(self, config: Config, split='train', exhuastive_loading=False, tokenizer=None):
+    def __init__(self, config: Config, split='train', tokenizer=None):
         """
         Initialize the dataset - loads preprocessed data.
-        Supports chunked loading for train split and distributes chunks in multi-GPU settings.
         
         Args:
             config: Configuration object
             split: Dataset split ('train', 'val_seen', 'val_unseen')
-            rank: Process rank for distributed training
-            world_size: Total number of processes
+            tokenizer: Tokenizer for potential on-the-fly processing
         """
         self.config = config
         self.max_prev_views = config.data.max_previous_views
@@ -144,42 +64,29 @@ class AnsweringDataset(Dataset):
         # Determine which processed file to load based on split
         if split == 'train':
             preprocessed_path = config.data.train_processed_path_dir
-            json_path = config.data.get_json_path('train')
         elif split == 'val_seen':
             preprocessed_path = config.data.val_seen_processed_path
-            json_path = config.data.get_json_path('val_seen')
         elif split == 'val_unseen':
             preprocessed_path = config.data.val_unseen_processed_path
-            json_path = config.data.get_json_path('val_unseen')
         else:
             raise ValueError(f"Unknown split: {split}. Must be one of ['train', 'val_seen', 'val_unseen']")
 
-        if exhuastive_loading:
-            normalizer = AnsweringAgentNormalizer(tokenizer, config)
-            self.preprocessed_data = normalizer.preprocess_all_data(
-                json_path,
-                config.data.avdn_image_dir,
-                output_size=(config.model.img_size, config.model.img_size),
-                apply_augmentation=config.training.use_augmentation
-            )
-            self.data_items = list(self.preprocessed_data.values())
-        else:
-            # Load the preprocessed data
-            try:
-                if split == 'train':
-                    self.preprocessed_data = AnsweringDataset.load_train_chunks(preprocessed_path)
-                else:
-                    with open(preprocessed_path, 'rb') as f:
-                        print(f"Loading {split} data from {preprocessed_path}")
-                        self.preprocessed_data = pickle.load(f)
-                    print(f"Loaded {len(self.preprocessed_data)} preprocessed items for {split}")
-            
+        # Load the preprocessed data
+        try:
+            if split == 'train':
+                self.preprocessed_data = AnsweringDataset.load_train_chunks(preprocessed_path)
+            else:
+                with open(preprocessed_path, 'rb') as f:
+                    print(f"Loading {split} data from {preprocessed_path}")
+                    self.preprocessed_data = pickle.load(f)
+                print(f"Loaded {len(self.preprocessed_data)} preprocessed items for {split}")
+        
             # Convert dict to list for easier indexing
-                self.data_items = list(self.preprocessed_data.values())
-            except Exception as e:
-                print(f"Error loading preprocessed data: {str(e)}")
-                traceback.print_exc()
-                raise
+            self.data_items = list(self.preprocessed_data.values())
+        except Exception as e:
+            print(f"Error loading preprocessed data: {str(e)}")
+            traceback.print_exc()
+            raise
     
     def __len__(self) -> int:
         return len(self.data_items)
@@ -317,7 +224,7 @@ class AnsweringDataset(Dataset):
             result['complexity_metadata'] = contrastive_data['complexity_metadata']
     
     @staticmethod
-    def create_datasets(config: Config, logger=None, splits=['train', 'val_seen', 'val_unseen'], exhuastive_loading=False, tokenizer=None):
+    def create_datasets(config: Config, logger=None, splits=['train', 'val_seen', 'val_unseen'], tokenizer=None):
         """
         Create all three datasets (train, val_seen, val_unseen) at once.
         
@@ -328,9 +235,9 @@ class AnsweringDataset(Dataset):
         Returns:
             Dict[str, Dataset]: Dictionary of datasets
         """
-        # Preprocess all splits
+        # Load all splits
         datasets = {}
         for split in splits:
-            datasets[split] = AnsweringDataset(config, split=split, exhuastive_loading=exhuastive_loading, tokenizer=tokenizer)
+            datasets[split] = AnsweringDataset(config, split=split, tokenizer=tokenizer)
 
         return datasets
