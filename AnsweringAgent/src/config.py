@@ -48,7 +48,6 @@ class TrainingConfig:
     early_stopping: bool = True
     early_stopping_patience: int = 10
     early_stopping_min_delta: float = 0.001
-    use_augmentation: bool = False
     train_chunk_size: int = 1000
     # Curriculum learning parameters
     curriculum_epochs: int = 30  # Number of epochs for curriculum learning phase
@@ -93,6 +92,9 @@ class DataConfig:
     train_augmented_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/augmented_data/train_data_with_paraphrases.json")
     val_seen_augmented_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/augmented_data/val_seen_data_with_paraphrases.json")
     val_unseen_augmented_json_path: str = str(PROJECT_ROOT / "AnsweringAgent/src/data/augmented_data/val_unseen_data_with_paraphrases.json")
+    
+    # Data preprocessing settings
+    use_augmentation: bool = False  # Enable/disable visual augmentation during preprocessing
     
     avdn_image_dir: str = str(DATASET_ROOT / "AVDN/train_images")
     darknet_config_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/yolo_v3.cfg")
