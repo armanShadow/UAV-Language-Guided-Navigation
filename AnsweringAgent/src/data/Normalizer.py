@@ -239,7 +239,7 @@ class AnsweringAgentNormalizer:
                                   lat_ratio: float, 
                                   lng_ratio: float,
                                   output_size: Tuple[int, int] = (224, 224),
-                                  apply_augmentation: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+                                  apply_augmentation: bool = False) -> np.ndarray:
         """Process coordinates to get the corresponding view area image.
         
         Args:
@@ -437,13 +437,13 @@ class AnsweringAgentNormalizer:
         
         # Process current observation
         if 'observation' in dialog_turn and 'view_area_coords' in dialog_turn['observation']:
-            current_view, coords = self.process_coordinates_to_image(
+            current_view = self.process_coordinates_to_image(
                 dialog_turn['observation']['view_area_coords'],
                 map_name, image_dir, gps_botm_left, gps_top_right,
                 lat_ratio, lng_ratio, output_size, apply_augmentation
             )
             result['current_view_image'] = torch.tensor(current_view)
-            result['current_coords'] = coords
+            result['current_coords'] = np.zeros((4, 2), dtype=np.float32) # Placeholder, actual coords are not returned here
         else:
             # If no observation, create a blank image
             current_view = np.zeros((3, output_size[0], output_size[1]), dtype=np.float32)
@@ -456,12 +456,12 @@ class AnsweringAgentNormalizer:
             prev_coords = []
             
             for prev_obs in dialog_turn['previous_observations'][-max_history:]:
-                prev_view, coords = self.process_coordinates_to_image(
+                prev_view = self.process_coordinates_to_image(
                     prev_obs, map_name, image_dir, gps_botm_left, gps_top_right,
                     lat_ratio, lng_ratio, output_size, apply_augmentation
                 )
                 prev_views.append(torch.tensor(prev_view))
-                prev_coords.append(coords)
+                prev_coords.append(np.zeros((4, 2), dtype=np.float32))  # Placeholder coords
                 
             result['previous_views_image'] = prev_views
             result['previous_coords'] = prev_coords
@@ -471,12 +471,12 @@ class AnsweringAgentNormalizer:
         
         # Process destination coordinates if available
         if 'destination' in episode:
-            destination_view, dest_coords = self.process_coordinates_to_image(
+            destination_view = self.process_coordinates_to_image(
                 episode['destination'], map_name, image_dir, gps_botm_left, gps_top_right,
                 lat_ratio, lng_ratio, output_size, False  # No augmentation for destination
                 )
             result['destination_image'] = torch.tensor(destination_view)
-            result['destination_coords'] = dest_coords
+            result['destination_coords'] = np.zeros((4, 2), dtype=np.float32)  # Placeholder coords
         
         # Process dialog history and current question
         # Note: dialog_history already contains formatted conversation including first instruction
