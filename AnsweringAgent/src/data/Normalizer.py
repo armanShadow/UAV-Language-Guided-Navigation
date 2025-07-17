@@ -356,7 +356,7 @@ class AnsweringAgentNormalizer:
         elif "contrastive_samples" in dialog_turn:
         # Process positive examples
             if "positive_examples" in dialog_turn["contrastive_samples"]:
-            positive_examples = dialog_turn["contrastive_samples"]["positive_examples"]
+                positive_examples = dialog_turn["contrastive_samples"]["positive_examples"]
             contrastive_data["positive_examples"] = []
             
             for example in positive_examples:
@@ -381,7 +381,7 @@ class AnsweringAgentNormalizer:
         
         # Process negative examples
             if "negative_examples" in dialog_turn["contrastive_samples"]:
-            negative_examples = dialog_turn["contrastive_samples"]["negative_examples"]
+                negative_examples = dialog_turn["contrastive_samples"]["negative_examples"]
             contrastive_data["negative_examples"] = []
             
             for example in negative_examples:
