@@ -110,7 +110,7 @@ class DataConfig:
             # Check augmented data paths
             paths = [self.train_augmented_json_path, self.val_seen_augmented_json_path, 
                     self.val_unseen_augmented_json_path, self.avdn_image_dir,
-                    self.darknet_config_path, self.darknet_weights_path]
+                self.darknet_config_path, self.darknet_weights_path]
         else:
             # Check original data paths
             paths = [self.train_json_path, self.val_seen_json_path, self.val_unseen_json_path,

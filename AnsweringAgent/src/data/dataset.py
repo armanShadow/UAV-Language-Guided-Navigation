@@ -71,22 +71,22 @@ class AnsweringDataset(Dataset):
         else:
             raise ValueError(f"Unknown split: {split}. Must be one of ['train', 'val_seen', 'val_unseen']")
 
-        # Load the preprocessed data
-        try:
-            if split == 'train':
-                self.preprocessed_data = AnsweringDataset.load_train_chunks(preprocessed_path)
-            else:
-                with open(preprocessed_path, 'rb') as f:
-                    print(f"Loading {split} data from {preprocessed_path}")
-                    self.preprocessed_data = pickle.load(f)
-                print(f"Loaded {len(self.preprocessed_data)} preprocessed items for {split}")
-        
+            # Load the preprocessed data
+            try:
+                if split == 'train':
+                    self.preprocessed_data = AnsweringDataset.load_train_chunks(preprocessed_path)
+                else:
+                    with open(preprocessed_path, 'rb') as f:
+                        print(f"Loading {split} data from {preprocessed_path}")
+                        self.preprocessed_data = pickle.load(f)
+                    print(f"Loaded {len(self.preprocessed_data)} preprocessed items for {split}")
+            
             # Convert dict to list for easier indexing
-            self.data_items = list(self.preprocessed_data.values())
-        except Exception as e:
-            print(f"Error loading preprocessed data: {str(e)}")
-            traceback.print_exc()
-            raise
+                self.data_items = list(self.preprocessed_data.values())
+            except Exception as e:
+                print(f"Error loading preprocessed data: {str(e)}")
+                traceback.print_exc()
+                raise
     
     def __len__(self) -> int:
         return len(self.data_items)

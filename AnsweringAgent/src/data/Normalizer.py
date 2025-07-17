@@ -354,59 +354,59 @@ class AnsweringAgentNormalizer:
         
         # Process legacy contrastive_samples format (LEGACY FORMAT)
         elif "contrastive_samples" in dialog_turn:
-            # Process positive examples
+        # Process positive examples
             if "positive_examples" in dialog_turn["contrastive_samples"]:
-                positive_examples = dialog_turn["contrastive_samples"]["positive_examples"]
-                contrastive_data["positive_examples"] = []
-                
-                for example in positive_examples:
-                    # Tokenize the positive example
-                    tokenized = self.tokenizer(
-                        example["text"],
-                        max_length=max_length,
-                        padding="max_length",
-                        truncation=True,
-                        return_tensors="pt"
-                    )
-                    
-                    contrastive_data["positive_examples"].append({
-                        "text": example["text"],
-                        "tokenized": {
-                            "input_ids": tokenized["input_ids"],
-                            "attention_mask": tokenized["attention_mask"]
-                        },
-                        "similarity": example.get("similarity", 1.0),
-                        "type": example.get("type", "paraphrase")
-                    })
+            positive_examples = dialog_turn["contrastive_samples"]["positive_examples"]
+            contrastive_data["positive_examples"] = []
             
-            # Process negative examples
+            for example in positive_examples:
+                # Tokenize the positive example
+                tokenized = self.tokenizer(
+                    example["text"],
+                    max_length=max_length,
+                    padding="max_length",
+                    truncation=True,
+                    return_tensors="pt"
+                )
+                
+                contrastive_data["positive_examples"].append({
+                    "text": example["text"],
+                    "tokenized": {
+                        "input_ids": tokenized["input_ids"],
+                        "attention_mask": tokenized["attention_mask"]
+                    },
+                    "similarity": example.get("similarity", 1.0),
+                    "type": example.get("type", "paraphrase")
+                })
+        
+        # Process negative examples
             if "negative_examples" in dialog_turn["contrastive_samples"]:
-                negative_examples = dialog_turn["contrastive_samples"]["negative_examples"]
-                contrastive_data["negative_examples"] = []
-                
-                for example in negative_examples:
-                    # Tokenize the negative example
-                    tokenized = self.tokenizer(
-                        example["text"],
-                        max_length=max_length,
-                        padding="max_length",
-                        truncation=True,
-                        return_tensors="pt"
-                    )
-                    
-                    contrastive_data["negative_examples"].append({
-                        "text": example["text"],
-                        "tokenized": {
-                            "input_ids": tokenized["input_ids"],
-                            "attention_mask": tokenized["attention_mask"]
-                        },
-                        "similarity": example.get("similarity", 0.0),
-                        "type": example.get("type", "unrelated")
-                    })
+            negative_examples = dialog_turn["contrastive_samples"]["negative_examples"]
+            contrastive_data["negative_examples"] = []
             
-            # Add complexity metadata if present
-            if "complexity_metadata" in dialog_turn:
-                contrastive_data["complexity_metadata"] = dialog_turn["complexity_metadata"]
+            for example in negative_examples:
+                # Tokenize the negative example
+                tokenized = self.tokenizer(
+                    example["text"],
+                    max_length=max_length,
+                    padding="max_length",
+                    truncation=True,
+                    return_tensors="pt"
+                )
+                
+                contrastive_data["negative_examples"].append({
+                    "text": example["text"],
+                    "tokenized": {
+                        "input_ids": tokenized["input_ids"],
+                        "attention_mask": tokenized["attention_mask"]
+                    },
+                    "similarity": example.get("similarity", 0.0),
+                    "type": example.get("type", "unrelated")
+                })
+        
+        # Add complexity metadata if present
+        if "complexity_metadata" in dialog_turn:
+            contrastive_data["complexity_metadata"] = dialog_turn["complexity_metadata"]
         
         return contrastive_data
 
@@ -514,15 +514,15 @@ class AnsweringAgentNormalizer:
                 dialog_context, 
                 max_length=input_max_length,
                 padding="max_length",
-                truncation=True,
+            truncation=True,
                 return_tensors="pt"
-            )
+        )
 
             result['tokenized_answer'] = self.tokenizer(
                 answer,
                 max_length=answer_max_length,
                 padding="max_length",
-                truncation=True,
+            truncation=True,
                 return_tensors="pt"
             )
         
