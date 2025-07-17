@@ -143,10 +143,16 @@ class ParaphraseVerifier:
         self.stats[split]['total_dialogs'] += len(dialogs)
         
         for turn_idx, dialog in enumerate(dialogs):
-            # Check if dialog has an answer
-            answer = dialog.get('answer')
+            turn_id = dialog.get('turn_id', turn_idx)
             
-            if answer and answer.strip() and len(answer.strip().split()) >= 3:
+            # Skip turn 0 (no Q&A, no paraphrases expected)
+            if turn_id == 0:
+                continue
+                
+            # Check if dialog has an answer
+            answer = dialog.get('answer', '').strip()
+            
+            if answer:  # Any non-empty answer should have paraphrases
                 self.stats[split]['dialogs_with_answers'] += 1
                 
                 # Check if paraphrases exist
@@ -154,11 +160,20 @@ class ParaphraseVerifier:
                 
                 if paraphrases:
                     self.stats[split]['dialogs_with_paraphrases'] += 1
-                    self._verify_paraphrase_structure(episode_id, turn_idx, paraphrases, split)
+                    self._verify_paraphrase_structure(episode_id, turn_id, paraphrases, split)
                 else:
-                    # Missing paraphrases
-                    issue = f"Episode {episode_id}, Turn {turn_idx}: Missing paraphrases field for answer '{answer[:50]}...'"
-                    self.issues[split]['missing_paraphrases'].append(issue)
+                    # Missing paraphrases - identify if it's a short answer issue
+                    is_short_answer = len(answer) < 50
+                    answer_preview = answer[:30] + "..." if len(answer) > 30 else answer
+                    
+                    if is_short_answer:
+                        issue = f"Episode {episode_id}, Turn {turn_id}: Missing paraphrases for SHORT answer '{answer_preview}' (length: {len(answer)})"
+                        self.issues[split]['missing_paraphrases_short'].append(issue)
+                        logger.warning(f"❌ SHORT ANSWER: {issue}")
+                    else:
+                        issue = f"Episode {episode_id}, Turn {turn_id}: Missing paraphrases for answer '{answer_preview}' (length: {len(answer)})"
+                        self.issues[split]['missing_paraphrases_long'].append(issue)
+                        logger.warning(f"❌ LONG ANSWER: {issue}")
     
     def _verify_paraphrase_structure(self, episode_id: str, turn_idx: int, paraphrases: Dict, split: str):
         """Verify the structure and validation of paraphrases."""
@@ -317,9 +332,37 @@ class ParaphraseVerifier:
         logger.info(f"📂 Dataset Structure:")
         logger.info(f"  Total episodes: {stats['total_episodes']}")
         logger.info(f"  Total dialog turns: {stats['total_dialogs']}")
-        logger.info(f"  Dialog turns with answers: {stats['dialogs_with_answers']}")
+        logger.info(f"  Dialog turns with answers (excl turn 0): {stats['dialogs_with_answers']}")
         logger.info(f"  Dialog turns with paraphrases: {stats['dialogs_with_paraphrases']}")
         logger.info(f"  Paraphrase coverage: {stats['paraphrase_coverage']:.2%}")
+        
+        # Missing paraphrases breakdown
+        missing_short = len(issues.get('missing_paraphrases_short', []))
+        missing_long = len(issues.get('missing_paraphrases_long', []))
+        total_missing = missing_short + missing_long
+        
+        if total_missing > 0:
+            logger.warning(f"\n❌ MISSING PARAPHRASES ANALYSIS:")
+            logger.warning(f"  Total missing paraphrases: {total_missing}")
+            logger.warning(f"  Missing from short answers (<50 chars): {missing_short}")
+            logger.warning(f"  Missing from long answers (≥50 chars): {missing_long}")
+            logger.warning(f"  Expected coverage: 100% (all turns with answers should have paraphrases)")
+            
+            if missing_short > 0:
+                logger.warning(f"  💡 SHORT ANSWER ISSUES - Run fix_short_answers.py to fix these")
+                # Show first few short answer examples
+                for i, issue in enumerate(issues['missing_paraphrases_short'][:3]):
+                    logger.warning(f"    - {issue}")
+                if missing_short > 3:
+                    logger.warning(f"    ... and {missing_short - 3} more short answers")
+            
+            if missing_long > 0:
+                logger.warning(f"  💡 LONG ANSWER ISSUES - May need comprehensive pipeline rerun")
+                # Show first few long answer examples
+                for i, issue in enumerate(issues['missing_paraphrases_long'][:3]):
+                    logger.warning(f"    - {issue}")
+                if missing_long > 3:
+                    logger.warning(f"    ... and {missing_long - 3} more long answers")
         
         # Structure verification
         logger.info(f"\n🏗️ Structure Verification:")
@@ -347,18 +390,20 @@ class ParaphraseVerifier:
         logger.info(f"  Partial validations (some valid): {stats['partial_validations']}")
         logger.info(f"  Failed validations (none valid): {stats['failed_validations']}")
         
-        # Issues summary
-        total_issues = sum(len(issue_list) for issue_list in issues.values())
-        logger.info(f"\n⚠️ Issues Found: {total_issues}")
+        # Issues summary (excluding missing paraphrases already covered)
+        other_issues = {k: v for k, v in issues.items() if not k.startswith('missing_paraphrases')}
+        total_other_issues = sum(len(issue_list) for issue_list in other_issues.values())
         
-        for issue_type, issue_list in issues.items():
-            if issue_list:
-                logger.info(f"  {issue_type}: {len(issue_list)}")
-                # Show first few examples
-                for i, issue in enumerate(issue_list[:3]):
-                    logger.info(f"    - {issue}")
-                if len(issue_list) > 3:
-                    logger.info(f"    ... and {len(issue_list) - 3} more")
+        if total_other_issues > 0:
+            logger.info(f"\n⚠️ Other Issues Found: {total_other_issues}")
+            for issue_type, issue_list in other_issues.items():
+                if issue_list:
+                    logger.info(f"  {issue_type}: {len(issue_list)}")
+                    # Show first few examples
+                    for i, issue in enumerate(issue_list[:3]):
+                        logger.info(f"    - {issue}")
+                    if len(issue_list) > 3:
+                        logger.info(f"    ... and {len(issue_list) - 3} more")
     
     def _log_comprehensive_summary(self, results: Dict):
         """Log comprehensive summary across all splits."""
@@ -376,11 +421,50 @@ class ParaphraseVerifier:
         total_valid_positives = sum(self.stats[split]['total_valid_positives'] for split in self.stats)
         total_valid_negatives = sum(self.stats[split]['total_valid_negatives'] for split in self.stats)
         
+        # Aggregate missing paraphrases
+        total_missing_short = sum(len(self.issues[split].get('missing_paraphrases_short', [])) for split in self.issues)
+        total_missing_long = sum(len(self.issues[split].get('missing_paraphrases_long', [])) for split in self.issues)
+        total_missing = total_missing_short + total_missing_long
+        
         logger.info(f"🎯 OVERALL TOTALS:")
         logger.info(f"  Total episodes: {total_episodes}")
-        logger.info(f"  Dialog turns with answers: {total_dialogs_with_answers}")
+        logger.info(f"  Dialog turns with answers (excl turn 0): {total_dialogs_with_answers}")
         logger.info(f"  Dialog turns with paraphrases: {total_dialogs_with_paraphrases}")
         logger.info(f"  Paraphrase coverage: {total_dialogs_with_paraphrases/max(1,total_dialogs_with_answers):.2%}")
+        
+        # Missing paraphrases analysis
+        if total_missing > 0:
+            logger.warning(f"\n❌ MISSING PARAPHRASES ACROSS ALL DATASETS:")
+            logger.warning(f"  Total missing: {total_missing}")
+            logger.warning(f"  Missing from short answers: {total_missing_short}")
+            logger.warning(f"  Missing from long answers: {total_missing_long}")
+            
+            # Per-dataset breakdown
+            logger.warning(f"\n📋 PER-DATASET BREAKDOWN:")
+            for split in ['train', 'val_seen', 'val_unseen']:
+                missing_short_split = len(self.issues[split].get('missing_paraphrases_short', []))
+                missing_long_split = len(self.issues[split].get('missing_paraphrases_long', []))
+                total_split = missing_short_split + missing_long_split
+                
+                if total_split > 0:
+                    logger.warning(f"  {split.upper()}: {total_split} missing ({missing_short_split} short, {missing_long_split} long)")
+                else:
+                    logger.info(f"  {split.upper()}: ✅ No missing paraphrases")
+            
+            # Fix recommendations
+            logger.warning(f"\n💡 RECOMMENDED FIXES:")
+            if total_missing_short > 0:
+                logger.warning(f"  1. Fix short answers: python fix_short_answers.py")
+                logger.warning(f"     Will fix {total_missing_short} short answer turns across all datasets")
+            
+            if total_missing_long > 0:
+                logger.warning(f"  2. Fix long answers: May need to rerun comprehensive pipeline")
+                logger.warning(f"     {total_missing_long} long answer turns failed generation")
+            
+            logger.warning(f"  3. Verify after fixes: python verify_paraphrases.py")
+            logger.warning(f"  4. Run preprocessing: python preprocess_datasets.py")
+        else:
+            logger.info(f"\n✅ PARAPHRASE COVERAGE: Perfect! All turns have paraphrases")
         
         logger.info(f"\n🏗️ STRUCTURE VERIFICATION:")
         logger.info(f"  Correct structure (2P + 1N): {total_correct_structure}")
@@ -411,10 +495,14 @@ class ParaphraseVerifier:
         logger.info(f"  ✅ Correct positive count: {'YES' if success_criteria[2] else 'NO'}")
         logger.info(f"  ✅ Correct negative count: {'YES' if success_criteria[3] else 'NO'}")
         
-        if passed_criteria == 4:
+        if passed_criteria == 4 and total_missing == 0:
             logger.info(f"🎉 VERIFICATION PASSED: All criteria met!")
         else:
-            logger.warning(f"⚠️ VERIFICATION ISSUES: {4-passed_criteria} criteria failed")
+            issues_count = (4 - passed_criteria) + (1 if total_missing > 0 else 0)
+            logger.warning(f"⚠️ VERIFICATION ISSUES: {issues_count} issue(s) found")
+            
+            if total_missing > 0:
+                logger.warning(f"   - Missing paraphrases: {total_missing} turns need fixing")
 
 def main():
     """Run the paraphrase verification."""

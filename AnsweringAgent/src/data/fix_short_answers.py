@@ -233,61 +233,95 @@ def find_short_answer_turns(episodes: List[Dict]) -> List[Dict]:
     return short_answer_turns
 
 def main():
-    """Fix short answer paraphrases."""
-    print("🔧 Fixing Short Answer Paraphrases...")
+    """Fix short answer paraphrases across all datasets."""
+    print("🔧 Fixing Short Answer Paraphrases Across All Datasets...")
     
     config = Config()
     
-    # Load augmented dataset
-    json_path = config.data.train_augmented_json_path
-    print(f"📂 Loading dataset: {json_path}")
+    # Initialize paraphraser once for all datasets
+    paraphraser = None
     
-    with open(json_path, 'r') as f:
-        episodes = json.load(f)
+    # Process all three datasets
+    datasets = ['train', 'val_seen', 'val_unseen']
+    total_fixed = 0
     
-    # Find short answer turns that need fixing
-    short_answer_turns = find_short_answer_turns(episodes)
-    
-    print(f"📊 Found {len(short_answer_turns)} short answer turns to fix")
-    
-    if not short_answer_turns:
-        print("✅ No short answer turns need fixing!")
-        return
-    
-    # Initialize paraphraser
-    paraphraser = ShortAnswerParaphraser()
-    
-    # Process each short answer turn
-    fixed_count = 0
-    for i, turn in enumerate(short_answer_turns):
-        print(f"\n🔄 Processing {i+1}/{len(short_answer_turns)}: Episode {turn['episode_id']}, Turn {turn['turn_id']}")
-        print(f"  Question: {turn['question'][:80]}...")
-        print(f"  Answer: {turn['answer']}")
+    for dataset_name in datasets:
+        print(f"\n{'='*60}")
+        print(f"📋 Processing {dataset_name.upper()} Dataset")
+        print(f"{'='*60}")
         
-        # Generate paraphrases
-        paraphrases = paraphraser.generate_short_answer_paraphrases(
-            turn['question'], turn['answer']
-        )
+        # Get JSON file path
+        json_path = config.data.get_json_path(dataset_name)
+        print(f"📂 Loading dataset: {json_path}")
         
-        # Update the dialog with paraphrases
-        turn['dialog']['paraphrases'] = paraphrases
-        fixed_count += 1
+        if not os.path.exists(json_path):
+            print(f"❌ Dataset file not found: {json_path}")
+            continue
         
-        print(f"  ✅ Generated: {len(paraphrases['positives'])} positives, {len(paraphrases['negatives'])} negatives")
-        print(f"     Positives: {paraphrases['positives']}")
-        print(f"     Negatives: {paraphrases['negatives']}")
+        with open(json_path, 'r') as f:
+            episodes = json.load(f)
+        
+        # Find short answer turns that need fixing
+        short_answer_turns = find_short_answer_turns(episodes)
+        
+        print(f"📊 Found {len(short_answer_turns)} short answer turns to fix in {dataset_name}")
+        
+        if not short_answer_turns:
+            print(f"✅ No short answer turns need fixing in {dataset_name}!")
+            continue
+        
+        # Initialize paraphraser only when needed
+        if paraphraser is None:
+            paraphraser = ShortAnswerParaphraser()
+        
+        # Process each short answer turn
+        fixed_count = 0
+        for i, turn in enumerate(short_answer_turns):
+            print(f"\n🔄 Processing {i+1}/{len(short_answer_turns)}: Episode {turn['episode_id']}, Turn {turn['turn_id']}")
+            print(f"  Question: {turn['question'][:80]}...")
+            print(f"  Answer: {turn['answer']}")
+            
+            # Generate paraphrases
+            paraphrases = paraphraser.generate_short_answer_paraphrases(
+                turn['question'], turn['answer']
+            )
+            
+            # Update the dialog with paraphrases
+            turn['dialog']['paraphrases'] = paraphrases
+            fixed_count += 1
+            
+            print(f"  ✅ Generated: {len(paraphrases['positives'])} positives, {len(paraphrases['negatives'])} negatives")
+            print(f"     Positives: {paraphrases['positives']}")
+            print(f"     Negatives: {paraphrases['negatives']}")
+        
+        # Save fixed dataset
+        output_file = json_path.replace('.json', '_short_fixed.json')
+        with open(output_file, 'w') as f:
+            json.dump(episodes, f, indent=2)
+        
+        print(f"\n✅ Fixed {fixed_count} short answer turns in {dataset_name}!")
+        print(f"📄 Saved to: {output_file}")
+        total_fixed += fixed_count
     
-    # Save fixed dataset
-    output_file = json_path.replace('.json', '_short_fixed.json')
-    with open(output_file, 'w') as f:
-        json.dump(episodes, f, indent=2)
+    print(f"\n🎉 SUMMARY: Fixed {total_fixed} short answer turns across all datasets!")
     
-    print(f"\n🎉 Fixed {fixed_count} short answer turns!")
-    print(f"📄 Saved to: {output_file}")
     print(f"\n🎯 Next steps:")
-    print(f"  1. Review the results: less {output_file}")
-    print(f"  2. Replace original: mv {output_file} {json_path}")
-    print(f"  3. Run verification: python count_missing_turns.py")
+    print(f"  1. Review the results:")
+    for dataset_name in datasets:
+        json_path = config.data.get_json_path(dataset_name)
+        output_file = json_path.replace('.json', '_short_fixed.json')
+        if os.path.exists(output_file):
+            print(f"     less {output_file}")
+    
+    print(f"  2. Replace originals:")
+    for dataset_name in datasets:
+        json_path = config.data.get_json_path(dataset_name)
+        output_file = json_path.replace('.json', '_short_fixed.json')
+        if os.path.exists(output_file):
+            print(f"     mv {output_file} {json_path}")
+    
+    print(f"  3. Run verification: python count_missing_turns_all.py")
+    print(f"  4. Run preprocessing: python preprocess_datasets.py")
 
 if __name__ == "__main__":
     main() 
