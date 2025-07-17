@@ -61,13 +61,17 @@ class TrainingConfig:
     ce_loss_weight_start: float = 0.7
     ce_loss_weight_end: float = 1.0
     
-    # Contrastive Learning Parameters
+    # Contrastive Learning Parameters - FIXED WEIGHTS FOR BETTER BALANCE
     use_contrastive_learning: bool = True  # Enable/disable contrastive learning (ENABLED for paraphrases)
     contrastive_loss_type: str = "triplet"  # Options: "triplet", "infonce", "supcon"
     contrastive_margin: float = 0.5  # Margin for triplet loss
     contrastive_temperature: float = 0.07  # Temperature for InfoNCE loss
-    contrastive_weight_start: float = 0.1  # Initial weight for contrastive loss
-    contrastive_weight_end: float = 0.5  # Final weight for contrastive loss
+    # FIXED: Increased contrastive weights to match CE loss scale
+    contrastive_weight_start: float = 10.0  # Increased from 0.1 to 10.0
+    contrastive_weight_end: float = 25.0    # Increased from 0.5 to 25.0
+    
+    # Add per-epoch weight logging for debugging
+    log_loss_weights: bool = True  # Log weight values each epoch
     
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""

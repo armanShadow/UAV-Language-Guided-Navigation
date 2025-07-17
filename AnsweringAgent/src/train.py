@@ -337,14 +337,26 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Prepare contrastive examples if enabled
                     positive_input = None
                     negative_input = None
+                    contrastive_examples_found = False
+                    
                     if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
                         if 'positive_example' in batch:
                             positive_input = {k: v.to(device, non_blocking=True) for k, v in batch['positive_example'].items()
                                             if k in ['input_ids', 'attention_mask']}
+                            contrastive_examples_found = True
                         
                         if 'negative_example' in batch:
                             negative_input = {k: v.to(device, non_blocking=True) for k, v in batch['negative_example'].items()
                                             if k in ['input_ids', 'attention_mask']}
+                    
+                    # Debug log on first batch to check data loading
+                    if batch_idx == 0 and epoch == 0 and rank == 0:
+                        logger.info(f"🔍 Debug | Batch keys: {list(batch.keys())}")
+                        logger.info(f"🔍 Debug | Contrastive examples found: {contrastive_examples_found}")
+                        if 'positive_example' in batch:
+                            logger.info(f"🔍 Debug | Positive example shape: {batch['positive_example']['input_ids'].shape}")
+                        if 'negative_example' in batch:
+                            logger.info(f"🔍 Debug | Negative example shape: {batch['negative_example']['input_ids'].shape}")
                     
                     # Forward pass with mixed precision
                     with torch.cuda.amp.autocast(enabled=use_amp):
@@ -424,8 +436,23 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 positive_emb = outputs['positive_adapted_features']
                                 negative_emb = outputs['negative_adapted_features']
                                 
+                                # Debug logging for first few batches
+                                if batch_idx == 0 and epoch < 3 and rank == 0:
+                                    logger.info(f"🔍 Contrastive Debug | Epoch {epoch}, Batch {batch_idx}")
+                                    logger.info(f"  Anchor shape: {anchor_emb.shape}, norm: {torch.norm(anchor_emb, dim=-1).mean():.4f}")
+                                    logger.info(f"  Positive shape: {positive_emb.shape}, norm: {torch.norm(positive_emb, dim=-1).mean():.4f}")
+                                    logger.info(f"  Negative shape: {negative_emb.shape}, norm: {torch.norm(negative_emb, dim=-1).mean():.4f}")
+                                
                                 # Calculate contrastive loss
                                 contrastive_loss = contrastive_loss_fn(anchor_emb, positive_emb, negative_emb)
+                                
+                                # More debug logging
+                                if batch_idx == 0 and epoch < 3 and rank == 0:
+                                    logger.info(f"  Raw contrastive loss: {contrastive_loss.item():.6f}")
+                                    # Check similarities
+                                    pos_sim = F.cosine_similarity(anchor_emb, positive_emb, dim=-1).mean()
+                                    neg_sim = F.cosine_similarity(anchor_emb, negative_emb, dim=-1).mean()
+                                    logger.info(f"  Cosine similarities - Pos: {pos_sim:.4f}, Neg: {neg_sim:.4f}")
                                 
                                 # Add weighted contrastive loss to total loss
                                 contrastive_weight = get_weight_schedule(
@@ -435,6 +462,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 )(epoch)
                                 loss = loss + contrastive_weight * contrastive_loss
                                 total_contrastive_loss += contrastive_loss.item()
+                            elif rank == 0 and batch_idx == 0 and epoch == 0:
+                                logger.warning(f"⚠️ Contrastive learning enabled but no adapted features found in outputs!")
+                                logger.info(f"🔍 Available output keys: {list(outputs.keys())}")
                 
                     # Apply gradient accumulation: normalize loss
                         loss = loss / config.training.gradient_accumulation_steps
@@ -522,9 +552,33 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # Log the epoch summary (only rank 0)
             if rank == 0:
                 epoch_time = time.time() - epoch_start_time
-                logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
-                          f"CE: {avg_ce_loss:.4f} | Contrast: {avg_contrastive_loss:.4f} | "
-                          f"Time: {epoch_time:.1f}s")
+                
+                # Calculate current weights for this epoch
+                if hasattr(config.training, 'log_loss_weights') and config.training.log_loss_weights:
+                    max_curriculum_epochs = config.training.curriculum_epochs
+                    current_ce_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
+                    current_contrastive_weight = get_weight_schedule(config.training.contrastive_weight_start, config.training.contrastive_weight_end, max_curriculum_epochs)(epoch)
+                    current_dist_weight = get_weight_schedule(config.training.distribution_loss_weight_start, config.training.distribution_loss_weight_end, max_curriculum_epochs)(epoch)
+                    
+                    logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
+                              f"CE: {avg_ce_loss:.4f} | Contrast: {avg_contrastive_loss:.4f} | "
+                              f"Time: {epoch_time:.1f}s")
+                    logger.info(f"🎛️ Weights | CE: {current_ce_weight:.2f} | "
+                              f"Contrastive: {current_contrastive_weight:.2f} | "
+                              f"Dist: {current_dist_weight:.2f}")
+                    
+                    # Log effective contributions for debugging
+                    effective_ce = avg_ce_loss * current_ce_weight
+                    effective_contrastive = avg_contrastive_loss * current_contrastive_weight
+                    effective_dist = avg_distribution_similarity_loss * current_dist_weight
+                    
+                    logger.info(f"🔍 Effective | CE: {effective_ce:.4f} | "
+                              f"Contrastive: {effective_contrastive:.4f} | "
+                              f"Dist: {effective_dist:.4f}")
+                else:
+                    logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
+                              f"CE: {avg_ce_loss:.4f} | Contrast: {avg_contrastive_loss:.4f} | "
+                              f"Time: {epoch_time:.1f}s")
             
             # Validation step
             val_loss = 0
