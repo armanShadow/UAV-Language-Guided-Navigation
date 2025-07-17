@@ -330,7 +330,7 @@ class AnsweringAgent(nn.Module):
             
             # Reshape back to [batch, num_prev, hidden]
             prev_features = all_prev_features.view(batch_size, num_prev, -1)
-                else:
+        else:
             # Default to empty tensor if no previous views
             prev_features = torch.zeros(batch_size, 1, self.config.model.hidden_size,
                                       device=device)
