@@ -33,7 +33,7 @@ from models.contrastive_loss import ContrastiveLoss
 faulthandler.enable()
 
 # Enable detailed distributed debug info
-os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
 
 # Create a temporary file for error logging
 temp_error_file = tempfile.NamedTemporaryFile(prefix="torch_elastic_error_", suffix=".log", delete=False)
@@ -610,8 +610,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 
                                 # Add destination loss if available
                                 if 'destination_image' in batch and dest_features is not None:
-                                destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
-                                    destination_weight = config.training.destination_loss_weight_end
+                                    destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
+                                destination_weight = config.training.destination_loss_weight_end
                                 loss = loss + destination_weight * destination_cosine_loss
                                 
                                 # Add reconstruction losses
