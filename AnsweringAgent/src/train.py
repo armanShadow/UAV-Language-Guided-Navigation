@@ -1001,7 +1001,7 @@ def main():
 
     try:
         # Initialize tokenizer
-        tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name, model_max_length=config.data.max_seq_length, add_special_tokens=True)
+        tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name, model_max_length=config.data.max_seq_length)
         
         if rank == 0:
             logger.info(f"Training on {max(1, num_gpus)} GPUs, distributed mode: {is_distributed}")
