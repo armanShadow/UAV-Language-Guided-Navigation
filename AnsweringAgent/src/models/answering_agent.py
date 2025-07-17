@@ -269,13 +269,11 @@ class AnsweringAgent(nn.Module):
             total_params += param.numel()
             param.requires_grad = False
                 
-        if self.logger:
         self.logger.info(f"T5 model: 0.00% of parameters are trainable (all frozen)")
         self.logger.info(f"Total T5 parameters: {total_params:,}")
         
         # Count our trainable parameters
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        if self.logger:
         self.logger.info(f"Total trainable parameters: {trainable_params:,}")
     
     def forward(self, text_input: dict, current_view: torch.Tensor, 
@@ -313,7 +311,6 @@ class AnsweringAgent(nn.Module):
             current_features = self.feature_extractor(current_view)
         else:
             # Handle cases where we might load a checkpoint with different architecture
-            if self.logger:
             self.logger.warning("Feature extractor not found, returning zero features")
             current_features = torch.zeros(batch_size, self.config.model.hidden_size, 
                                         device=device)
@@ -333,7 +330,7 @@ class AnsweringAgent(nn.Module):
             
             # Reshape back to [batch, num_prev, hidden]
             prev_features = all_prev_features.view(batch_size, num_prev, -1)
-                else:
+        else:
             # Default to empty tensor if no previous views
             prev_features = torch.zeros(batch_size, 1, self.config.model.hidden_size,
                                       device=device)
