@@ -689,19 +689,19 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         last_best_epoch = epoch
                         
                         # Reset early stopping counter on improvement
-                            early_stopping_counter = 0
-                        else:
+                        early_stopping_counter = 0
+                    else:
                         # Check for early stopping if validation loss doesn't improve
                         if config.training.early_stopping:
                             # No improvement in validation loss
                             delta = (val_loss - prev_val_loss) / prev_val_loss
                             
                             if abs(delta) < config.training.early_stopping_min_delta:
-                            early_stopping_counter += 1
+                                early_stopping_counter += 1
                                 logger.info(f"Early stopping counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
                             
                             if early_stopping_counter >= config.training.early_stopping_patience:
-                                    logger.info("Early stopping triggered")
+                                logger.info("Early stopping triggered")
                                 early_stopping_triggered = True
                             else:
                                 # Reset counter if there's significant change
