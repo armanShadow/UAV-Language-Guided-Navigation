@@ -10,6 +10,7 @@ Verifies that the paraphrase integration works correctly with:
 4. Training loop using paraphrases for contrastive learning
 
 USAGE:
+    cd AnsweringAgent/src
     python test_paraphrase_integration.py
 """
 
