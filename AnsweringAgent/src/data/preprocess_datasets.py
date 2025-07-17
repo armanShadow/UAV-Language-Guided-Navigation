@@ -7,7 +7,7 @@ This script preprocesses all datasets (train, val_seen, val_unseen) and saves th
 as .pkl files for faster loading during training.
 
 USAGE:
-    cd AnsweringAgent/src
+    cd AnsweringAgent/src/data
     python preprocess_datasets.py
 """
 

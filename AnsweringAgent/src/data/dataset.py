@@ -269,11 +269,11 @@ class AnsweringDataset(Dataset):
         
         # Get image directory
         if split == 'train':
-            image_dir = config.data.train_images_dir
+            image_dir = config.data.avdn_image_dir
         elif split == 'val_seen':
-            image_dir = config.data.val_seen_images_dir
+            image_dir = config.data.avdn_image_dir
         else:  # val_unseen
-            image_dir = config.data.val_unseen_images_dir
+            image_dir = config.data.avdn_image_dir
         
         if not os.path.exists(image_dir):
             raise FileNotFoundError(f"Image directory not found: {image_dir}")
