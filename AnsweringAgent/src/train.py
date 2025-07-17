@@ -20,29 +20,20 @@ import signal
 import sys
 import datetime
 import logging
-import faulthandler
 import tempfile
 import numpy as np
 import threading
-import math  # Add math import for cosine decay function
+import math
 from transformers import T5Tokenizer
 import torch.nn.functional as F
 from models.contrastive_loss import ContrastiveLoss
 
-# Enable Python fault handler for segfaults
-faulthandler.enable()
-
-# Enable detailed distributed debug info
-os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
-
-# Create a temporary file for error logging
-temp_error_file = tempfile.NamedTemporaryFile(prefix="torch_elastic_error_", suffix=".log", delete=False)
-os.environ["TORCHELASTIC_ERROR_FILE"] = temp_error_file.name
-print(f"Torch elastic error file: {temp_error_file.name}")
-
 # Global flag to track if training should continue
 TRAINING_FAILED = False
 CHECKPOINT_LOCK = threading.Lock()
+
+# Create a temporary file for error logging (minimal)
+temp_error_file = tempfile.NamedTemporaryFile(prefix="training_error_", suffix=".log", delete=False)
 
 # Exponential Moving Average Implementation
 class EMA:
@@ -92,32 +83,43 @@ class EMA:
         self.shadow = state_dict['shadow']
         self.backup = state_dict['backup']
 
-def set_debug_mode():
-    """Enable various debugging and error reporting options"""
-    # Enable Python's detailed traceback
-    sys.tracebacklimit = 100
+def setup_minimal_environment():
+    """Setup minimal environment for training without excessive logging."""
+    # Disable excessive PyTorch distributed logging
+    os.environ["NCCL_DEBUG"] = "WARN"  # Only warnings, not INFO
+    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"  # Minimal distributed info
     
-    # Set NCCL debug logging
-    os.environ["NCCL_DEBUG"] = "INFO"
-    
-    # Enable tensor core debug mode
-    torch.backends.cuda.matmul.allow_tf32 = False
-    
-    # Print all system information
-    print(f"Python version: {sys.version}")
-    print(f"PyTorch version: {torch.__version__}")
+    # Memory optimizations
     if torch.cuda.is_available():
-        print(f"CUDA available: {torch.cuda.is_available()}")
-        print(f"CUDA version: {torch.version.cuda}")
-        print(f"CUDNN version: {torch.backends.cudnn.version()}")
-        print(f"Number of devices: {torch.cuda.device_count()}")
-        for i in range(torch.cuda.device_count()):
-            print(f"Device {i}: {torch.cuda.get_device_name(i)}")
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+        # Remove blocking for performance
+        # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'  # Only for debugging
+        
+        # Optimize NCCL for better multi-GPU communication (minimal)
+        os.environ['NCCL_NSOCKS_PERTHREAD'] = '2'
+        os.environ['NCCL_SOCKET_NTHREADS'] = '2'
     
-    # Check for other important variables
-    print(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
-    print(f"Environment variables: PATH, LD_LIBRARY_PATH, PYTHONPATH set: "
-          f"{all(var in os.environ for var in ['PATH', 'LD_LIBRARY_PATH', 'PYTHONPATH'])}")
+    # Enable cuDNN benchmarking for performance
+    torch.backends.cudnn.benchmark = True
+    
+    # Enable TF32 for better performance (unless debugging precision issues)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
+def log_system_info(rank=0):
+    """Log essential system information only on rank 0."""
+    if rank != 0:
+        return
+        
+    print(f"🚀 UAV Navigation Training Pipeline")
+    print(f"PyTorch: {torch.__version__}")
+    
+    if torch.cuda.is_available():
+        print(f"CUDA: {torch.version.cuda} | Devices: {torch.cuda.device_count()}")
+        for i in range(torch.cuda.device_count()):
+            print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+    else:
+        print("CUDA: Not available - using CPU")
 
 def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: int) -> Dict[str, float]:
     """Compute accuracy and other metrics."""
@@ -241,14 +243,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     use_amp = config.training.mixed_precision
     
     if rank == 0:
-        logger.info(f"Mixed precision training: {'enabled' if use_amp else 'disabled'}")
-
-    # Enable cuDNN benchmarking for faster convolutions
-    torch.backends.cudnn.benchmark = True
-    
-    # Add memory tracking for debugging
-    if torch.cuda.is_available() and rank == 0:
-        logger.info(f"Initial GPU memory: {log_gpu_memory()}")
+        logger.info(f"🎯 Training Configuration:")
+        logger.info(f"  Mixed precision: {'✅' if use_amp else '❌'}")
+        logger.info(f"  Gradient accumulation: {config.training.gradient_accumulation_steps}")
+        logger.info(f"  Contrastive learning: {'✅' if config.training.use_contrastive_learning else '❌'}")
+        
+        # Note about darknet device mapping
+        logger.info(f"📝 Note: Darknet weights loaded on CPU first to prevent OOM, then moved to GPU")
     
     # Initialize Exponential Moving Average
     ema = EMA(model, decay=0.999)
@@ -262,9 +263,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             loss_type=config.training.contrastive_loss_type
         )
         if rank == 0:
-            logger.info(f"Contrastive learning enabled with {config.training.contrastive_loss_type} loss")
+            logger.info(f"🔗 Contrastive learning: {config.training.contrastive_loss_type} loss")
     
-    # Clear cache once at beginning rather than every iteration
+    # Clear cache once at beginning
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
@@ -274,36 +275,24 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     # Early stopping variables
     early_stopping_counter = 0
     early_stopping_triggered = False
-    prev_val_loss = float('inf')  # Track previous validation loss for comparison
+    prev_val_loss = float('inf')
     
-    
-    # Setup gradient buckets for efficient all-reduce if using distributed training
-    gradient_buckets = None
-    if is_distributed:
-        if hasattr(model, 'module'):
-            gradient_buckets = setup_gradient_buckets(model.module)
-        else:
-            gradient_buckets = setup_gradient_buckets(model)
-        if rank == 0:
-            logger.info(f"Created {len(gradient_buckets)} gradient buckets for efficient all-reduce")
-        
     try:
         for epoch in range(start_epoch, num_epochs):
             # Check if early stopping was triggered
             if early_stopping_triggered:
                 if rank == 0:
-                    logger.info(f"Early stopping triggered after {epoch} epochs")
+                    logger.info(f"🛑 Early stopping triggered after {epoch} epochs")
                 
                 # Add synchronization barrier to ensure all processes exit together
                 if is_distributed and dist.is_initialized():
                     try:
-                        # Use barrier to synchronize processes before exiting
                         dist.barrier()
                         if rank == 0:
-                            logger.info("All processes synchronized before exit")
+                            logger.info("✅ All processes synchronized before exit")
                     except Exception as e:
                         if rank == 0:
-                            logger.error(f"Error during synchronization barrier: {e}")
+                            logger.error(f"❌ Error during synchronization: {e}")
                 
                 break
                 
@@ -318,14 +307,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             total_destination_loss = 0
             total_visual_reconstruction_loss = 0
             total_destination_reconstruction_loss = 0
-            total_contrastive_loss = 0  # Track contrastive loss
+            total_contrastive_loss = 0
             optimizer.zero_grad(set_to_none=True)
 
             epoch_start_time = time.time()
 
             # Only rank 0 logs the results
             if rank == 0:
-                logger.info(f"Starting epoch {epoch + 1}/{num_epochs}")
+                logger.info(f"🚀 Epoch {epoch + 1}/{num_epochs}")
             
             for batch_idx, batch in enumerate(train_loader):
                 try:
@@ -342,7 +331,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     destination_view = batch['destination_image'].to(device, non_blocking=True) if 'destination_image' in batch else None
                     
                     # Calculate curriculum learning ratio based on epochs
-                    # Start with high ratio (rely more on destination) and gradually reduce to 0
                     max_curriculum_epochs = config.training.curriculum_epochs
                     curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs))
                     
@@ -378,9 +366,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         batch_size, seq_len, vocab_size = logits.size()
 
                         if torch.isnan(logits).any():
-                            logger.error(f"[NaN Logits] NaN detected in logits on rank {rank}, batch {batch_idx}")
-                            logger.error(f"Logits shape: {logits.shape}, stats: min={logits.detach().min().item():.4f}, max={logits.detach().max().item():.4f}")
-                            # Don't store logits.mean() as it could cause OOM
+                            if rank == 0:
+                                logger.error(f"❌ NaN detected in logits at batch {batch_idx}")
                             optimizer.zero_grad(set_to_none=True)
                             continue
 
@@ -392,7 +379,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         ce_loss = criterion(logits_reshaped, labels_reshaped)
                         ce_loss_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
 
-                        # Add feature regularization with weight 0.0001
+                        # Add feature regularization
                         reg_loss = 0.0001 * feature_norm
                         loss = ce_loss_weight * ce_loss + reg_loss
 
@@ -404,14 +391,23 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         loss = loss + distribution_similarity_weight * distribution_similarity_loss
                             
                         # Add destination loss if destination view is available
-                        destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
-                        
-                        destination_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
-                        loss = loss + destination_weight * destination_cosine_loss
+                        if destination_view is not None:
+                            dest_features = outputs.get("destination_features", outputs["adapted_features"])
+                            destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
+                            
+                            destination_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
+                            loss = loss + destination_weight * destination_cosine_loss
+                        else:
+                            destination_cosine_loss = torch.tensor(0.0, device=device)
 
                         # Add reconstruction losses
                         visual_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_visual_features"], outputs["visual_context_target"])
-                        destination_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_destination_features"], dest_features)
+                        
+                        if "reconstructed_destination_features" in outputs:
+                            dest_features = outputs.get("destination_features", outputs["adapted_features"])
+                            destination_reconstruction_loss = calculate_reconstruction_loss(outputs["reconstructed_destination_features"], dest_features)
+                        else:
+                            destination_reconstruction_loss = torch.tensor(0.0, device=device)
                         
                         # Calculate the weight for reconstruction loss
                         reconstruction_weight = get_weight_schedule(config.training.reconstruction_weight_start, config.training.reconstruction_weight_end, max_curriculum_epochs)(epoch)
@@ -474,19 +470,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Only have rank 0 log progress
                     if rank == 0 and batch_idx % log_frequency == 0:
                         avg_loss = total_loss / (batch_idx + 1)
-                        logger.info(f"Epoch {epoch+1}/{num_epochs} | Batch {batch_idx}/{len(train_loader)} | "
-                                  f"Loss: {avg_loss:.4f} | CE: {total_ce_loss/(batch_idx+1):.4f} | "
-                                  f"Dist: {total_distribution_similarity_loss/(batch_idx+1):.4f}")
-                    
-                        # Log GPU memory usage
-                        if torch.cuda.is_available():
-                            logger.info(f"GPU Memory: {log_gpu_memory()}")
+                        logger.info(f"📊 Batch {batch_idx}/{len(train_loader)} | "
+                                  f"Loss: {avg_loss:.4f} | CE: {total_ce_loss/(batch_idx+1):.4f}")
                     
                 except Exception as e:
                     # Log and continue in case of batch failure
                     if rank == 0:
-                        logger.error(f"Error in batch {batch_idx}: {str(e)}")
-                    logger.error(traceback.format_exc())
+                        logger.error(f"❌ Error in batch {batch_idx}: {str(e)}")
                     
                     # Zero out gradients to avoid accumulation
                     optimizer.zero_grad(set_to_none=True)
@@ -495,8 +485,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # Calculate average losses across distributed processes
             if is_distributed:
                 # Gather losses from all processes
-                world_size = dist.get_world_size()
-                
                 loss_tensor = torch.tensor(total_loss, device=device)
                 total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)   
                 total_distribution_similarity_loss_tensor = torch.tensor(total_distribution_similarity_loss, device=device)
@@ -529,21 +517,17 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             avg_destination_loss = total_destination_loss / len(train_loader)
             avg_visual_reconstruction_loss = total_visual_reconstruction_loss / len(train_loader)
             avg_destination_reconstruction_loss = total_destination_reconstruction_loss / len(train_loader)
-            avg_contrastive_loss = total_contrastive_loss / len(train_loader)  # Average contrastive loss
+            avg_contrastive_loss = total_contrastive_loss / len(train_loader)
             
             # Log the epoch summary (only rank 0)
             if rank == 0:
                 epoch_time = time.time() - epoch_start_time
-                logger.info(f"Epoch {epoch+1}/{num_epochs} | "
-                          f"Loss: {avg_epoch_loss:.4f} | CE: {avg_ce_loss:.4f} | "
-                          f"Dist: {avg_distribution_similarity_loss:.4f} | Dest: {avg_destination_loss:.4f} | "
-                          f"VRecon: {avg_visual_reconstruction_loss:.4f} | "
-                          f"DRecon: {avg_destination_reconstruction_loss:.4f} | " 
-                          f"Contrastive: {avg_contrastive_loss:.4f} | "  # Log contrastive loss
+                logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
+                          f"CE: {avg_ce_loss:.4f} | Contrast: {avg_contrastive_loss:.4f} | "
                           f"Time: {epoch_time:.1f}s")
             
             # Validation step
-                val_loss = 0
+            val_loss = 0
                 
             if (epoch + 1) % config.training.eval_freq == 0 or epoch == num_epochs - 1:
                 model.eval()
@@ -597,56 +581,28 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 
                                 # Calculate validation losses
                                 ce_loss = criterion(logits_reshaped, labels_reshaped)
-                                ce_loss_weight = config.training.ce_loss_weight_end  # Use final weight for validation
+                                loss = config.training.ce_loss_weight_end * ce_loss
                                 
-                                loss = ce_loss_weight * ce_loss
-                                
-                                # Add distribution similarity loss
+                                # Add other loss components with final weights
                                 distribution_similarity_loss = calculate_distribution_similarity_loss(
                                     logits_reshaped, labels_reshaped, label_attention_mask.reshape(-1), model, device
                                 )
-                                distribution_similarity_weight = config.training.distribution_loss_weight_end
-                                loss = loss + distribution_similarity_weight * distribution_similarity_loss
+                                loss = loss + config.training.distribution_loss_weight_end * distribution_similarity_loss
                                 
-                                # Add destination loss if available
-                                if 'destination_image' in batch and dest_features is not None:
-                                    destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
-                                destination_weight = config.training.destination_loss_weight_end
-                                loss = loss + destination_weight * destination_cosine_loss
-                                
-                                # Add reconstruction losses
-                                visual_reconstruction_loss = calculate_reconstruction_loss(
-                                    outputs["reconstructed_visual_features"], outputs["visual_context_target"]
-                                )
-                                destination_reconstruction_loss = calculate_reconstruction_loss(
-                                    outputs["reconstructed_destination_features"], dest_features
-                                )
-                                
-                                reconstruction_weight = config.training.reconstruction_weight_end
-                                loss = loss + reconstruction_weight * (
-                                    visual_reconstruction_loss + destination_reconstruction_loss
-                                )
-                                
-                                # Calculate contrastive loss if enabled
+                                # Add contrastive loss if enabled
                                 if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
                                     if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
-                                        # Extract embeddings for contrastive loss
                                         anchor_emb = outputs['adapted_features']
                                         positive_emb = outputs['positive_adapted_features']
                                         negative_emb = outputs['negative_adapted_features']
                                         
-                                        # Calculate contrastive loss
                                         contrastive_loss = contrastive_loss_fn(anchor_emb, positive_emb, negative_emb)
-                                        
-                                        # Add weighted contrastive loss to total loss
-                                        contrastive_weight = config.training.contrastive_weight_end
-                                        loss = loss + contrastive_weight * contrastive_loss
+                                        loss = loss + config.training.contrastive_weight_end * contrastive_loss
                             
                             val_loss += loss.item()
                         except Exception as e:
                             if rank == 0:
-                                logger.error(f"Error in validation batch {batch_idx}: {str(e)}")
-                            logger.error(traceback.format_exc())
+                                logger.error(f"❌ Error in validation batch {batch_idx}: {str(e)}")
                             continue
                 
                 # Restore original weights
@@ -662,12 +618,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 val_loss = val_loss / len(val_loader)
 
                 if rank == 0:
-                    logger.info(f"Validation Loss: {val_loss:.4f}")
+                    logger.info(f"📋 Validation Loss: {val_loss:.4f}")
                     
                     # Check if this is the best model so far
                     if val_loss < best_val_loss:
                         improvement = (best_val_loss - val_loss) / best_val_loss * 100
-                        logger.info(f"Validation loss improved by {improvement:.2f}%")
+                        logger.info(f"🎯 New best model! Improved by {improvement:.2f}%")
                         
                         # Save best model
                         save_dict = {
@@ -683,7 +639,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         with CHECKPOINT_LOCK:
                             best_model_path = os.path.join(checkpoint_dir, 'best_model.pth')
                             torch.save(save_dict, best_model_path)
-                            logger.info(f"Saved best model to {best_model_path}")
+                            logger.info(f"💾 Saved best model")
                         
                         best_val_loss = val_loss
                         last_best_epoch = epoch
@@ -698,10 +654,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             
                             if abs(delta) < config.training.early_stopping_min_delta:
                                 early_stopping_counter += 1
-                                logger.info(f"Early stopping counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
+                                logger.info(f"⏰ Early stopping counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
                             
                             if early_stopping_counter >= config.training.early_stopping_patience:
-                                logger.info("Early stopping triggered")
+                                logger.info("🛑 Early stopping triggered")
                                 early_stopping_triggered = True
                             else:
                                 # Reset counter if there's significant change
@@ -714,7 +670,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 save_dict = {
                     'epoch': epoch,
                     'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
-                            'optimizer_state_dict': optimizer.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
                     'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
                     'ema': ema.state_dict(),
                     'val_loss': val_loss if 'val_loss' in locals() else None,
@@ -724,7 +680,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 with CHECKPOINT_LOCK:
                     checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch+1}.pth')
                     torch.save(save_dict, checkpoint_path)
-                    logger.info(f"Saved checkpoint to {checkpoint_path}")
+                    logger.info(f"💾 Checkpoint saved")
             
             # Step the scheduler based on validation loss if available
             if scheduler:
@@ -740,7 +696,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             save_dict = {
                 'epoch': num_epochs - 1,
                 'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
                 'ema': ema.state_dict(),
                 'val_loss': val_loss if 'val_loss' in locals() else None,
@@ -750,43 +706,33 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             with CHECKPOINT_LOCK:
                 final_model_path = os.path.join(checkpoint_dir, 'final_model.pth')
                 torch.save(save_dict, final_model_path)
-                logger.info(f"Saved final model to {final_model_path}")
+                logger.info(f"💾 Final model saved")
 
             # Print training summary
-            logger.info(f"Training complete. Best validation loss: {best_val_loss:.4f} at epoch {last_best_epoch + 1}")
+            logger.info(f"🎉 Training complete! Best val loss: {best_val_loss:.4f} at epoch {last_best_epoch + 1}")
                 
         return best_val_loss, last_best_epoch
 
     except Exception as e:
         if rank == 0:
-            logger.error(f"Training failed with exception: {str(e)}")
-        logger.error(traceback.format_exc())
+            logger.error(f"❌ Training failed: {str(e)}")
         
         TRAINING_FAILED = True
-        
-        # Re-raise the exception to be handled by the caller
         raise
 
-
 def log_gpu_memory():
-    """Log GPU memory usage for the current device only (no distributed operations)."""
+    """Log GPU memory usage (simplified)."""
     if not torch.cuda.is_available():
-        return "No CUDA devices available"
+        return "No CUDA"
         
     try:
-        # Only log the current device's memory
         current_device = torch.cuda.current_device()
         memory_allocated = torch.cuda.memory_allocated(current_device) / 1024 ** 2
         memory_reserved = torch.cuda.memory_reserved(current_device) / 1024 ** 2
         
-        # Simple format that's easy to read
-        result = f"GPU {current_device}: {memory_allocated:.1f}MB allocated, {memory_reserved:.1f}MB reserved"
-        
-        return result
-    except Exception as e:
-        # Do not fail training due to memory logging error
-        return f"Error logging GPU memory: {str(e)}"
-
+        return f"GPU {current_device}: {memory_allocated:.0f}MB/{memory_reserved:.0f}MB"
+    except Exception:
+        return "GPU memory error"
 
 def setup_distributed():
     """Set up the distributed environment using environment variables set by torchrun."""
@@ -798,7 +744,7 @@ def setup_distributed():
     # Check available GPU count
     available_gpus = torch.cuda.device_count()
     if available_gpus == 0:
-        print("No CUDA devices available! Running on CPU only.")
+        print("⚠️ No CUDA devices available! Running on CPU only.")
         return False, 0, 1
     
     local_rank = int(os.environ["LOCAL_RANK"])
@@ -807,8 +753,7 @@ def setup_distributed():
     
     # Ensure local_rank is within the range of available devices
     if local_rank >= available_gpus:
-        print(f"WARNING: local_rank ({local_rank}) >= available GPUs ({available_gpus})")
-        print(f"Remapping local_rank to available device: {local_rank % available_gpus}")
+        print(f"⚠️ local_rank ({local_rank}) >= available GPUs ({available_gpus})")
         local_rank = local_rank % available_gpus
     
     # Set the device
@@ -820,9 +765,7 @@ def setup_distributed():
     if "MASTER_PORT" not in os.environ:
         os.environ["MASTER_PORT"] = "29500"
     
-    print(f"MASTER_ADDR: {os.environ['MASTER_ADDR']}, MASTER_PORT: {os.environ['MASTER_PORT']}")
-    
-    # Initialize the process group - Always use env:// for torchrun
+    # Initialize the process group
     if not dist.is_initialized():
         try:
             dist.init_process_group(
@@ -832,30 +775,25 @@ def setup_distributed():
                 rank=rank,
                 timeout=datetime.timedelta(minutes=30)
             )
-            print(f"Successfully initialized process group for rank {rank}")
+            print(f"✅ Process group initialized for rank {rank}")
         except Exception as e:
-            print(f"Error initializing process group: {e}")
-            traceback.print_exc()
+            print(f"❌ Error initializing process group: {e}")
             raise
     
     return True, rank, world_size
 
-
 def cleanup():
-    """Force cleanup of multiprocessing resources"""
+    """Force cleanup of resources."""
     if dist.is_initialized():
         dist.destroy_process_group()
     
-    # Force garbage collection
     gc.collect()
     
-    # Clean up CUDA resources
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-
 def set_seed(seed):
-    """Set random seeds for reproducibility across all libraries."""
+    """Set random seeds for reproducibility."""
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
@@ -863,25 +801,15 @@ def set_seed(seed):
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-
-
 def main():
     """Main training function that works with torchrun."""
     global TRAINING_FAILED
     
-    # Set memory allocation optimizations early, before any CUDA operations
-    if torch.cuda.is_available():
-        # Set max split size to reduce memory fragmentation - good for all training
-        # Using only parameters supported in PyTorch 1.11.0
-        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
-        os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-        
-        # Optimize NCCL for better multi-GPU communication
-        os.environ['NCCL_NSOCKS_PERTHREAD'] = '4'
-        os.environ['NCCL_SOCKET_NTHREADS'] = '4'
+    # Setup minimal environment (no excessive logging)
+    setup_minimal_environment()
     
     # Parse arguments first
-    parser = argparse.ArgumentParser(description='Train AnsweringAgent with DDP')
+    parser = argparse.ArgumentParser(description='UAV Navigation Training')
     parser.add_argument('--checkpoint', type=str, help='Path to checkpoint file to resume training from', default=None)
     parser.add_argument('--single-gpu', action='store_true', help='Force running on a single GPU even with torchrun')
     parser.add_argument('--batch-size', type=int, help='Per-GPU batch size (overrides config value)', default=None)
@@ -892,15 +820,14 @@ def main():
     
     # Check CUDA availability first
     if not torch.cuda.is_available():
-        print("CUDA is not available! Training will run on CPU only.")
+        print("⚠️ CUDA is not available! Training will run on CPU only.")
         num_gpus = 0
     else:
         num_gpus = torch.cuda.device_count()
-        print(f"Found {num_gpus} GPU(s)")
     
     if args.single_gpu or num_gpus <= 1:
         # Single GPU or CPU mode
-        print("Running in single device mode")
+        print("🖥️ Running in single device mode")
         is_distributed = False
         rank = 0
         world_size = 1
@@ -914,33 +841,24 @@ def main():
     else:
         # Multi-GPU mode with torchrun
         try:
-            # Initialize distributed environment using torchrun environment variables
             is_distributed, rank, world_size = setup_distributed()
             local_rank = int(os.environ.get("LOCAL_RANK", 0)) % max(1, torch.cuda.device_count())
             device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
         except Exception as e:
-            print(f"Error setting up distributed environment: {e}")
-            traceback.print_exc()
-            print("Falling back to single GPU mode")
+            print(f"❌ Error setting up distributed environment: {e}")
+            print("🔄 Falling back to single GPU mode")
             is_distributed = False
             rank = 0
             world_size = 1
             local_rank = 0
             device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     
-    print(f"Process {rank} using device: {device}, Local rank: {local_rank}, World size: {world_size}, Distributed: {is_distributed}")
-    
-    
-    # Enable detailed debug and error reporting only on main process
-    try:
-        if rank == 0:
-            set_debug_mode()
-    except Exception as e:
-        print(f"Error in debug mode setup: {e}")
+    # Log essential system info
+    log_system_info(rank)
     
     # Set up signal handlers for proper cleanup
     def signal_handler(sig, frame):
-        print(f"Process {rank} received signal {sig}, cleaning up and exiting...")
+        print(f"🛑 Process {rank} received signal {sig}, cleaning up...")
         cleanup()
         sys.exit(0)
     
@@ -950,43 +868,40 @@ def main():
     # Load configuration
     config = Config()
     
-    # Set seed for reproducibility - must happen after config is loaded but before any random operations
+    # Set seed for reproducibility
     set_seed(config.training.seed)
     if rank == 0:
-        print(f"Set random seed to {config.training.seed} for all processes")
+        print(f"🎲 Random seed: {config.training.seed}")
 
-    # Initialize logger - only rank 0 should log to console
+    # Initialize logger
     logger = setup_logger('training', log_dir=config.log_dir)
 
     # Override config values with command-line arguments if provided
     if args.batch_size is not None:
         config.training.per_gpu_batch_size = args.batch_size
         if rank == 0:
-            logger.info(f"Overriding batch size with command-line value: {args.batch_size}")
+            logger.info(f"⚙️ Batch size override: {args.batch_size}")
             
     if args.grad_steps is not None:
         config.training.gradient_accumulation_steps = args.grad_steps
         if rank == 0:
-            logger.info(f"Overriding gradient accumulation steps with command-line value: {args.grad_steps}")
+            logger.info(f"⚙️ Gradient accumulation override: {args.grad_steps}")
     
     # Handle augmented data arguments
     if args.no_augmented_data:
         config.data.use_augmented_data = False
         if rank == 0:
-            logger.info("Using original dataset (augmented data disabled via --no-augmented-data)")
+            logger.info("📊 Using original dataset (no augmentation)")
     elif args.use_augmented_data:
         config.data.use_augmented_data = True
         if rank == 0:
-            logger.info("Using augmented dataset with paraphrases (enabled via --use-augmented-data)")
+            logger.info("📊 Using augmented dataset with paraphrases")
     
     # Log dataset configuration
     if rank == 0:
-        status = "enabled" if config.data.use_augmented_data else "disabled"
-        logger.info(f"Dataset configuration - Augmented data: {status}")
-        logger.info(f"  Train: {config.data.get_json_path('train')}")
-        logger.info(f"  Val Seen: {config.data.get_json_path('val_seen')}")
-        logger.info(f"  Val Unseen: {config.data.get_json_path('val_unseen')}")
-        logger.info(f"  Contrastive Learning: {'enabled' if config.training.use_contrastive_learning else 'disabled'}")
+        status = "✅ enabled" if config.data.use_augmented_data else "❌ disabled"
+        logger.info(f"📊 Augmented data: {status}")
+        logger.info(f"🔗 Contrastive learning: {'✅' if config.training.use_contrastive_learning else '❌'}")
     
     # Silence non-rank-0 processes by setting logger level
     if rank != 0:
@@ -995,23 +910,22 @@ def main():
                 handler.setLevel(logging.ERROR)  # Only show errors on non-rank-0
     
     if rank == 0:
-        logger.info(f"Starting training with debugging enabled. Error file: {temp_error_file.name}")
-        logger.info(f"Process information: Rank {rank}, Local Rank {local_rank}, World Size {world_size}")
-        logger.info(f"Device: {device}")
+        logger.info(f"🚀 Starting UAV Navigation Training")
+        logger.info(f"📍 Device: {device} | Rank: {rank} | World Size: {world_size}")
 
     try:
         # Initialize tokenizer
         tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name, model_max_length=config.data.max_seq_length)
         
         if rank == 0:
-            logger.info(f"Training on {max(1, num_gpus)} GPUs, distributed mode: {is_distributed}")
+            logger.info(f"🎯 Training on {max(1, num_gpus)} GPU(s), distributed: {is_distributed}")
         
         # Wait for rank 0 to finish preprocessing
         if is_distributed:
             dist.barrier()
         
         if rank == 0:
-            logger.info("Starting model initialization...")
+            logger.info("🏗️ Initializing model...")
             
         # Initialize model and move to correct GPU
         model = AnsweringAgent(config, tokenizer, logger)
@@ -1036,7 +950,7 @@ def main():
         # Resume training if checkpoint is provided
         if args.checkpoint and os.path.exists(args.checkpoint):
             if rank == 0:
-                logger.info(f"Loading checkpoint from {args.checkpoint}")
+                logger.info(f"📂 Loading checkpoint: {args.checkpoint}")
             map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank} if torch.cuda.is_available() else 'cpu'
             checkpoint = torch.load(args.checkpoint, map_location=map_location)
             
@@ -1048,32 +962,22 @@ def main():
             start_epoch = checkpoint['epoch']
             best_val_loss = checkpoint.get('val_loss', float('inf'))
             if rank == 0:
-                logger.info(f"Resuming training from epoch {start_epoch}")
-            
-            # Load EMA state from checkpoint
-            if 'ema' in checkpoint:
-                ema.load_state_dict(checkpoint['ema'])
-                if rank == 0:
-                    logger.info("Loaded EMA state from checkpoint")
+                logger.info(f"▶️ Resuming from epoch {start_epoch}")
         
         # Load dataset
         try:
             if rank == 0:
-                logger.info("Loading datasets...")
+                logger.info("📊 Loading datasets...")
 
             datasets = AnsweringDataset.create_datasets(config, logger=logger, splits=['train', 'val_seen'], tokenizer=tokenizer)
 
         except Exception as e:
-            logger.error(f"Critical error loading dataset: {str(e)}")
-            logger.error(traceback.format_exc())
+            logger.error(f"❌ Dataset loading failed: {str(e)}")
             TRAINING_FAILED = True
             raise e
         
-        
-        
         if rank == 0:
-            logger.info(f"Dataset split: {len(datasets['train'])} training, {len(datasets['val_seen'])} validation")
-        
+            logger.info(f"📊 Dataset: {len(datasets['train'])} train, {len(datasets['val_seen'])} validation")
 
         # Use DistributedSampler for distributed training
         if is_distributed:
@@ -1086,17 +990,17 @@ def main():
             shuffle = True
         
         if rank == 0:
-            batch_str = f"Per-GPU batch size: {config.training.per_gpu_batch_size}"
+            batch_str = f"📊 Per-GPU batch size: {config.training.per_gpu_batch_size}"
             if is_distributed:
                 effective_batch_size = config.training.per_gpu_batch_size * world_size * config.training.gradient_accumulation_steps
-                batch_str += f" (effective batch size: {effective_batch_size}, with gradient_accumulation_steps={config.training.gradient_accumulation_steps})"
+                batch_str += f" (effective: {effective_batch_size})"
             logger.info(batch_str)
 
         train_loader = DataLoader(
             datasets['train'],
             batch_size=config.training.per_gpu_batch_size,
             sampler=train_sampler,
-            shuffle=shuffle,  # Only shuffle if not using sampler
+            shuffle=shuffle,
             num_workers=config.training.num_workers,
             pin_memory=config.training.pin_memory,
             persistent_workers=(config.training.num_workers > 0)
@@ -1118,14 +1022,12 @@ def main():
                 if current_step < warmup_steps:
                     return float(current_step) / float(max(1, warmup_steps))
                 else:
-                    # Introduce curriculum-aware decay
-                    curriculum_phase_steps = int(total_steps * 0.15)  # e.g., first 15% of training
+                    # Curriculum-aware decay
+                    curriculum_phase_steps = int(total_steps * 0.15)
                     if current_step < warmup_steps + curriculum_phase_steps:
-                        # Faster decay during curriculum learning
                         progress = float(current_step - warmup_steps) / float(max(1, curriculum_phase_steps))
                         return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
                     else:
-                        # Slower decay after curriculum phase
                         progress = float(current_step - warmup_steps - curriculum_phase_steps) / float(
                             max(1, total_steps - warmup_steps - curriculum_phase_steps))
                         return max(0.0, 0.3 * (1.0 + math.cos(math.pi * progress)))
@@ -1175,154 +1077,45 @@ def main():
         cleanup()
         
         if rank == 0:
-            logger.info("Training completed successfully.")
+            logger.info("🎉 Training completed successfully!")
 
     except Exception as e:
         # Mark training as failed
         TRAINING_FAILED = True
         if logger:
-            # Log all details of the exception
-            error_msg = f"Fatal error in main function: {str(e)}"
-            tb_str = traceback.format_exc()
+            error_msg = f"❌ Fatal error: {str(e)}"
             logger.error(error_msg)
-            logger.error(tb_str)
+            logger.error(traceback.format_exc())
             
-            # Also print to stderr for torchrun to capture
-            print(error_msg, file=sys.stderr)
-            print(tb_str, file=sys.stderr)
-            
-            # Write to the elastic error file directly as well
+            # Write to error file
             with open(temp_error_file.name, 'a') as f:
                 f.write(f"RANK {rank}: {error_msg}\n")
-                f.write(tb_str)
+                f.write(traceback.format_exc())
         else:
-            print(f"Fatal error: {str(e)}")
+            print(f"❌ Fatal error: {str(e)}")
             print(traceback.format_exc())
     finally:
         # Proper cleanup for distributed environment
         if is_distributed and dist.is_initialized():
             try:
-                # Use barrier to synchronize processes before cleanup
                 dist.barrier()
-                # Destroy process group
                 dist.destroy_process_group()
                 if rank == 0 and logger:
-                    logger.info("Distributed process group destroyed successfully")
+                    logger.info("✅ Distributed cleanup complete")
             except Exception as e:
                 if rank == 0 and logger:
-                    logger.error(f"Error during distributed cleanup: {e}")
-                else:
-                    print(f"Error during distributed cleanup: {e}")
+                    logger.error(f"❌ Cleanup error: {e}")
         
-        # General cleanup
         cleanup()
         
         if rank == 0:
             if TRAINING_FAILED:
                 if logger:
-                    logger.error("Training failed with errors")
-                else:
-                    print("Training failed with errors")
-                # Exit with error code
+                    logger.error("❌ Training failed")
                 sys.exit(1)
             else:
                 if logger:
-                    logger.info("Training completed successfully.")
-                else:
-                    print("Training completed successfully.")
-
-
-# Helper functions for efficient gradient all_reduce
-def _flatten_dense_tensors(tensors):
-    """Flatten and concatenate dense tensors."""
-    flat = torch.cat([t.contiguous().view(-1) for t in tensors])
-    return flat
-
-def _unflatten_dense_tensors(flat, tensors):
-    """View the flattened tensor as tensors with original shapes."""
-    outputs = []
-    offset = 0
-    for tensor in tensors:
-        numel = tensor.numel()
-        outputs.append(flat.narrow(0, offset, numel).view_as(tensor))
-        offset += numel
-    return outputs
-
-# New, more efficient approach using bucket views
-def setup_gradient_buckets(model, bucket_size_mb=25):
-    """Setup gradient buckets for efficient all-reduce.
-    Args:
-        model: The model to setup buckets for
-        bucket_size_mb: Target bucket size in MB
-    Returns:
-        List of buckets, where each bucket is a list of parameters
-    """
-    buckets = []
-    current_bucket = []
-    current_size = 0
-    target_size = bucket_size_mb * 1024 * 1024 / 4  # Convert MB to number of float32 elements
-
-    # Group parameters with gradients
-    for param in model.parameters():
-        if param.requires_grad:
-            param_size = param.numel()
-            
-            # If adding this parameter exceeds target bucket size, start a new bucket
-            if current_size + param_size > target_size and current_bucket:
-                buckets.append(current_bucket)
-                current_bucket = []
-                current_size = 0
-            
-            current_bucket.append(param)
-            current_size += param_size
-    
-    # Add last bucket if it has parameters
-    if current_bucket:
-        buckets.append(current_bucket)
-    
-    return buckets
-
-def all_reduce_bucketed(buckets, world_size):
-    """Perform all-reduce on parameter buckets more efficiently.
-    Args:
-        buckets: List of bucket lists, where each bucket is a list of parameters
-        world_size: Number of processes in the distributed group
-    """
-    for bucket in buckets:
-        # Get grad buffer views from all parameters in bucket
-        grads = [param.grad.data for param in bucket if param.grad is not None]
-        
-        if not grads:
-            continue
-            
-        # Create a single flat buffer to hold all grads in this bucket
-        # We first determine the required dtype and device
-        first_grad = grads[0]
-        flat_buffer = torch.zeros(
-            sum(grad.numel() for grad in grads),
-            dtype=first_grad.dtype,
-            device=first_grad.device
-        )
-        
-        # Copy grads to flat buffer with views
-        offset = 0
-        grad_views = []
-        for grad in grads:
-            grad_numel = grad.numel()
-            grad_view = flat_buffer[offset:offset+grad_numel].view_as(grad)
-            grad_view.copy_(grad)
-            grad_views.append(grad_view)
-            offset += grad_numel
-        
-        # All-reduce on the flat buffer
-        dist.all_reduce(flat_buffer, op=dist.ReduceOp.SUM)
-        
-        # Scale by world size
-        flat_buffer.div_(world_size)
-        
-        # The grad views automatically update the original grads
-        # We don't need to copy back
-
+                    logger.info("✅ Training completed successfully")
 
 if __name__ == '__main__':
     import argparse
