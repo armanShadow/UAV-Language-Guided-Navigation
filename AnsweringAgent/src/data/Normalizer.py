@@ -569,7 +569,7 @@ class AnsweringAgentNormalizer:
             for dialog in episode["dialogs"]:
                 # Skip first turn with no Q&A for most purposes
                 if dialog["turn_id"] > 0:
-                    flattened_turns.append({
+                    turn_data = {
                         "episode_id": episode["episode_id"],
                         "map_name": episode["map_name"],
                         "turn_id": dialog["turn_id"],
@@ -586,7 +586,13 @@ class AnsweringAgentNormalizer:
                             "lng_ratio": episode["lng_ratio"],
                             "lat_ratio": episode["lat_ratio"]
                         }
-                    })
+                    }
+                    
+                    # Add paraphrases if they exist in the dialog
+                    if "paraphrases" in dialog:
+                        turn_data["paraphrases"] = dialog["paraphrases"]
+                    
+                    flattened_turns.append(turn_data)
         
         processed_dataset = {}
         total_items = len(flattened_turns)
@@ -595,8 +601,36 @@ class AnsweringAgentNormalizer:
         # Process each turn
         for idx, turn in enumerate(flattened_turns):
             try:
+                # Split the flattened turn back into episode and dialog_turn structures
+                episode_data = {
+                    "episode_id": turn["episode_id"],
+                    "map_name": turn["map_name"],
+                    "first_instruction": turn["first_instruction"],
+                    "destination": turn["destination"],
+                    "gps_botm_left": turn["gps_data"]["gps_botm_left"],
+                    "gps_top_right": turn["gps_data"]["gps_top_right"],
+                    "lng_ratio": turn["gps_data"]["lng_ratio"],
+                    "lat_ratio": turn["gps_data"]["lat_ratio"]
+                }
+                
+                dialog_turn_data = {
+                    "turn_id": turn["turn_id"],
+                    "question": turn["question"],
+                    "answer": turn["answer"],
+                    "observation": {
+                        "view_area_coords": turn["current_view_coords"]
+                    },
+                    "previous_observations": turn["previous_observations"],
+                    "dialog_history": turn["dialog_history"]
+                }
+                
+                # Check if paraphrases exist in the original turn data
+                if "paraphrases" in turn:
+                    dialog_turn_data["paraphrases"] = turn["paraphrases"]
+                
                 processed_data = self.process_dialog_turn(
-                    turn,
+                    episode_data,
+                    dialog_turn_data,
                     image_dir,
                     output_size=output_size,
                     apply_augmentation=apply_augmentation
