@@ -441,6 +441,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     logger.info(f"  Negative (full_context+neg_hint→generation) shape: {negative_emb.shape}, norm: {torch.norm(negative_emb, dim=-1).mean():.4f}")
                                     logger.info(f"  🎯 All features from complete context: First Instruction + Dialog + Current Question")
                                 
+                                # Add shape validation before contrastive loss calculation
+                                if anchor_emb.shape != positive_emb.shape or anchor_emb.shape != negative_emb.shape:
+                                    logger.error(f"❌ Shape mismatch in contrastive loss: anchor={anchor_emb.shape}, "
+                                               f"positive={positive_emb.shape}, negative={negative_emb.shape}")
+                                    continue
+                                
                                 # Calculate first contrastive loss
                                 contrastive_loss_1 = contrastive_loss_fn(anchor_emb, positive_emb, negative_emb)
                                 contrastive_losses.append(contrastive_loss_1)
@@ -461,6 +467,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 # Debug logging for second positive
                                 if batch_idx == 0 and epoch < 3 and rank == 0:
                                     logger.info(f"  Positive 2 (full_context+pos_hint→generation) shape: {positive_emb_2.shape}, norm: {torch.norm(positive_emb_2, dim=-1).mean():.4f}")
+                                
+                                # Add shape validation before contrastive loss calculation
+                                if anchor_emb.shape != positive_emb_2.shape or anchor_emb.shape != negative_emb.shape:
+                                    logger.error(f"❌ Shape mismatch in contrastive loss (triplet 2): anchor={anchor_emb.shape}, "
+                                               f"positive_2={positive_emb_2.shape}, negative={negative_emb.shape}")
+                                    continue
                                 
                                 # Calculate second contrastive loss
                                 contrastive_loss_2 = contrastive_loss_fn(anchor_emb, positive_emb_2, negative_emb)
@@ -568,7 +580,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     max_curriculum_epochs = config.training.curriculum_epochs
                     current_ce_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
                     current_contrastive_weight = get_weight_schedule(config.training.contrastive_weight_start, config.training.contrastive_weight_end, max_curriculum_epochs)(epoch)
-                    current_dest_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight__end, max_curriculum_epochs)(epoch)
+                    current_dest_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
                     
                     logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
                               f"CE: {avg_ce_loss:.4f} | Contrast: {avg_contrastive_loss:.4f} | Destination: {avg_destination_loss} |"
@@ -673,6 +685,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                         positive_emb = outputs['positive_adapted_features']
                                         negative_emb = outputs['negative_adapted_features']
                                         
+                                        # Add shape validation
+                                        if anchor_emb.shape != positive_emb.shape or anchor_emb.shape != negative_emb.shape:
+                                            logger.error(f"❌ Shape mismatch in validation contrastive loss: anchor={anchor_emb.shape}, "
+                                                       f"positive={positive_emb.shape}, negative={negative_emb.shape}")
+                                            continue
+                                        
                                         contrastive_loss_1 = contrastive_loss_fn(anchor_emb, positive_emb, negative_emb)
                                         contrastive_losses.append(contrastive_loss_1)
                                     
@@ -681,6 +699,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                         anchor_emb = outputs['adapted_features']
                                         positive_emb_2 = outputs['positive_adapted_features_2']
                                         negative_emb = outputs['negative_adapted_features']
+                                        
+                                        # Add shape validation
+                                        if anchor_emb.shape != positive_emb_2.shape or anchor_emb.shape != negative_emb.shape:
+                                            logger.error(f"❌ Shape mismatch in validation contrastive loss (triplet 2): anchor={anchor_emb.shape}, "
+                                                       f"positive_2={positive_emb_2.shape}, negative={negative_emb.shape}")
+                                            continue
                                         
                                         contrastive_loss_2 = contrastive_loss_fn(anchor_emb, positive_emb_2, negative_emb)
                                         contrastive_losses.append(contrastive_loss_2)

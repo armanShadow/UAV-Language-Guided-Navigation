@@ -72,6 +72,11 @@ class ContrastiveLoss:
         Returns:
             Triplet loss
         """
+        # Validate input shapes
+        if anchor_embeddings.shape != positive_embeddings.shape or anchor_embeddings.shape != negative_embeddings.shape:
+            raise ValueError(f"Shape mismatch in triplet_loss: anchor={anchor_embeddings.shape}, "
+                           f"positive={positive_embeddings.shape}, negative={negative_embeddings.shape}")
+        
         # Normalize embeddings
         anchor_norm = F.normalize(anchor_embeddings, p=2, dim=-1)
         positive_norm = F.normalize(positive_embeddings, p=2, dim=-1)
