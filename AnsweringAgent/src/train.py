@@ -309,6 +309,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             total_ce_loss = 0
             total_destination_loss = 0
             total_contrastive_loss = 0
+            total_kd_loss = 0
             optimizer.zero_grad(set_to_none=True)
 
             epoch_start_time = time.time()
@@ -481,6 +482,26 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 logger.warning(f"⚠️ Contrastive learning enabled but no adapted features found in outputs!")
                                 logger.info(f"🔍 Available output keys: {list(outputs.keys())}")
                 
+                    # KD loss
+                    kd_loss = torch.tensor(0.0, device=device)
+                    if config.training.use_kd and teacher_model is not None:
+                        with torch.no_grad():
+                            teacher_hidden = teacher_model(
+                                input_ids=text_input["input_ids"],
+                                attention_mask=text_input["attention_mask"],
+                                return_dict=True
+                            ).last_hidden_state.mean(dim=1)
+                            teacher_hidden = F.normalize(teacher_hidden, p=2, dim=-1)
+                        student_hidden = F.normalize(outputs["adapted_features"], p=2, dim=-1)
+                        kd_loss = 1 - F.cosine_similarity(student_hidden, teacher_hidden, dim=-1).mean()
+                        kd_weight = get_weight_schedule(
+                            config.training.kd_weight_start,
+                            config.training.kd_weight_end,
+                            config.training.kd_epochs
+                        )(epoch)
+                        loss = loss + kd_weight * kd_loss
+                        total_kd_loss += kd_loss.item()
+
                     # Apply gradient accumulation: normalize loss
                         loss = loss / config.training.gradient_accumulation_steps
 
@@ -515,10 +536,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         avg_ce = total_ce_loss / (batch_idx + 1)
                         avg_contrastive = total_contrastive_loss / (batch_idx + 1)
                         avg_destination = total_destination_loss / (batch_idx + 1)
+                        avg_kd = total_kd_loss / (batch_idx + 1)
                         
                         logger.info(f"📊 Batch {batch_idx}/{len(train_loader)} | "
                                   f"Loss: {avg_loss:.4f} | CE: {avg_ce:.4f} | "
-                                  f"Contrast: {avg_contrastive:.4f} | Dest: {avg_destination:.4f}")
+                                  f"Contrast: {avg_contrastive:.4f} | KD: {avg_kd:.4f} | Dest: {avg_destination:.4f}")
                     
                 except Exception as e:
                     # Log and continue in case of batch failure
@@ -1030,6 +1052,15 @@ def main():
         if is_distributed:
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model.to(device)
+
+        # Load teacher model for KD if enabled
+        teacher_model = None
+        if config.training.use_kd:
+            from transformers import T5EncoderModel
+            teacher_model = T5EncoderModel.from_pretrained(config.training.kd_teacher_model_name)
+            teacher_model.eval().to(device)
+            if rank == 0:
+                logger.info(f"🧑‍🏫 KD teacher loaded: {config.training.kd_teacher_model_name}")
 
         # Initialize training variables
         start_epoch = 0

@@ -72,6 +72,13 @@ class TrainingConfig:
     # Add per-epoch weight logging for debugging
     log_loss_weights: bool = True  # Log weight values each epoch
     
+    # Knowledge-distillation (KD) parameters
+    use_kd: bool = False  # Enable teacher-student KD
+    kd_teacher_model_name: str = "t5-large"  # Teacher encoder to distil from (must share tokenizer)
+    kd_weight_start: float = 5.0  # KD weight at epoch 0
+    kd_weight_end: float = 0.5    # KD weight after kd_epochs
+    kd_epochs: int = 30  # Epochs over which KD weight is annealed to kd_weight_end
+
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""
         if not torch.cuda.is_available():

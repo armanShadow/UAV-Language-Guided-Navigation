@@ -453,17 +453,18 @@ class AnsweringAgent(nn.Module):
 
         # Process destination image if provided (for curriculum learning)
         dest_features = None
-        if destination_view is not None and curriculum_ratio > 0:
+        if destination_view is not None:
             dest_features = self.feature_extractor(destination_view)
-            
+            outputs["destination_features"] = dest_features
+            if curriculum_ratio > 0:
             # Use linear interpolation for curriculum learning
             # As training progresses, curriculum_ratio decreases
             # - Early training: rely more on destination (oracle)
             # - Later training: rely more on visual context (learned)
-            visual_context = (
-                curriculum_ratio * dest_features + 
-                (1 - curriculum_ratio) * visual_context
-            )
+                visual_context = (
+                    curriculum_ratio * dest_features + 
+                    (1 - curriculum_ratio) * visual_context
+                )
         
         # --- Text Processing ---
         # Get T5 encoder outputs for the input text
@@ -533,9 +534,6 @@ class AnsweringAgent(nn.Module):
                 "feature_norm": visual_context.norm(p=2, dim=1).mean()
             }
             
-            # Add destination features if available
-            if dest_features is not None:
-                outputs["destination_features"] = dest_features
             
             p_weight = torch.sigmoid(self.paraphrase_weight)
             # --- Process positive examples for contrastive learning ---
