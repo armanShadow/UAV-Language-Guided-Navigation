@@ -727,7 +727,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     logger.info(f"📋 Validation Loss: {val_loss:.4f}")
                     
                     # Check if this is the best model so far
-                    if val_loss < best_val_loss:
+                    if val_loss < best_val_loss - best_val_loss * config.training.early_stopping_min_delta:
                         improvement = (best_val_loss - val_loss) / best_val_loss * 100
                         logger.info(f"🎯 New best model! Improved by {improvement:.2f}%")
                         
@@ -743,7 +743,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         }
                         
                         with CHECKPOINT_LOCK:
-                            best_model_path = os.path.join(checkpoint_dir, 'best_model.pth')
+                            best_model_path = os.path.join(checkpoint_dir, f'best_model_{epoch+1}.pth')
                             torch.save(save_dict, best_model_path)
                             logger.info(f"💾 Saved best model")
                         
@@ -753,23 +753,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Reset early stopping counter on improvement
                         early_stopping_counter = 0
                     else:
-                        # Check for early stopping if validation loss doesn't improve
-                        if config.training.early_stopping:
+                        early_stopping_counter += 1
+                        logger.info(f"🔍 Early stopping counter: {early_stopping_counter}")
+                        if config.training.early_stopping and early_stopping_counter >= config.training.early_stopping_patience:
+                            early_stopping_triggered = True
                             # No improvement in validation loss
-                            delta = (val_loss - prev_val_loss) / prev_val_loss
-                            
-                            if abs(delta) < config.training.early_stopping_min_delta:
-                                early_stopping_counter += 1
-                                logger.info(f"⏰ Early stopping counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
-                            
-                            if early_stopping_counter >= config.training.early_stopping_patience:
-                                logger.info("🛑 Early stopping triggered")
-                                early_stopping_triggered = True
-                            else:
-                                # Reset counter if there's significant change
-                                early_stopping_counter = 0
+                            logger.info(f"🛑 Early stopping triggered after {early_stopping_counter} epochs without improvement")
+                            break
                     
-                    prev_val_loss = val_loss
             
             # Save checkpoint at regular intervals (only rank 0)
             if rank == 0 and (epoch + 1) % save_frequency == 0:

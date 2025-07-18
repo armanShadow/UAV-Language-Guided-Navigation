@@ -47,7 +47,7 @@ class TrainingConfig:
     # Early stopping parameters
     early_stopping: bool = True
     early_stopping_patience: int = 10
-    early_stopping_min_delta: float = 0.001
+    early_stopping_min_delta: float = 0.004
     train_chunk_size: int = 1000
     # Curriculum learning parameters
     curriculum_epochs: int = 30  # Number of epochs for curriculum learning phase
