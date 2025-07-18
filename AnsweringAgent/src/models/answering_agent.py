@@ -455,7 +455,6 @@ class AnsweringAgent(nn.Module):
         dest_features = None
         if destination_view is not None:
             dest_features = self.feature_extractor(destination_view)
-            outputs["destination_features"] = dest_features
             if curriculum_ratio > 0:
             # Use linear interpolation for curriculum learning
             # As training progresses, curriculum_ratio decreases
@@ -534,6 +533,9 @@ class AnsweringAgent(nn.Module):
                 "feature_norm": visual_context.norm(p=2, dim=1).mean()
             }
             
+            
+            if destination_view is not None:
+                outputs["destination_features"] = dest_features
             
             p_weight = torch.sigmoid(self.paraphrase_weight)
             # --- Process positive examples for contrastive learning ---
