@@ -114,8 +114,8 @@ class ContrastiveLoss:
         
         Args:
             anchor_embeddings: Anchor embeddings [batch_size, hidden_size]
-            positive_embeddings: Positive embeddings [batch_size, hidden_size]
-            negative_embeddings: Optional explicit negative embeddings [batch_size or k, hidden_size]
+            positive_embeddings: Positive embeddings [batch_size, hidden_size] or [batch_size, num_positives, hidden_size]
+            negative_embeddings: Optional explicit negative embeddings [batch_size, hidden_size]
                 If None, uses in-batch negatives approach
                 
         Returns:
@@ -126,37 +126,48 @@ class ContrastiveLoss:
         
         # Normalize embeddings
         anchor_norm = F.normalize(anchor_embeddings, p=2, dim=-1)
-        positive_norm = F.normalize(positive_embeddings, p=2, dim=-1)
         
-        # Compute similarity between anchors and positives
-        pos_sim = torch.exp(torch.sum(anchor_norm * positive_norm, dim=-1) / self.temperature)
+        # Handle multiple positives if provided
+        if positive_embeddings.dim() == 3:
+            # Multiple positives: [batch_size, num_positives, hidden_size]
+            positive_norm = F.normalize(positive_embeddings, p=2, dim=-1)
+            # Compute similarity for each positive
+            pos_sim = torch.exp(torch.sum(anchor_norm.unsqueeze(1) * positive_norm, dim=-1) / self.temperature)
+            # Average over positives
+            pos_sim = pos_sim.mean(dim=1)
+        else:
+            # Single positive: [batch_size, hidden_size]
+            positive_norm = F.normalize(positive_embeddings, p=2, dim=-1)
+            pos_sim = torch.exp(torch.sum(anchor_norm * positive_norm, dim=-1) / self.temperature)
         
         if negative_embeddings is not None:
             # Explicit negative examples provided
             negative_norm = F.normalize(negative_embeddings, p=2, dim=-1)
             
-            # Compute similarity between anchors and all negatives
-            neg_sim = torch.exp(torch.matmul(anchor_norm, negative_norm.T) / self.temperature)
+            # Compute similarity between anchors and negatives
+            neg_sim = torch.exp(torch.sum(anchor_norm * negative_norm, dim=-1) / self.temperature)
             
-            # Sum over all negatives for each anchor
-            neg_sum = neg_sim.sum(dim=1)
+            # Compute InfoNCE loss with explicit negatives
+            loss = -torch.log(pos_sim / (pos_sim + neg_sim + 1e-12))
+        else:
+            # Use in-batch negatives approach
+            # Create all pairs matrix
+            all_embeddings = torch.cat([anchor_norm, positive_norm], dim=0)  # [2*batch_size, hidden_size]
+            
+            # Compute similarity matrix
+            sim_matrix = torch.matmul(anchor_norm, all_embeddings.T) / self.temperature  # [batch_size, 2*batch_size]
+            
+            # Create mask to exclude self-similarity and positive pairs
+            mask = torch.eye(batch_size, device=device)
+            pos_mask = torch.cat([mask, torch.zeros_like(mask)], dim=1)  # [batch_size, 2*batch_size]
+            
+            # Get negative similarities (exclude positive pairs)
+            neg_mask = 1 - pos_mask
+            neg_similarities = torch.exp(sim_matrix) * neg_mask
+            neg_sum = neg_similarities.sum(dim=1)
             
             # Compute InfoNCE loss
             loss = -torch.log(pos_sim / (pos_sim + neg_sum + 1e-12))
-        else:
-            # Use in-batch negatives approach
-            # Compute similarity between all pairs in the batch
-            sim_matrix = torch.matmul(anchor_norm, anchor_norm.T) / self.temperature
-            
-            # Create a mask to exclude self-similarity
-            mask = torch.eye(batch_size, device=device)
-            
-            # Compute exponential of similarities
-            exp_sim = torch.exp(sim_matrix) * (1 - mask)
-            
-            # Compute InfoNCE loss
-            pos_sim = torch.exp(torch.sum(anchor_norm * positive_norm, dim=-1) / self.temperature)
-            loss = -torch.log(pos_sim / (exp_sim.sum(dim=1) + pos_sim))
             
         return loss.mean()
         
