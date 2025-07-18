@@ -279,7 +279,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     # Early stopping variables
     early_stopping_counter = 0
     early_stopping_triggered = False
-    prev_val_loss = float('inf')
         
     try:
         for epoch in range(start_epoch, num_epochs):
@@ -1065,7 +1064,7 @@ def main():
             start_epoch = checkpoint['epoch']
             best_val_loss = checkpoint.get('val_loss', float('inf'))
             if rank == 0:
-                logger.info(f"▶️ Resuming from epoch {start_epoch}")
+                logger.info(f"▶️ Resuming from epoch {start_epoch+1}")
         
         # Load dataset
         try:
