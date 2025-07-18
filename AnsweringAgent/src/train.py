@@ -550,7 +550,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 total_ce_loss = total_ce_loss_tensor.item() / dist.get_world_size()
                 total_destination_loss = total_destination_loss_tensor.item() / dist.get_world_size()
                 total_contrastive_loss = total_contrastive_loss_tensor.item() / dist.get_world_size()
-                total_kd_loss = total_kd_loss_tensor.iten() / dist.get_world_size()
+                total_kd_loss = total_kd_loss_tensor.item() / dist.get_world_size()
             
             avg_epoch_loss = total_loss / len(train_loader)
             avg_ce_loss = total_ce_loss / len(train_loader)
