@@ -239,7 +239,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     log_frequency = max(10, len(train_loader) // 3)
 
     # Enable automatic mixed precision training
-    scaler = torch.cuda.amp.GradScaler(enabled=config.training.mixed_precision, growth_interval=2000)
+    scaler = torch.cuda.amp.GradScaler(enabled=config.training.mixed_precision)
     use_amp = config.training.mixed_precision
     
     if rank == 0:
@@ -500,6 +500,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Update parameters with scaler aware step
                         scaler.step(optimizer)
                         scaler.update()
+
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()      # release cached kernels
+                            torch.cuda.ipc_collect()      # C++ side arena defrag
+
                         optimizer.zero_grad(set_to_none=True)
                         
                         # Update EMA
