@@ -407,8 +407,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         ce_loss = criterion(logits_reshaped, labels_reshaped)
                         ce_loss_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
 
-                        # Add feature regularization
-                        reg_loss = 0.0001 * feature_norm
+                        # Add feature regularization with clipping to prevent explosion
+                        feature_norm_clipped = feature_norm.clamp(max=1e3)  # Clip to prevent explosion
+                        reg_loss = 0.0001 * feature_norm_clipped
                         loss = ce_loss_weight * ce_loss + reg_loss
                             
                         # Add destination loss if destination view is available
@@ -592,6 +593,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                               f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | KD: {avg_kd_loss:.4f}"
                               f"Time: {epoch_time:.1f}s")
             
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()          # throw away the giant arena
+                torch.cuda.reset_peak_memory_stats()
+                
             # Validation step
             val_loss = 0
                 
@@ -725,7 +730,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 if rank == 0:
                     logger.info(f"📋 Validation Loss: {val_loss:.4f}")
                     
-                    # Check if this is the best model so far
+                    # Check if this is the best model so far (only compare to best, not previous)
                     if val_loss < best_val_loss - best_val_loss * config.training.early_stopping_min_delta:
                         improvement = (best_val_loss - val_loss) / best_val_loss * 100
                         logger.info(f"🎯 New best model! Improved by {improvement:.2f}%")
@@ -752,11 +757,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Reset early stopping counter on improvement
                         early_stopping_counter = 0
                     else:
+                        # Only increment counter if no improvement (don't compare to previous loss)
                         early_stopping_counter += 1
-                        logger.info(f"🔍 Early stopping counter: {early_stopping_counter}")
+                        logger.info(f"🔍 Early stopping counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
                         if config.training.early_stopping and early_stopping_counter >= config.training.early_stopping_patience:
                             early_stopping_triggered = True
-                            # No improvement in validation loss
                             logger.info(f"🛑 Early stopping triggered after {early_stopping_counter} epochs without improvement")
                             break
                     
@@ -1065,6 +1070,8 @@ def main():
             best_val_loss = checkpoint.get('val_loss', float('inf'))
             if rank == 0:
                 logger.info(f"▶️ Resuming from epoch {start_epoch+1}")
+
+        
         
         # Load dataset
         try:
@@ -1097,6 +1104,20 @@ def main():
                 effective_batch_size = config.training.per_gpu_batch_size * world_size * config.training.gradient_accumulation_steps
                 batch_str += f" (effective: {effective_batch_size})"
             logger.info(batch_str)
+            
+            # Log validation batch size
+            val_batch_str = f"📊 Validation batch size: {config.training.per_gpu_batch_size_val}"
+            if is_distributed:
+                effective_val_batch_size = config.training.per_gpu_batch_size_val * world_size
+                val_batch_str += f" (effective: {effective_val_batch_size})"
+            logger.info(val_batch_str)
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()          # throw away the giant arena
+            torch.cuda.reset_peak_memory_stats()
+
+        if rank == 0:
+            logger.info(f"💾 Memory usage: {log_gpu_memory()}")
 
         train_loader = DataLoader(
             datasets['train'],
@@ -1110,12 +1131,12 @@ def main():
 
         val_loader = DataLoader(
             datasets['val_seen'],
-            batch_size=config.training.per_gpu_batch_size,
+            batch_size=config.training.per_gpu_batch_size_val,  # Smaller validation batch size
             sampler=val_sampler,
             shuffle=False,
             num_workers=config.training.num_workers,
             pin_memory=config.training.pin_memory,
-            persistent_workers=(config.training.num_workers > 0)
+            persistent_workers=False  # Disable persistent workers for validation to save VRAM
         )
 
         # Create warmup then decay scheduler

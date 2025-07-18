@@ -36,7 +36,7 @@ class TrainingConfig:
     eval_freq: int = 50  #(validate every ~66 minutes)
     num_workers: int = 4
     pin_memory: bool = True
-    mixed_precision: bool = False
+    mixed_precision: bool = True
     device: str = 'cuda'
     seed: int = 42
     checkpoint_frequency: int = 200
@@ -48,6 +48,8 @@ class TrainingConfig:
     early_stopping: bool = True
     early_stopping_patience: int = 10
     early_stopping_min_delta: float = 0.004
+    # Validation parameters
+    per_gpu_batch_size_val: int = 8  # Smaller validation batch size to save VRAM
     train_chunk_size: int = 1000
     # Curriculum learning parameters
     curriculum_epochs: int = 30  # Number of epochs for curriculum learning phase
