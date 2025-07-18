@@ -27,7 +27,7 @@ class ModelConfig:
 
 @dataclass
 class TrainingConfig:      
-    num_epochs: int = 200000
+    num_epochs: int = 10000
     learning_rate: float = 5e-5
     weight_decay: float = 0.02
     gradient_clip: float = 0.5
