@@ -387,6 +387,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             negative_input=negative_input
                         )
                         
+                        # Debug: Log outputs right after model forward pass
+                        if batch_idx == 0 and epoch == 0 and rank == 0:
+                            logger.info(f"🔍 [FORWARD] Model outputs keys: {list(outputs.keys())}")
+                            for key, value in outputs.items():
+                                if hasattr(value, 'shape'):
+                                    logger.info(f"🔍 [FORWARD] {key}: shape={value.shape}")
+                                else:
+                                    logger.info(f"🔍 [FORWARD] {key}: type={type(value)}")
+                        
                         logits = outputs["logits"]
                         feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
 
