@@ -532,8 +532,11 @@ class AnsweringAgent(nn.Module):
                 )
                 positive_hint_features = self.paraphrase_proj(positive_hint_output.last_hidden_state.mean(dim=1))
                 
+                # Mean-pool encoder_hidden_states to match hint features shape
+                encoder_hidden_mean = encoder_hidden_states.mean(dim=1)  # [batch, hidden]
+                
                 # Combine adapted features with positive hint
-                combined_positive_features = encoder_hidden_states + p_weight * positive_hint_features  # Weighted combination
+                combined_positive_features = encoder_hidden_mean + p_weight * positive_hint_features  # Weighted combination
                 outputs["positive_adapted_features"] = combined_positive_features
                 
             # --- Process second positive example for contrastive learning ---
@@ -546,8 +549,11 @@ class AnsweringAgent(nn.Module):
                 )
                 positive_hint_features_2 = self.paraphrase_proj(positive_hint_output_2.last_hidden_state.mean(dim=1))
                 
+                # Mean-pool encoder_hidden_states to match hint features shape
+                encoder_hidden_mean = encoder_hidden_states.mean(dim=1)  # [batch, hidden]
+                
                 # Combine adapted features with positive hint
-                combined_positive_features_2 = encoder_hidden_states + p_weight * positive_hint_features_2
+                combined_positive_features_2 = encoder_hidden_mean + p_weight * positive_hint_features_2
                 outputs["positive_adapted_features_2"] = combined_positive_features_2
                 
             # --- Process negative examples for contrastive learning ---
@@ -560,8 +566,11 @@ class AnsweringAgent(nn.Module):
                 )
                 negative_hint_features = self.paraphrase_proj(negative_hint_output.last_hidden_state.mean(dim=1))
                 
+                # Mean-pool encoder_hidden_states to match hint features shape
+                encoder_hidden_mean = encoder_hidden_states.mean(dim=1)  # [batch, hidden]
+                
                 # Combine adapted features with negative hint
-                combined_negative_features = encoder_hidden_states + p_weight * negative_hint_features
+                combined_negative_features = encoder_hidden_mean + p_weight * negative_hint_features
                 outputs["negative_adapted_features"] = combined_negative_features
                 
             return outputs
