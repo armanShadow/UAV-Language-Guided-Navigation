@@ -230,8 +230,8 @@ def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mas
     return distribution_loss
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler,
-                num_epochs, device, checkpoint_dir, config, start_epoch=0, best_val_loss=float('inf'), rank=None,
-                logger=None, is_distributed=False):
+                num_epochs, device, checkpoint_dir, config, teacher_model=None, start_epoch=0,
+                best_val_loss=float('inf'), rank=None, logger=None, is_distributed=False):
     """Train the model with mixed precision training and gradient accumulation."""
     global TRAINING_FAILED
 
@@ -487,12 +487,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     if config.training.use_kd and teacher_model is not None:
                         with torch.no_grad():
                             teacher_hidden = teacher_model(
-                                input_ids=text_input["input_ids"],
-                                attention_mask=text_input["attention_mask"],
+                                input_ids=text_input["input_ids"].to('cpu'),
+                                attention_mask=text_input["attention_mask"].to('cpu'),
                                 return_dict=True
                             ).last_hidden_state.mean(dim=1)
                             teacher_hidden = F.normalize(teacher_hidden, p=2, dim=-1)
-                        student_hidden = F.normalize(outputs["adapted_features"], p=2, dim=-1)
+                        student_hidden = F.normalize(outputs["adapted_features"].detach().to('cpu'), p=2, dim=-1)
                         kd_loss = 1 - F.cosine_similarity(student_hidden, teacher_hidden, dim=-1).mean()
                         kd_weight = get_weight_schedule(
                             config.training.kd_weight_start,
@@ -1058,9 +1058,9 @@ def main():
         if config.training.use_kd:
             from transformers import T5EncoderModel
             teacher_model = T5EncoderModel.from_pretrained(config.training.kd_teacher_model_name)
-            teacher_model.eval().to(device)
+            teacher_model.eval().to('cpu')
             if rank == 0:
-                logger.info(f"🧑‍🏫 KD teacher loaded: {config.training.kd_teacher_model_name}")
+                logger.info(f"🧑‍🏫 KD teacher loaded on CPU: {config.training.kd_teacher_model_name}")
 
         # Initialize training variables
         start_epoch = 0
@@ -1195,6 +1195,7 @@ def main():
             device=device,
             checkpoint_dir=config.checkpoint_dir,
             config=config,
+            teacher_model=teacher_model,
             start_epoch=start_epoch,
             best_val_loss=best_val_loss,
             rank=rank,
