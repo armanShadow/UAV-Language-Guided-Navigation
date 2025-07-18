@@ -35,6 +35,8 @@ CHECKPOINT_LOCK = threading.Lock()
 # Create a temporary file for error logging (minimal)
 temp_error_file = tempfile.NamedTemporaryFile(prefix="training_error_", suffix=".log", delete=False)
 
+torch.backends.cudnn.benchmark = False
+
 # Exponential Moving Average Implementation
 class EMA:
     def __init__(self, model, decay=0.999):
@@ -500,6 +502,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Update parameters with scaler aware step
                         scaler.step(optimizer)
                         scaler.update()
+
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()      # release cached kernels
+                            torch.cuda.ipc_collect()      # C++ side arena defrag
+
                         optimizer.zero_grad(set_to_none=True)
                         
                         # Update EMA
@@ -518,9 +525,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         logger.info(f"📊 Batch {batch_idx}/{len(train_loader)} | "
                                   f"Loss: {avg_loss:.4f} | CE: {avg_ce:.4f} | "
                                   f"Contrast: {avg_contrastive:.4f} | KD: {avg_kd:.4f} | Dest: {avg_destination:.4f}")
-                        
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()   
+                         
 
                 except Exception as e:
                     # Log and continue in case of batch failure
@@ -1128,8 +1133,8 @@ def main():
             sampler=train_sampler,
             shuffle=shuffle,
             num_workers=config.training.num_workers,
-            pin_memory=config.training.pin_memory,
-            persistent_workers=(config.training.num_workers > 0)
+            pin_memory=False,
+            persistent_workers=False
         )
 
         val_loader = DataLoader(
