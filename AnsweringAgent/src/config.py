@@ -59,15 +59,15 @@ class TrainingConfig:
     
     # Contrastive Learning Parameters - FIXED WEIGHTS FOR BETTER BALANCE
     use_contrastive_learning: bool = True  # Enable/disable contrastive learning (ENABLED for paraphrases)
-    contrastive_loss_type: str = "triplet"  # Options: "triplet", "infonce", "supcon"
-    contrastive_margin: float = 0.5  # Margin for triplet loss
+    contrastive_loss_type: str = "infonce"  # Options: "triplet", "infonce", "supcon" - Changed to InfoNCE for better handling of similar embeddings
+    contrastive_margin: float = 0.1  # Margin for triplet loss - Reduced from 0.5 to 0.1 for similar embeddings
     contrastive_temperature: float = 0.07  # Temperature for InfoNCE loss
     # FIXED: Increased contrastive weights to match CE loss scale
-    contrastive_weight_start: float = 20.0  # Increased from 0.1 to 10.0
-    contrastive_weight_end: float = 5.0    # Increased from 0.5 to 25.0
+    contrastive_weight_start: float = 10.0  # Increased from 0.1 to 10.0
+    contrastive_weight_end: float = 25.0    # Increased from 0.5 to 25.0
     # New triplet loss options
-    use_cosine_distance: bool = True  # Use cosine distance instead of L2 for triplet loss
-    contrastive_mean_all: bool = True  # Use mean over all elements instead of non-zero for triplet loss
+    use_cosine_distance: bool = True  # Use cosine distance instead of L2 for triplet loss - Better for normalized embeddings
+    contrastive_mean_all: bool = True  # Use mean over all elements instead of non-zero for triplet loss - More stable for large batches
     
     # Add per-epoch weight logging for debugging
     log_loss_weights: bool = True  # Log weight values each epoch

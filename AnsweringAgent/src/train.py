@@ -443,10 +443,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     logger.info(f"  Anchor shape: {anchor_emb.shape}, norm: {torch.norm(anchor_emb, dim=-1).mean():.4f}")
                                     logger.info(f"  Positive shape: {positive_emb.shape}, norm: {torch.norm(positive_emb, dim=-1).mean():.4f}")
                                     logger.info(f"  Negative shape: {negative_emb.shape}, norm: {torch.norm(negative_emb, dim=-1).mean():.4f}")
-                                    logger.info(f"  Triplet 1 loss: {contrastive_loss_1.item():.6f}")
+                                    logger.info(f"  Contrastive loss 1: {contrastive_loss_1.item():.6f}")
                                     pos_sim = F.cosine_similarity(anchor_emb, positive_emb, dim=-1).mean()
                                     neg_sim = F.cosine_similarity(anchor_emb, negative_emb, dim=-1).mean()
-                                    logger.info(f"  Triplet 1 similarities - Pos: {pos_sim:.4f}, Neg: {neg_sim:.4f}")
+                                    logger.info(f"  Similarities - Pos: {pos_sim:.4f}, Neg: {neg_sim:.4f}")
                             
                             # Second triplet: anchor, positive2, negative (if available)
                             if 'positive_adapted_features_2' in outputs and 'negative_adapted_features' in outputs:
@@ -461,16 +461,16 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 # Debug logging for second triplet
                                 if batch_idx == 0 and epoch < 3 and rank == 0:
                                     logger.info(f"  Positive 2 shape: {positive_emb_2.shape}, norm: {torch.norm(positive_emb_2, dim=-1).mean():.4f}")
-                                    logger.info(f"  Triplet 2 loss: {contrastive_loss_2.item():.6f}")
+                                    logger.info(f"  Contrastive loss 2: {contrastive_loss_2.item():.6f}")
                                     pos_sim_2 = F.cosine_similarity(anchor_emb, positive_emb_2, dim=-1).mean()
-                                    logger.info(f"  Triplet 2 similarities - Pos: {pos_sim_2:.4f}, Neg: {neg_sim:.4f}")
+                                    logger.info(f"  Similarities 2 - Pos: {pos_sim_2:.4f}, Neg: {neg_sim:.4f}")
                             
                             # Average the contrastive losses
                             if contrastive_losses:
                                 contrastive_loss = torch.stack(contrastive_losses).mean()
                                 
                                 if batch_idx == 0 and epoch < 3 and rank == 0:
-                                    logger.info(f"  Combined contrastive loss: {contrastive_loss.item():.6f} (from {len(contrastive_losses)} triplets)")
+                                    logger.info(f"  Combined contrastive loss: {contrastive_loss.item():.6f} (from {len(contrastive_losses)} examples)")
                                 
                                 # Add weighted contrastive loss to total loss
                                 contrastive_weight = get_weight_schedule(

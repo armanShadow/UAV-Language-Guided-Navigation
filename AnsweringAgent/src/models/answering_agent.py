@@ -331,6 +331,14 @@ class AnsweringAgent(nn.Module):
         self.paraphrase_proj = nn.Linear(config.model.hidden_size, config.model.hidden_size)
         self.paraphrase_weight = nn.Parameter(torch.tensor(0.0))
         
+        # Contrastive projection head - gives model capacity to separate embeddings
+        self.contrastive_proj = nn.Sequential(
+            nn.Linear(config.model.hidden_size, config.model.hidden_size),
+            nn.ReLU(),
+            nn.Linear(config.model.hidden_size, config.model.hidden_size),
+            nn.LayerNorm(config.model.hidden_size)
+        )
+        
         # T5 Adapter layer - bridges the gap between our fused features and what T5 decoder expects
         self.t5_adapter = nn.Sequential(
             nn.Linear(config.model.hidden_size, config.model.hidden_size),
@@ -517,9 +525,13 @@ class AnsweringAgent(nn.Module):
                 "logits": logits,
                 "encoder_last_hidden_state": encoder_hidden_states,
                 "visual_context": visual_context,
-                "adapted_features": encoder_hidden_states.mean(dim=1),
+                "adapted_features": self.contrastive_proj(encoder_hidden_states.mean(dim=1)),  # Apply contrastive projection
                 "feature_norm": visual_context.norm(p=2, dim=1).mean()
             }
+            
+            # Add destination features if available
+            if dest_features is not None:
+                outputs["destination_features"] = dest_features
             
             p_weight = torch.sigmoid(self.paraphrase_weight)
             # --- Process positive examples for contrastive learning ---
@@ -537,7 +549,7 @@ class AnsweringAgent(nn.Module):
                 
                 # Combine adapted features with positive hint
                 combined_positive_features = encoder_hidden_mean + p_weight * positive_hint_features  # Weighted combination
-                outputs["positive_adapted_features"] = combined_positive_features
+                outputs["positive_adapted_features"] = self.contrastive_proj(combined_positive_features)  # Apply contrastive projection
                 
             # --- Process second positive example for contrastive learning ---
             if positive_input_2 is not None:                    
@@ -554,7 +566,7 @@ class AnsweringAgent(nn.Module):
                 
                 # Combine adapted features with positive hint
                 combined_positive_features_2 = encoder_hidden_mean + p_weight * positive_hint_features_2
-                outputs["positive_adapted_features_2"] = combined_positive_features_2
+                outputs["positive_adapted_features_2"] = self.contrastive_proj(combined_positive_features_2)  # Apply contrastive projection
                 
             # --- Process negative examples for contrastive learning ---
             if negative_input is not None:
@@ -571,7 +583,7 @@ class AnsweringAgent(nn.Module):
                 
                 # Combine adapted features with negative hint
                 combined_negative_features = encoder_hidden_mean + p_weight * negative_hint_features
-                outputs["negative_adapted_features"] = combined_negative_features
+                outputs["negative_adapted_features"] = self.contrastive_proj(combined_negative_features)  # Apply contrastive projection
                 
             return outputs
         else:
