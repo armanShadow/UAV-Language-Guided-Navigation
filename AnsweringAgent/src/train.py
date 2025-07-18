@@ -442,6 +442,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     logger.info(f"  🎯 All features from complete context: First Instruction + Dialog + Current Question")
                                 
                                 # Add shape validation before contrastive loss calculation
+                                logger.error(f"[DEBUG] anchor_emb: shape={getattr(anchor_emb, 'shape', None)}, type={type(anchor_emb)}")
+                                logger.error(f"[DEBUG] positive_emb: shape={getattr(positive_emb, 'shape', None)}, type={type(positive_emb)}")
+                                logger.error(f"[DEBUG] negative_emb: shape={getattr(negative_emb, 'shape', None)}, type={type(negative_emb)}")
                                 if anchor_emb.shape != positive_emb.shape or anchor_emb.shape != negative_emb.shape:
                                     logger.error(f"❌ Shape mismatch in contrastive loss: anchor={anchor_emb.shape}, "
                                                f"positive={positive_emb.shape}, negative={negative_emb.shape}")
