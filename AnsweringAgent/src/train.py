@@ -427,6 +427,19 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
                             contrastive_losses = []
                             
+                            # Debug: Log what keys are actually in outputs
+                            if batch_idx == 0 and epoch == 0 and rank == 0:
+                                logger.info(f"🔍 Available output keys: {list(outputs.keys())}")
+                                logger.info(f"🔍 Looking for: 'positive_adapted_features', 'negative_adapted_features'")
+                                if 'positive_adapted_features' in outputs:
+                                    logger.info(f"✅ Found 'positive_adapted_features' with shape: {outputs['positive_adapted_features'].shape}")
+                                else:
+                                    logger.info(f"❌ Missing 'positive_adapted_features'")
+                                if 'negative_adapted_features' in outputs:
+                                    logger.info(f"✅ Found 'negative_adapted_features' with shape: {outputs['negative_adapted_features'].shape}")
+                                else:
+                                    logger.info(f"❌ Missing 'negative_adapted_features'")
+                            
                             # First triplet: anchor, positive1, negative
                             if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
                                 anchor_emb = outputs['adapted_features']
