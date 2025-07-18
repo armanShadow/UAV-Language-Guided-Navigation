@@ -73,7 +73,7 @@ class TrainingConfig:
     log_loss_weights: bool = True  # Log weight values each epoch
     
     # Knowledge-distillation (KD) parameters
-    use_kd: bool = False  # Enable teacher-student KD
+    use_kd: bool = True  # Enable teacher-student KD
     kd_teacher_model_name: str = "t5-large"  # Teacher encoder to distil from (must share tokenizer)
     kd_weight_start: float = 5.0  # KD weight at epoch 0
     kd_weight_end: float = 0.5    # KD weight after kd_epochs
