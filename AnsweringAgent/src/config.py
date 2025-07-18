@@ -54,14 +54,14 @@ class TrainingConfig:
     destination_loss_weight_start: float = 1.0
     destination_loss_weight_end: float = 0.2
     
-    ce_loss_weight_start: float = 0.1
-    ce_loss_weight_end: float = 1.0
+    ce_loss_weight_start: float = 0.02  # Lower start weight so CE does not dominate early
+    ce_loss_weight_end: float = 0.5   # Final weight still substantial but lower than before
     
     # Contrastive Learning Parameters - FIXED WEIGHTS FOR BETTER BALANCE
-    use_contrastive_learning: bool = True  # Enable/disable contrastive learning (ENABLED for paraphrases)
-    contrastive_loss_type: str = "infonce"  # Options: "triplet", "infonce", "supcon" - Changed to InfoNCE for better handling of similar embeddings
-    contrastive_margin: float = 0.1  # Margin for triplet loss - Reduced from 0.5 to 0.1 for similar embeddings
-    contrastive_temperature: float = 0.07  # Temperature for InfoNCE loss
+    use_contrastive_learning: bool = True
+    contrastive_loss_type: str = "infonce"
+    contrastive_margin: float = 0.1
+    contrastive_temperature: float = 0.02  # Lower temperature for sharper InfoNCE
     # FIXED: Increased contrastive weights to match CE loss scale
     contrastive_weight_start: float = 10.0  # Increased from 0.1 to 10.0
     contrastive_weight_end: float = 25.0    # Increased from 0.5 to 25.0

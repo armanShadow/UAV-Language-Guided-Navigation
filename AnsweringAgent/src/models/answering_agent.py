@@ -373,6 +373,10 @@ class AnsweringAgent(nn.Module):
         for name, param in self.t5_model.named_parameters():
             total_params += param.numel()
             param.requires_grad = False
+        
+        # UNFREEZE the last encoder block to give the model some capacity
+        for name, param in self.t5_model.encoder.block[-1].named_parameters():
+            param.requires_grad = True
                 
         self.logger.info(f"T5 model: 0.00% of parameters are trainable (all frozen)")
         self.logger.info(f"Total T5 parameters: {total_params:,}")
