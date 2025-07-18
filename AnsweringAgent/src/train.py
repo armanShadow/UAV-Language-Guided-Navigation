@@ -239,7 +239,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     log_frequency = max(10, len(train_loader) // 3)
 
     # Enable automatic mixed precision training
-    scaler = torch.cuda.amp.GradScaler(enabled=config.training.mixed_precision)
+    scaler = torch.cuda.amp.GradScaler(enabled=config.training.mixed_precision, growth_interval=2000)
     use_amp = config.training.mixed_precision
     
     if rank == 0:
@@ -409,7 +409,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
                         # Add feature regularization with clipping to prevent explosion
                         feature_norm_clipped = feature_norm.clamp(max=1e3)  # Clip to prevent explosion
-                        reg_loss = 0.0001 * feature_norm_clipped
+                        reg_loss = 1e-4 * feature_norm_clipped
                         loss = ce_loss_weight * ce_loss + reg_loss
                             
                         # Add destination loss if destination view is available
@@ -518,7 +518,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         logger.info(f"📊 Batch {batch_idx}/{len(train_loader)} | "
                                   f"Loss: {avg_loss:.4f} | CE: {avg_ce:.4f} | "
                                   f"Contrast: {avg_contrastive:.4f} | KD: {avg_kd:.4f} | Dest: {avg_destination:.4f}")
-                    
+                        
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()   
+
                 except Exception as e:
                     # Log and continue in case of batch failure
                     if rank == 0:
@@ -1135,7 +1138,7 @@ def main():
             sampler=val_sampler,
             shuffle=False,
             num_workers=config.training.num_workers,
-            pin_memory=config.training.pin_memory,
+            pin_memory=False,
             persistent_workers=False  # Disable persistent workers for validation to save VRAM
         )
 
