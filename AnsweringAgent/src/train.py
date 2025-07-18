@@ -387,15 +387,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             negative_input=negative_input
                         )
                         
-                        # Debug: Log outputs right after model forward pass
-                        if batch_idx == 0 and epoch == 0 and rank == 0:
-                            logger.info(f"🔍 [FORWARD] Model outputs keys: {list(outputs.keys())}")
-                            for key, value in outputs.items():
-                                if hasattr(value, 'shape'):
-                                    logger.info(f"🔍 [FORWARD] {key}: shape={value.shape}")
-                                else:
-                                    logger.info(f"🔍 [FORWARD] {key}: type={type(value)}")
-                        
                         logits = outputs["logits"]
                         feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
 
@@ -436,48 +427,22 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
                             contrastive_losses = []
                             
-                            # Debug: Log what keys are actually in outputs
-                            if batch_idx == 0 and epoch == 0 and rank == 0:
-                                logger.info(f"🔍 Available output keys: {list(outputs.keys())}")
-                                logger.info(f"🔍 Looking for: 'positive_adapted_features', 'negative_adapted_features'")
-                                if 'positive_adapted_features' in outputs:
-                                    logger.info(f"✅ Found 'positive_adapted_features' with shape: {outputs['positive_adapted_features'].shape}")
-                                else:
-                                    logger.info(f"❌ Missing 'positive_adapted_features'")
-                                if 'negative_adapted_features' in outputs:
-                                    logger.info(f"✅ Found 'negative_adapted_features' with shape: {outputs['negative_adapted_features'].shape}")
-                                else:
-                                    logger.info(f"❌ Missing 'negative_adapted_features'")
-                            
                             # First triplet: anchor, positive1, negative
                             if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
                                 anchor_emb = outputs['adapted_features']
                                 positive_emb = outputs['positive_adapted_features']
                                 negative_emb = outputs['negative_adapted_features']
                                 
-                                # Debug logging for first few batches
-                                if batch_idx == 0 and epoch < 3 and rank == 0:
-                                    logger.info(f"🔍 Contrastive Debug | Epoch {epoch}, Batch {batch_idx}")
-                                    logger.info(f"  Anchor (full_context→generation) shape: {anchor_emb.shape}, norm: {torch.norm(anchor_emb, dim=-1).mean():.4f}")
-                                    logger.info(f"  Positive (full_context+pos_hint→generation) shape: {positive_emb.shape}, norm: {torch.norm(positive_emb, dim=-1).mean():.4f}")
-                                    logger.info(f"  Negative (full_context+neg_hint→generation) shape: {negative_emb.shape}, norm: {torch.norm(negative_emb, dim=-1).mean():.4f}")
-                                    logger.info(f"  🎯 All features from complete context: First Instruction + Dialog + Current Question")
-                                
-                                # Add shape validation before contrastive loss calculation
-                                logger.error(f"[DEBUG] anchor_emb: shape={getattr(anchor_emb, 'shape', None)}, type={type(anchor_emb)}")
-                                logger.error(f"[DEBUG] positive_emb: shape={getattr(positive_emb, 'shape', None)}, type={type(positive_emb)}")
-                                logger.error(f"[DEBUG] negative_emb: shape={getattr(negative_emb, 'shape', None)}, type={type(negative_emb)}")
-                                if anchor_emb.shape != positive_emb.shape or anchor_emb.shape != negative_emb.shape:
-                                    logger.error(f"❌ Shape mismatch in contrastive loss: anchor={anchor_emb.shape}, "
-                                               f"positive={positive_emb.shape}, negative={negative_emb.shape}")
-                                    continue
-                                
                                 # Calculate first contrastive loss
                                 contrastive_loss_1 = contrastive_loss_fn(anchor_emb, positive_emb, negative_emb)
                                 contrastive_losses.append(contrastive_loss_1)
                                 
-                                # Debug logging for first triplet
+                                # Debug logging for first few batches
                                 if batch_idx == 0 and epoch < 3 and rank == 0:
+                                    logger.info(f"🔍 Contrastive Debug | Epoch {epoch}, Batch {batch_idx}")
+                                    logger.info(f"  Anchor shape: {anchor_emb.shape}, norm: {torch.norm(anchor_emb, dim=-1).mean():.4f}")
+                                    logger.info(f"  Positive shape: {positive_emb.shape}, norm: {torch.norm(positive_emb, dim=-1).mean():.4f}")
+                                    logger.info(f"  Negative shape: {negative_emb.shape}, norm: {torch.norm(negative_emb, dim=-1).mean():.4f}")
                                     logger.info(f"  Triplet 1 loss: {contrastive_loss_1.item():.6f}")
                                     pos_sim = F.cosine_similarity(anchor_emb, positive_emb, dim=-1).mean()
                                     neg_sim = F.cosine_similarity(anchor_emb, negative_emb, dim=-1).mean()
@@ -489,22 +454,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 positive_emb_2 = outputs['positive_adapted_features_2']
                                 negative_emb = outputs['negative_adapted_features']
                                 
-                                # Debug logging for second positive
-                                if batch_idx == 0 and epoch < 3 and rank == 0:
-                                    logger.info(f"  Positive 2 (full_context+pos_hint→generation) shape: {positive_emb_2.shape}, norm: {torch.norm(positive_emb_2, dim=-1).mean():.4f}")
-                                
-                                # Add shape validation before contrastive loss calculation
-                                if anchor_emb.shape != positive_emb_2.shape or anchor_emb.shape != negative_emb.shape:
-                                    logger.error(f"❌ Shape mismatch in contrastive loss (triplet 2): anchor={anchor_emb.shape}, "
-                                               f"positive_2={positive_emb_2.shape}, negative={negative_emb.shape}")
-                                    continue
-                                
                                 # Calculate second contrastive loss
                                 contrastive_loss_2 = contrastive_loss_fn(anchor_emb, positive_emb_2, negative_emb)
                                 contrastive_losses.append(contrastive_loss_2)
                                 
                                 # Debug logging for second triplet
                                 if batch_idx == 0 and epoch < 3 and rank == 0:
+                                    logger.info(f"  Positive 2 shape: {positive_emb_2.shape}, norm: {torch.norm(positive_emb_2, dim=-1).mean():.4f}")
                                     logger.info(f"  Triplet 2 loss: {contrastive_loss_2.item():.6f}")
                                     pos_sim_2 = F.cosine_similarity(anchor_emb, positive_emb_2, dim=-1).mean()
                                     logger.info(f"  Triplet 2 similarities - Pos: {pos_sim_2:.4f}, Neg: {neg_sim:.4f}")
@@ -559,8 +515,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Only have rank 0 log progress
                     if rank == 0 and batch_idx % log_frequency == 0:
                         avg_loss = total_loss / (batch_idx + 1)
+                        avg_ce = total_ce_loss / (batch_idx + 1)
+                        avg_contrastive = total_contrastive_loss / (batch_idx + 1)
+                        avg_destination = total_destination_loss / (batch_idx + 1)
+                        
                         logger.info(f"📊 Batch {batch_idx}/{len(train_loader)} | "
-                                  f"Loss: {avg_loss:.4f} | CE: {total_ce_loss/(batch_idx+1):.4f}")
+                                  f"Loss: {avg_loss:.4f} | CE: {avg_ce:.4f} | "
+                                  f"Contrast: {avg_contrastive:.4f} | Dest: {avg_destination:.4f}")
                     
                 except Exception as e:
                     # Log and continue in case of batch failure
@@ -608,11 +569,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     current_dest_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
                     
                     logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
-                              f"CE: {avg_ce_loss:.4f} | Contrast: {avg_contrastive_loss:.4f} | Destination: {avg_destination_loss} |"
+                              f"CE: {avg_ce_loss:.4f} | "
+                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | "
                               f"Time: {epoch_time:.1f}s")
                     logger.info(f"🎛️ Weights | CE: {current_ce_weight:.2f} | "
-                              f"Contrastive: {current_contrastive_weight:.2f} | "
-                              f"Dist: {current_dest_weight:.2f}")
+                              f"Contrastive: {current_contrastive_weight:.2f} | Dest: {current_dest_weight:.2f}")
                     
                     # Log effective contributions for debugging
                     effective_ce = avg_ce_loss * current_ce_weight
@@ -620,11 +581,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     effective_dest = avg_destination_loss * current_dest_weight
                     
                     logger.info(f"🔍 Effective | CE: {effective_ce:.4f} | "
-                              f"Contrastive: {effective_contrastive:.4f} | "
-                              f"Dist: {effective_dest:.4f}")
+                              f"Contrastive: {effective_contrastive:.4f} | Dest: {effective_dest:.4f}")
                 else:
                     logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
-                              f"CE: {avg_ce_loss:.4f} | Contrast: {avg_contrastive_loss:.4f} | "
+                              f"CE: {avg_ce_loss:.4f} | "
+                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | "
                               f"Time: {epoch_time:.1f}s")
             
             # Validation step
