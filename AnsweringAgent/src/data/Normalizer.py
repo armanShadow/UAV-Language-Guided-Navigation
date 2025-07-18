@@ -6,6 +6,8 @@ import json
 import os
 import random
 from typing import List, Tuple, Dict, Any, Union, Optional
+from transformers import AutoTokenizer, AutoModel
+import torch.nn.functional as F
 
 
 class AnsweringAgentNormalizer:
@@ -21,7 +23,7 @@ class AnsweringAgentNormalizer:
         'lon': {'min': -180, 'max': 180}
     }
 
-    def __init__(self, tokenizer=None, config=None):
+    def __init__(self, tokenizer=None, config=None, generate_mpnet_embeddings=False):
         """Initialize the normalizer."""
         # Add image cache to avoid repeated disk reads
         self.image_cache = {}
@@ -29,12 +31,76 @@ class AnsweringAgentNormalizer:
         self.max_cache_size = 100
         self.tokenizer = tokenizer
         self.config = config
+        self.generate_mpnet_embeddings = generate_mpnet_embeddings
 
         if config is None:
             self.config = Config()
 
         if tokenizer is None:
             self.tokenizer = T5Tokenizer.from_pretrained('t5-base')
+        
+        # Initialize MPNet for knowledge distillation if requested
+        self.mpnet_tokenizer = None
+        self.mpnet_model = None
+        if generate_mpnet_embeddings:
+            self._init_mpnet()
+    
+    def _init_mpnet(self):
+        """Initialize MPNet model and tokenizer for knowledge distillation."""
+        try:
+            print("Loading MPNet tokenizer for knowledge distillation...")
+            self.mpnet_tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-mpnet-base-v2")
+            
+            print("Loading MPNet model for knowledge distillation...")
+            self.mpnet_model = AutoModel.from_pretrained("sentence-transformers/all-mpnet-base-v2")
+            self.mpnet_model.eval()
+            
+            print("✅ MPNet initialized successfully for knowledge distillation")
+        except Exception as e:
+            print(f"❌ Error initializing MPNet: {e}")
+            print("Continuing without MPNet embeddings for knowledge distillation")
+            self.generate_mpnet_embeddings = False
+    
+    def generate_mpnet_embedding(self, text: str) -> np.ndarray:
+        """
+        Generate MPNet embedding for a single text.
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            Normalized embedding as numpy array [768]
+        """
+        if not self.generate_mpnet_embeddings or self.mpnet_model is None:
+            return np.zeros(768, dtype=np.float32)
+        
+        with torch.no_grad():
+            # Tokenize
+            inputs = self.mpnet_tokenizer(
+                text,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=512
+            )
+            
+            # Generate embeddings
+            outputs = self.mpnet_model(**inputs)
+            
+            # Use mean pooling over sequence length
+            attention_mask = inputs['attention_mask']
+            embeddings = outputs.last_hidden_state
+            
+            # Mean pooling with attention mask
+            mask_expanded = attention_mask.unsqueeze(-1).expand(embeddings.size())
+            sum_embeddings = torch.sum(embeddings * mask_expanded.float(), dim=1)
+            sum_mask = attention_mask.sum(1, keepdim=True).clamp(min=1e-9)
+            pooled_embeddings = sum_embeddings / sum_mask
+            
+            # L2 normalize
+            normalized_embeddings = F.normalize(pooled_embeddings, p=2, dim=1)
+            
+            return normalized_embeddings.cpu().numpy().flatten()
 
     def load_image(self, file_path: str) -> np.ndarray:
         """Load an image from file and ensure RGB format.
@@ -480,6 +546,15 @@ class AnsweringAgentNormalizer:
         result['dialog_context'] = dialog_context
         result['question'] = question
         result['answer'] = answer
+        
+        # Generate MPNet embeddings for knowledge distillation if requested
+        if self.generate_mpnet_embeddings:
+            # Generate embedding for the unified dialog context
+            mpnet_embedding = self.generate_mpnet_embedding(dialog_context)
+            result['teacher_embed'] = torch.tensor(mpnet_embedding, dtype=torch.float32)
+        else:
+            # Create zero embedding if MPNet not enabled
+            result['teacher_embed'] = torch.zeros(768, dtype=torch.float32)
         
         # Process contrastive samples if present (legacy format or new paraphrases format)
         if "contrastive_samples" in dialog_turn or "complexity_metadata" in dialog_turn or "paraphrases" in dialog_turn:

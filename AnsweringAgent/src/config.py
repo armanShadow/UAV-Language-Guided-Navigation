@@ -74,7 +74,7 @@ class TrainingConfig:
     
     # Knowledge-distillation (KD) parameters
     use_kd: bool = True  # Enable teacher-student KD
-    kd_teacher_model_name: str = "t5-large"  # Teacher encoder to distil from (must share tokenizer)
+    kd_teacher_model_name: str = "sentence-transformers/all-mpnet-base-v2"  # Teacher model for KD
     kd_weight_start: float = 5.0  # KD weight at epoch 0
     kd_weight_end: float = 0.5    # KD weight after kd_epochs
     kd_epochs: int = 30  # Epochs over which KD weight is annealed to kd_weight_end

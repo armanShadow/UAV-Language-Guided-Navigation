@@ -88,6 +88,11 @@ class AnsweringDataset(Dataset):
             print(f"Error loading preprocessed data: {str(e)}")
             traceback.print_exc()
             raise
+        
+        # Note: Teacher embeddings are now generated during preprocessing in the normalizer
+        # No need to load separate embedding files
+    
+
     
     def __len__(self) -> int:
         return len(self.data_items)
@@ -163,6 +168,13 @@ class AnsweringDataset(Dataset):
             if 'contrastive_data' in item:
                 self._add_contrastive_examples(item['contrastive_data'], result)
 
+                # Add teacher embeddings from preprocessed data
+            if 'teacher_embed' in item:
+                result['teacher_embed'] = item['teacher_embed']
+            else:
+                # Fallback: create zero embedding if not available
+                result['teacher_embed'] = torch.zeros(768, dtype=torch.float32)
+
             return result   
         
         # Pad or truncate to max_previous_views
@@ -193,6 +205,13 @@ class AnsweringDataset(Dataset):
         # Add contrastive examples if available
         if 'contrastive_data' in item:
             self._add_contrastive_examples(item['contrastive_data'], result)
+        
+        # Add teacher embeddings from preprocessed data
+        if 'teacher_embed' in item:
+            result['teacher_embed'] = item['teacher_embed']
+        else:
+            # Fallback: create zero embedding if not available
+            result['teacher_embed'] = torch.zeros(768, dtype=torch.float32)
             
         return result
         
@@ -289,8 +308,9 @@ class AnsweringDataset(Dataset):
         if not os.path.exists(image_dir):
             raise FileNotFoundError(f"Image directory not found: {image_dir}")
         
-        # Initialize normalizer
-        normalizer = AnsweringAgentNormalizer(tokenizer, config)
+        # Initialize normalizer with MPNet embedding generation if KD is enabled
+        generate_mpnet_embeddings = config.training.use_kd
+        normalizer = AnsweringAgentNormalizer(tokenizer, config, generate_mpnet_embeddings=generate_mpnet_embeddings)
         
         # Load and filter JSON data (skip turn 0)
         logger.info(f"Loading JSON data from {json_path}")

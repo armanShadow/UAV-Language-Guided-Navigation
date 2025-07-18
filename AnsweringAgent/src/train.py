@@ -482,18 +482,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 logger.warning(f"⚠️ Contrastive learning enabled but no adapted features found in outputs!")
                                 logger.info(f"🔍 Available output keys: {list(outputs.keys())}")
                 
-                    # KD loss
+                    # KD loss using embeddings generated during preprocessing
                     kd_loss = torch.tensor(0.0, device=device)
-                    if config.training.use_kd and teacher_model is not None:
-                        with torch.no_grad():
-                            teacher_hidden = teacher_model(
-                                input_ids=text_input["input_ids"].to('cpu'),
-                                attention_mask=text_input["attention_mask"].to('cpu'),
-                                return_dict=True
-                            ).last_hidden_state.mean(dim=1)
-                            teacher_hidden = F.normalize(teacher_hidden, p=2, dim=-1)
-                        student_hidden = F.normalize(outputs["adapted_features"].detach().to('cpu'), p=2, dim=-1)
-                        kd_loss = 1 - F.cosine_similarity(student_hidden, teacher_hidden, dim=-1).mean()
+                    if config.training.use_kd:
+                        # Teacher embeddings are included in the batch from preprocessing
+                        teacher_embeddings = batch['teacher_embed'].to(device)
+                        student_hidden = F.normalize(outputs["adapted_features"], p=2, dim=-1)
+                        kd_loss = 1 - F.cosine_similarity(student_hidden, teacher_embeddings, dim=-1).mean()
+                        
                         kd_weight = get_weight_schedule(
                             config.training.kd_weight_start,
                             config.training.kd_weight_end,
@@ -1053,14 +1049,11 @@ def main():
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model.to(device)
 
-        # Load teacher model for KD if enabled
+        # Teacher embeddings are now generated during preprocessing in the normalizer
+        # No need to load teacher model during training
         teacher_model = None
-        if config.training.use_kd:
-            from transformers import T5EncoderModel
-            teacher_model = T5EncoderModel.from_pretrained(config.training.kd_teacher_model_name)
-            teacher_model.eval().to('cpu')
-            if rank == 0:
-                logger.info(f"🧑‍🏫 KD teacher loaded on CPU: {config.training.kd_teacher_model_name}")
+        if config.training.use_kd and rank == 0:
+            logger.info(f"🧑‍🏫 Teacher embeddings generated during preprocessing for KD")
 
         # Initialize training variables
         start_epoch = 0
