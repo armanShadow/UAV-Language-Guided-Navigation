@@ -450,25 +450,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 # Calculate contrastive loss
                                 contrastive_loss = contrastive_loss_fn(anchor_emb, positive_combined, negative_emb)
                                 
-                                # Debug logging for first few batches
-                                if batch_idx == 0 and epoch < 3 and rank == 0:
-                                    logger.info(f"🔍 Contrastive Debug | Epoch {epoch}, Batch {batch_idx}")
-                                    logger.info(f"  Anchor shape: {anchor_emb.shape}, norm: {torch.norm(anchor_emb, dim=-1).mean():.4f}")
-                                    if len(positive_embs) > 1:
-                                        logger.info(f"  Positives shape: {positive_combined.shape} ({len(positive_embs)} positives)")
-                                        for i, pos_emb in enumerate(positive_embs):
-                                            logger.info(f"  Positive {i+1} norm: {torch.norm(pos_emb, dim=-1).mean():.4f}")
-                                            pos_sim = F.cosine_similarity(anchor_emb, pos_emb, dim=-1).mean()
-                                            logger.info(f"  Pos {i+1} similarity: {pos_sim:.4f}")
-                                    else:
-                                        logger.info(f"  Positive shape: {positive_combined.shape}, norm: {torch.norm(positive_combined, dim=-1).mean():.4f}")
-                                        pos_sim = F.cosine_similarity(anchor_emb, positive_combined, dim=-1).mean()
-                                        logger.info(f"  Positive similarity: {pos_sim:.4f}")
-                                    
-                                    logger.info(f"  Negative shape: {negative_emb.shape}, norm: {torch.norm(negative_emb, dim=-1).mean():.4f}")
-                                    neg_sim = F.cosine_similarity(anchor_emb, negative_emb, dim=-1).mean()
-                                    logger.info(f"  Negative similarity: {neg_sim:.4f}")
-                                    logger.info(f"  InfoNCE loss: {contrastive_loss.item():.6f}")
                                 
                                 # Add weighted contrastive loss to total loss
                                 contrastive_weight = get_weight_schedule(
@@ -554,23 +535,28 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)   
                 total_destination_loss_tensor = torch.tensor(total_destination_loss, device=device)
                 total_contrastive_loss_tensor = torch.tensor(total_contrastive_loss, device=device)
+                total_kd_loss_tensor = torch.tensor(total_kd_loss, device=device)
                 
                 # All-reduce to sum losses across processes
                 dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_ce_loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_destination_loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_contrastive_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_kd_loss_tensor, op=dist.ReduceOp.SUM)
+
                 
                 # Calculate averages
                 total_loss = loss_tensor.item() / dist.get_world_size()
                 total_ce_loss = total_ce_loss_tensor.item() / dist.get_world_size()
                 total_destination_loss = total_destination_loss_tensor.item() / dist.get_world_size()
                 total_contrastive_loss = total_contrastive_loss_tensor.item() / dist.get_world_size()
+                total_kd_loss = total_kd_loss_tensor.iten() / dist.get_world_size()
             
             avg_epoch_loss = total_loss / len(train_loader)
             avg_ce_loss = total_ce_loss / len(train_loader)
             avg_destination_loss = total_destination_loss / len(train_loader)
             avg_contrastive_loss = total_contrastive_loss / len(train_loader)
+            avg_kd_loss = total_kd_loss / len(train_loader)
             
             # Log the epoch summary (only rank 0)
             if rank == 0:
@@ -582,25 +568,30 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     current_ce_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
                     current_contrastive_weight = get_weight_schedule(config.training.contrastive_weight_start, config.training.contrastive_weight_end, max_curriculum_epochs)(epoch)
                     current_dest_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
+                    current_kd_weight = get_weight_schedule(config.training.kd_weight_start, config.training.kd_weight_end, max_curriculum_epochs)(epoch)
+
                     
                     logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
                               f"CE: {avg_ce_loss:.4f} | "
-                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | "
+                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | KD: {avg_kd_loss:.4f}"
                               f"Time: {epoch_time:.1f}s")
                     logger.info(f"🎛️ Weights | CE: {current_ce_weight:.2f} | "
-                              f"Contrastive: {current_contrastive_weight:.2f} | Dest: {current_dest_weight:.2f}")
+                              f"Contrastive: {current_contrastive_weight:.2f} | Dest: {current_dest_weight:.2f} | KD: {current_kd_weight}")
                     
                     # Log effective contributions for debugging
                     effective_ce = avg_ce_loss * current_ce_weight
                     effective_contrastive = avg_contrastive_loss * current_contrastive_weight
                     effective_dest = avg_destination_loss * current_dest_weight
+                    effective_kd = avg_kd_loss * current_kd_weight
+                    effective_total = effective_ce + effective_contrastive + effective_dest + effective_kd
                     
                     logger.info(f"🔍 Effective | CE: {effective_ce:.4f} | "
-                              f"Contrastive: {effective_contrastive:.4f} | Dest: {effective_dest:.4f}")
+                              f"Contrastive: {effective_contrastive:.4f} | Dest: {effective_dest:.4f} | KD: {effective_kd:.4f}"
+                              f"Total Loss: {effective_total:.4f}")
                 else:
                     logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
                               f"CE: {avg_ce_loss:.4f} | "
-                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | "
+                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | KD: {avg_kd_loss:.4f}"
                               f"Time: {epoch_time:.1f}s")
             
             # Validation step
