@@ -573,10 +573,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     
                     logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
                               f"CE: {avg_ce_loss:.4f} | "
-                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | KD: {avg_kd_loss:.4f}"
+                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | KD: {avg_kd_loss:.4f} "
                               f"Time: {epoch_time:.1f}s")
-                    logger.info(f"🎛️ Weights | CE: {current_ce_weight:.2f} | "
-                              f"Contrastive: {current_contrastive_weight:.2f} | Dest: {current_dest_weight:.2f} | KD: {current_kd_weight}")
+                    logger.info(f"🎛️  Weights | CE: {current_ce_weight:.2f} | "
+                              f"Contrastive: {current_contrastive_weight:.2f} | Dest: {current_dest_weight:.2f} | KD: {current_kd_weight} ")
                     
                     # Log effective contributions for debugging
                     effective_ce = avg_ce_loss * current_ce_weight
@@ -585,9 +585,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     effective_kd = avg_kd_loss * current_kd_weight
                     effective_total = effective_ce + effective_contrastive + effective_dest + effective_kd
                     
-                    logger.info(f"🔍 Effective | CE: {effective_ce:.4f} | "
-                              f"Contrastive: {effective_contrastive:.4f} | Dest: {effective_dest:.4f} | KD: {effective_kd:.4f}"
-                              f"Total Loss: {effective_total:.4f}")
+                    logger.info(f"🔍 Effective | Total Loss: {effective_total:.4f} | CE: {effective_ce:.4f} | "
+                              f"Contrastive: {effective_contrastive:.4f} | Dest: {effective_dest:.4f} | KD: {effective_kd:.4f} ")
                 else:
                     logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
                               f"CE: {avg_ce_loss:.4f} | "
