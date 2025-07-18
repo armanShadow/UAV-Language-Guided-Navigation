@@ -99,7 +99,7 @@ def setup_minimal_environment():
         os.environ['NCCL_NSOCKS_PERTHREAD'] = '2'
         os.environ['NCCL_SOCKET_NTHREADS'] = '2'
     
-    # Enable cuDNN benchmarking for performance
+    # Enable cuDNN benchmarking for performance (will be disabled later if using mixed precision)
     torch.backends.cudnn.benchmark = True
     
     # Enable TF32 for better performance (unless debugging precision issues)
@@ -1066,18 +1066,30 @@ def main():
         if args.checkpoint and os.path.exists(args.checkpoint):
             if rank == 0:
                 logger.info(f"📂 Loading checkpoint: {args.checkpoint}")
-            map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank} if torch.cuda.is_available() else 'cpu'
-            checkpoint = torch.load(args.checkpoint, map_location=map_location)
-            
-            if hasattr(model, 'module'):
-                model.module.load_state_dict(checkpoint['model_state_dict'])
-            else:
-                model.load_state_dict(checkpoint['model_state_dict'])
                 
-            start_epoch = checkpoint['epoch']
-            best_val_loss = checkpoint.get('val_loss', float('inf'))
-            if rank == 0:
-                logger.info(f"▶️ Resuming from epoch {start_epoch+1}")
+            # Load checkpoint on CPU first to avoid GPU memory issues
+            try:
+                checkpoint = torch.load(args.checkpoint, map_location='cpu')
+                
+                # Move model state dict to GPU after loading
+                if hasattr(model, 'module'):
+                    model.module.load_state_dict(checkpoint['model_state_dict'])
+                else:
+                    model.load_state_dict(checkpoint['model_state_dict'])
+                    
+                start_epoch = checkpoint['epoch']
+                best_val_loss = checkpoint.get('val_loss', float('inf'))
+                
+                if rank == 0:
+                    logger.info(f"▶️ Resuming from epoch {start_epoch+1}")
+                    logger.info(f"💾 Checkpoint loaded successfully on CPU, then moved to GPU")
+                    
+            except Exception as e:
+                if rank == 0:
+                    logger.error(f"❌ Error loading checkpoint: {str(e)}")
+                    logger.info("🔄 Starting training from scratch")
+                start_epoch = 0
+                best_val_loss = float('inf')
 
         
         
@@ -1163,7 +1175,7 @@ def main():
                             max(1, total_steps - warmup_steps - curriculum_phase_steps))
                         return max(0.0, 0.3 * (1.0 + math.cos(math.pi * progress)))
             return LambdaLR(optimizer, lr_lambda)
-        
+
         # Optimizer, loss, and scheduler
         optimizer = optim.AdamW(
             model.parameters(),
