@@ -241,7 +241,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     log_frequency = max(10, len(train_loader) // 3)
 
     # Enable automatic mixed precision training
-    scaler = torch.cuda.amp.GradScaler(enabled=config.training.mixed_precision, growth_interval=2000)
+    scaler = torch.cuda.amp.GradScaler(
+        enabled=config.training.mixed_precision,
+        init_scale=1024,
+        growth_interval=100,   # smaller → faster recovery
+        backoff_factor=0.5,
+    )
     use_amp = config.training.mixed_precision
     
     if rank == 0:
