@@ -8,12 +8,13 @@ class ContrastiveLoss:
     Contrastive learning loss implementations for language-guided navigation.
     
     Supports:
-    - Triplet loss
+    - Triplet loss (with L2 or cosine distance)
     - InfoNCE/NT-Xent loss 
     - Supervised contrastive loss
     """
     
-    def __init__(self, margin: float = 0.5, temperature: float = 0.07, loss_type: str = "triplet"):
+    def __init__(self, margin: float = 0.5, temperature: float = 0.07, loss_type: str = "triplet", 
+                 use_cosine_distance: bool = False, mean_all: bool = False):
         """
         Initialize contrastive loss function.
         
@@ -21,10 +22,14 @@ class ContrastiveLoss:
             margin: Margin for triplet loss
             temperature: Temperature for InfoNCE loss
             loss_type: Type of contrastive loss ("triplet", "infonce", or "supcon")
+            use_cosine_distance: Use cosine distance instead of L2 for triplet loss
+            mean_all: Use mean over all elements instead of mean over non-zero for triplet loss
         """
         self.margin = margin
         self.temperature = temperature
         self.loss_type = loss_type
+        self.use_cosine_distance = use_cosine_distance
+        self.mean_all = mean_all
         
     def __call__(self, 
                 anchor_embeddings: torch.Tensor,
@@ -72,19 +77,28 @@ class ContrastiveLoss:
         positive_norm = F.normalize(positive_embeddings, p=2, dim=-1)
         negative_norm = F.normalize(negative_embeddings, p=2, dim=-1)
         
-        # Compute pairwise distances
-        pos_distance = torch.sum((anchor_norm - positive_norm) ** 2, dim=-1)
-        neg_distance = torch.sum((anchor_norm - negative_norm) ** 2, dim=-1)
+        if self.use_cosine_distance:
+            # Use cosine distance (1 - cosine similarity)
+            pos_distance = 1 - F.cosine_similarity(anchor_norm, positive_norm, dim=-1)
+            neg_distance = 1 - F.cosine_similarity(anchor_norm, negative_norm, dim=-1)
+        else:
+            # Use L2 distance
+            pos_distance = torch.sum((anchor_norm - positive_norm) ** 2, dim=-1)
+            neg_distance = torch.sum((anchor_norm - negative_norm) ** 2, dim=-1)
         
         # Compute triplet loss with margin
         loss = torch.clamp(pos_distance - neg_distance + self.margin, min=0.0)
         
-        # Return mean over non-zero elements
-        num_non_zero = torch.sum(loss > 0).float()
-        if num_non_zero > 0:
-            return torch.sum(loss) / num_non_zero
+        # Return mean over non-zero elements or all elements based on flag
+        if self.mean_all:
+            return loss.mean()
         else:
-            return torch.sum(loss) * 0.0  # Return 0 if all elements are 0
+            # Return mean over non-zero elements
+            num_non_zero = torch.sum(loss > 0).float()
+            if num_non_zero > 0:
+                return torch.sum(loss) / num_non_zero
+            else:
+                return torch.sum(loss) * 0.0  # Return 0 if all elements are 0
             
     def infonce_loss(self,
                     anchor_embeddings: torch.Tensor,

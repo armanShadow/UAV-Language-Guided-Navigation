@@ -53,12 +53,8 @@ class TrainingConfig:
     curriculum_epochs: int = 30  # Number of epochs for curriculum learning phase
     destination_loss_weight_start: float = 1.0
     destination_loss_weight_end: float = 0.2
-    # Additional loss weighting
-    distribution_loss_weight_start: float = 0.8
-    distribution_loss_weight_end: float = 0.3
-    reconstruction_weight_start: float = 0.1
-    reconstruction_weight_end: float = 0.3
-    ce_loss_weight_start: float = 0.7
+    
+    ce_loss_weight_start: float = 0.1
     ce_loss_weight_end: float = 1.0
     
     # Contrastive Learning Parameters - FIXED WEIGHTS FOR BETTER BALANCE
@@ -67,8 +63,11 @@ class TrainingConfig:
     contrastive_margin: float = 0.5  # Margin for triplet loss
     contrastive_temperature: float = 0.07  # Temperature for InfoNCE loss
     # FIXED: Increased contrastive weights to match CE loss scale
-    contrastive_weight_start: float = 10.0  # Increased from 0.1 to 10.0
-    contrastive_weight_end: float = 25.0    # Increased from 0.5 to 25.0
+    contrastive_weight_start: float = 20.0  # Increased from 0.1 to 10.0
+    contrastive_weight_end: float = 5.0    # Increased from 0.5 to 25.0
+    # New triplet loss options
+    use_cosine_distance: bool = True  # Use cosine distance instead of L2 for triplet loss
+    contrastive_mean_all: bool = True  # Use mean over all elements instead of non-zero for triplet loss
     
     # Add per-epoch weight logging for debugging
     log_loss_weights: bool = True  # Log weight values each epoch

@@ -600,7 +600,6 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
     total_distribution_loss = 0
     total_destination_loss = 0
     total_visual_recon_loss = 0
-    total_dest_recon_loss = 0
     
     
     logger.info(f"Evaluating classification on {dataset_name} dataset...")
@@ -673,7 +672,6 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
             # Calculate reconstruction losses if available
             reconstructed_visual = outputs.get("reconstructed_visual_features")
             visual_context_target = outputs.get("visual_context_target")
-            reconstructed_dest = outputs.get("reconstructed_destination_features")
             
             if reconstructed_visual is not None and visual_context_target is not None:
                 visual_recon_loss = calculate_reconstruction_loss(
@@ -682,20 +680,12 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
                 )
             else:
                 visual_recon_loss = torch.tensor(0.0, device=device)
-                
-            if reconstructed_dest is not None and dest_features is not None:
-                dest_recon_loss = calculate_reconstruction_loss(
-                    reconstructed_dest, 
-                    dest_features
-                )
-            else:
-                dest_recon_loss = torch.tensor(0.0, device=device)
             
             # Combine all losses with appropriate weights
             weighted_ce_loss = ce_loss_weight * ce_loss
             weighted_distribution_loss = distribution_similarity_weight * distribution_loss
             weighted_destination_loss = destination_weight * destination_loss
-            weighted_recon_loss = reconstruction_weight * (visual_recon_loss + dest_recon_loss)
+            weighted_recon_loss = reconstruction_weight * visual_recon_loss
             
             combined_loss = weighted_ce_loss + weighted_distribution_loss + weighted_destination_loss + weighted_recon_loss
             
@@ -705,7 +695,6 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
             total_distribution_loss += distribution_loss.item()
             total_destination_loss += destination_loss.item()
             total_visual_recon_loss += visual_recon_loss.item()
-            total_dest_recon_loss += dest_recon_loss.item()
             
     
     # Calculate average losses
@@ -715,7 +704,6 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
     avg_distribution_loss = total_distribution_loss / num_batches
     avg_destination_loss = total_destination_loss / num_batches
     avg_visual_recon_loss = total_visual_recon_loss / num_batches
-    avg_dest_recon_loss = total_dest_recon_loss / num_batches
     
     # Log metrics
     logger.info(f"{dataset_name} Combined Loss: {avg_loss:.4f}")
@@ -723,7 +711,7 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
     logger.info(f"{dataset_name} Distribution Loss: {avg_distribution_loss:.4f}")
     logger.info(f"{dataset_name} Destination Loss: {avg_destination_loss:.4f}")
     logger.info(f"{dataset_name} Visual Recon Loss: {avg_visual_recon_loss:.4f}")
-    logger.info(f"{dataset_name} Dest Recon Loss: {avg_dest_recon_loss:.4f}")    
+    
     # Return detailed metrics
     loss_metrics = {
         'combined_loss': avg_loss,
@@ -731,7 +719,6 @@ def evaluate_classification(model, data_loader, criterion, tokenizer, device, lo
         'distribution_loss': avg_distribution_loss,
         'destination_loss': avg_destination_loss,
         'visual_recon_loss': avg_visual_recon_loss,
-        'dest_recon_loss': avg_dest_recon_loss
     }
     
     return loss_metrics
@@ -750,13 +737,9 @@ def analyze_reconstruction_tradeoff(classification_metrics, reconstruction_losse
     """
     results = {}
     
-    # Calculate ratio of visual reconstruction loss to classification loss
-    if 'ce_loss' in classification_metrics and 'visual_recon_loss' in reconstruction_losses:
-        results['visual_recon_to_task_ratio'] = reconstruction_losses['visual_recon_loss'] / classification_metrics['ce_loss']
-    
-    # Calculate ratio of destination reconstruction loss to destination prediction loss
-    if 'destination_loss' in classification_metrics and 'dest_recon_loss' in reconstruction_losses:
-        results['dest_recon_to_dest_task_ratio'] = reconstruction_losses['dest_recon_loss'] / classification_metrics['destination_loss']
+    # Check for balance between reconstruction and task-specific losses
+    if 'visual_recon_loss' in reconstruction_losses and 'destination_loss' in classification_metrics:
+        results['visual_recon_to_task_ratio'] = reconstruction_losses['visual_recon_loss'] / classification_metrics['destination_loss']
     
     # Log findings
     logger.info(f"Reconstruction-Task Tradeoff Analysis: {results}")
@@ -770,15 +753,6 @@ def analyze_reconstruction_tradeoff(classification_metrics, reconstruction_losse
             logger.info("Classification is significantly more difficult than visual reconstruction")
         else:
             logger.info("Visual reconstruction and classification tasks are fairly balanced")
-    
-    if 'dest_recon_to_dest_task_ratio' in results:
-        ratio = results['dest_recon_to_dest_task_ratio']
-        if ratio > 2.0:
-            logger.info("Destination reconstruction is significantly more difficult than destination prediction")
-        elif ratio < 0.5:
-            logger.info("Destination prediction is significantly more difficult than destination reconstruction")
-        else:
-            logger.info("Destination reconstruction and prediction tasks are fairly balanced")
     
     return results
 
@@ -871,8 +845,6 @@ def evaluate_all_datasets(model, tokenizer, config, device, logger, args):
                                    results['classification']['train']['destination_loss'],
             'visual_recon_loss_gap': results['classification'][name]['visual_recon_loss'] - 
                                     results['classification']['train']['visual_recon_loss'],
-            'dest_recon_loss_gap': results['classification'][name]['dest_recon_loss'] - 
-                                  results['classification']['train']['dest_recon_loss']
         }
     
     # Add gaps to results
@@ -900,7 +872,6 @@ def explain_metrics():
             'distribution_loss': 'KL divergence between predicted and target token distributions - lower is better.',
             'destination_loss': 'Cosine similarity loss between predicted and target destination features - lower is better.',
             'visual_recon_loss': 'Mean squared error loss for reconstructing visual features - lower is better.',
-            'dest_recon_loss': 'Mean squared error loss for reconstructing destination features - lower is better.',
             'total_loss': 'Combined loss with weights applied to each component.'
         },
         'generation': {
@@ -915,7 +886,6 @@ def explain_metrics():
             'classification': 'Difference between train and validation metrics for classification. Lower gap is better.'
         },
         'curriculum_analysis': {
-            'dest_recon_ratio': 'Ratio of destination reconstruction loss after curriculum vs. with curriculum. Higher values (>1.0) indicate the model is properly using the destination when available.',
             'visual_recon_ratio': 'Ratio of visual reconstruction loss after curriculum vs. with curriculum. Values close to 1.0 suggest consistent visual processing.'
         },
         'visual_context_analysis': {

@@ -292,7 +292,7 @@ class AnsweringAgentNormalizer:
             max_length: Maximum sequence length for tokenization (default 128 for short answers/paraphrases)
             
         Returns:
-            Dict containing processed contrastive samples
+            Dict containing processed contrastive samples with tokenized texts
         """
         contrastive_data = {}
         
@@ -302,111 +302,50 @@ class AnsweringAgentNormalizer:
             
             # Process positive paraphrases
             if "positives" in paraphrases and paraphrases["positives"]:
-                contrastive_data["positive_examples"] = []
-                
-                for positive_text in paraphrases["positives"]:
-                    # Tokenize the positive paraphrase
-                    tokenized = self.tokenizer(
-                        positive_text,
-                        max_length=max_length,
-                        padding="max_length",
-                        truncation=True,
-                        return_tensors="pt"
-                    )
+                # Store first positive
+                if len(paraphrases["positives"]) >= 1:
+                    positive_text = paraphrases["positives"][0]
+                    contrastive_data["positive_text"] = positive_text
                     
-                    contrastive_data["positive_examples"].append({
-                        "text": positive_text,
-                        "tokenized": {
-                            "input_ids": tokenized["input_ids"],
-                            "attention_mask": tokenized["attention_mask"]
-                        },
-                        "similarity": 1.0,  # High similarity for positive paraphrases
-                        "type": "paraphrase"
-                    })
+                    # Tokenize first positive
+                    if self.tokenizer:
+                        contrastive_data["tokenized_positive"] = self.tokenizer(
+                            positive_text,
+                            max_length=max_length,
+                            padding="max_length",
+                            truncation=True,
+                            return_tensors="pt"
+                        )
+                
+                # Store second positive if available
+                if len(paraphrases["positives"]) >= 2:
+                    positive_text_2 = paraphrases["positives"][1]
+                    contrastive_data["positive_text_2"] = positive_text_2
+                    
+                    # Tokenize second positive
+                    if self.tokenizer:
+                        contrastive_data["tokenized_positive_2"] = self.tokenizer(
+                            positive_text_2,
+                            max_length=max_length,
+                            padding="max_length",
+                            truncation=True,
+                            return_tensors="pt"
+                        )
             
             # Process negative paraphrases
             if "negatives" in paraphrases and paraphrases["negatives"]:
-                contrastive_data["negative_examples"] = []
+                negative_text = paraphrases["negatives"][0]  # Use first negative
+                contrastive_data["negative_text"] = negative_text
                 
-                for negative_text in paraphrases["negatives"]:
-                    # Tokenize the negative paraphrase
-                    tokenized = self.tokenizer(
+                # Tokenize negative
+                if self.tokenizer:
+                    contrastive_data["tokenized_negative"] = self.tokenizer(
                         negative_text,
                         max_length=max_length,
                         padding="max_length",
                         truncation=True,
                         return_tensors="pt"
                     )
-                    
-                    contrastive_data["negative_examples"].append({
-                        "text": negative_text,
-                        "tokenized": {
-                            "input_ids": tokenized["input_ids"],
-                            "attention_mask": tokenized["attention_mask"]
-                        },
-                        "similarity": 0.0,  # Low similarity for negative paraphrases
-                        "type": "spatial_variation"
-                    })
-            
-            # Add validation analysis if present
-            if "validation_analysis" in paraphrases:
-                contrastive_data["validation_analysis"] = paraphrases["validation_analysis"]
-        
-        # Process legacy contrastive_samples format (LEGACY FORMAT)
-        elif "contrastive_samples" in dialog_turn:
-        # Process positive examples
-            if "positive_examples" in dialog_turn["contrastive_samples"]:
-                positive_examples = dialog_turn["contrastive_samples"]["positive_examples"]
-            contrastive_data["positive_examples"] = []
-            
-            for example in positive_examples:
-                # Tokenize the positive example
-                tokenized = self.tokenizer(
-                    example["text"],
-                    max_length=max_length,
-                    padding="max_length",
-                    truncation=True,
-                    return_tensors="pt"
-                )
-                
-                contrastive_data["positive_examples"].append({
-                    "text": example["text"],
-                    "tokenized": {
-                        "input_ids": tokenized["input_ids"],
-                        "attention_mask": tokenized["attention_mask"]
-                    },
-                    "similarity": example.get("similarity", 1.0),
-                    "type": example.get("type", "paraphrase")
-                })
-        
-        # Process negative examples
-            if "negative_examples" in dialog_turn["contrastive_samples"]:
-                negative_examples = dialog_turn["contrastive_samples"]["negative_examples"]
-            contrastive_data["negative_examples"] = []
-            
-            for example in negative_examples:
-                # Tokenize the negative example
-                tokenized = self.tokenizer(
-                    example["text"],
-                    max_length=max_length,
-                    padding="max_length",
-                    truncation=True,
-                    return_tensors="pt"
-                )
-                
-                contrastive_data["negative_examples"].append({
-                    "text": example["text"],
-                    "tokenized": {
-                        "input_ids": tokenized["input_ids"],
-                        "attention_mask": tokenized["attention_mask"]
-                    },
-                    "similarity": example.get("similarity", 0.0),
-                    "type": example.get("type", "unrelated")
-                })
-        
-        # Add complexity metadata if present
-        if "complexity_metadata" in dialog_turn:
-            contrastive_data["complexity_metadata"] = dialog_turn["complexity_metadata"]
         
         return contrastive_data
 
@@ -443,17 +382,14 @@ class AnsweringAgentNormalizer:
                 lat_ratio, lng_ratio, output_size, apply_augmentation
             )
             result['current_view_image'] = torch.tensor(current_view)
-            result['current_coords'] = np.zeros((4, 2), dtype=np.float32) # Placeholder, actual coords are not returned here
         else:
             # If no observation, create a blank image
             current_view = np.zeros((3, output_size[0], output_size[1]), dtype=np.float32)
             result['current_view_image'] = torch.tensor(current_view)
-            result['current_coords'] = np.zeros((4, 2), dtype=np.float32)
         
         # Process previous observations
         if 'previous_observations' in dialog_turn and len(dialog_turn['previous_observations']) > 0:
             prev_views = []
-            prev_coords = []
             
             for prev_obs in dialog_turn['previous_observations'][-max_history:]:
                 prev_view = self.process_coordinates_to_image(
@@ -461,13 +397,10 @@ class AnsweringAgentNormalizer:
                     lat_ratio, lng_ratio, output_size, apply_augmentation
                 )
                 prev_views.append(torch.tensor(prev_view))
-                prev_coords.append(np.zeros((4, 2), dtype=np.float32))  # Placeholder coords
                 
             result['previous_views_image'] = prev_views
-            result['previous_coords'] = prev_coords
         else:
             result['previous_views_image'] = []
-            result['previous_coords'] = []
         
         # Process destination coordinates if available
         if 'destination' in episode:
@@ -476,7 +409,6 @@ class AnsweringAgentNormalizer:
                 lat_ratio, lng_ratio, output_size, False  # No augmentation for destination
                 )
             result['destination_image'] = torch.tensor(destination_view)
-            result['destination_coords'] = np.zeros((4, 2), dtype=np.float32)  # Placeholder coords
         
         # Process dialog history and current question
         # Note: dialog_history already contains formatted conversation including first instruction
@@ -510,13 +442,31 @@ class AnsweringAgentNormalizer:
             # Use 128 for answers (navigation instructions are short)
             answer_max_length = self.config.model.max_answer_length if self.config else 128
             
+            # Tokenize unified dialog context (current approach)
             result['tokenized_input'] = self.tokenizer(
                 dialog_context, 
                 max_length=input_max_length,
                 padding="max_length",
-            truncation=True,
+                truncation=True,
                 return_tensors="pt"
-        )
+            )
+            
+            # Tokenize separate components for hierarchical processing
+            result['tokenized_first_instruction'] = self.tokenizer(
+                first_instruction,
+                max_length=answer_max_length,
+                padding="max_length", 
+                truncation=True,
+                return_tensors="pt"
+            )
+            
+            result['tokenized_current_question'] = self.tokenizer(
+                question,
+                max_length=answer_max_length,
+                padding="max_length",
+                truncation=True, 
+                return_tensors="pt"
+            )
 
             result['tokenized_answer'] = self.tokenizer(
                 answer,

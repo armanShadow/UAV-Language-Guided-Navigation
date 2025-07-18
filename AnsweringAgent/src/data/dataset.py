@@ -60,6 +60,7 @@ class AnsweringDataset(Dataset):
         self.config = config
         self.max_prev_views = config.data.max_previous_views
         self.split = split
+        self.tokenizer = tokenizer  # Store tokenizer for context-aware processing
         
         # Determine which processed file to load based on split
         if split == 'train':
@@ -119,10 +120,18 @@ class AnsweringDataset(Dataset):
             'input_ids': item['tokenized_answer']['input_ids'].squeeze(0),
             'attention_mask': item['tokenized_answer']['attention_mask'].squeeze(0)
         }
+        
+        # Get separate tokenized components for hierarchical processing
+        tokenized_first_instruction = {
+            'input_ids': item['tokenized_first_instruction']['input_ids'].squeeze(0),
+            'attention_mask': item['tokenized_first_instruction']['attention_mask'].squeeze(0)
+        }
+        tokenized_current_question = {
+            'input_ids': item['tokenized_current_question']['input_ids'].squeeze(0), 
+            'attention_mask': item['tokenized_current_question']['attention_mask'].squeeze(0)
+        }
 
         
-        # Get text fields for reference (not used for model input)
-        first_instruction = item.get('first_instruction', '')
 
         # Get image data - already tensors from normalizer
         current_view = item['current_view_image']
@@ -141,6 +150,8 @@ class AnsweringDataset(Dataset):
             result = {
                 'text_input': tokenized_text,
                 'text_label': tokenized_answer,
+                'first_instruction_input': tokenized_first_instruction,
+                'current_question_input': tokenized_current_question,
                 'current_view_image': current_view,
                 'previous_views_image': default_views,
             }
@@ -169,6 +180,8 @@ class AnsweringDataset(Dataset):
         result = {
             'text_input': tokenized_text,
             'text_label': tokenized_answer,
+            'first_instruction_input': tokenized_first_instruction,
+            'current_question_input': tokenized_current_question,
             'current_view_image': current_view,
             'previous_views_image': previous_views_tensor,
         }
@@ -186,42 +199,40 @@ class AnsweringDataset(Dataset):
     def _add_contrastive_examples(self, contrastive_data: Dict[str, Any], result: Dict[str, Any]) -> None:
         """
         Add contrastive examples to the result dictionary.
+        Retrieve tokenized data from normalizer.
         
         Args:
-            contrastive_data: Dictionary containing contrastive samples
+            contrastive_data: Dictionary containing contrastive samples from normalizer
             result: Result dictionary to update with contrastive examples
         """
-        # Add positive examples
-        if 'positive_examples' in contrastive_data and contrastive_data['positive_examples']:
-            # Select one random positive example
-            pos_examples = contrastive_data['positive_examples']
-            pos_idx = random.randint(0, len(pos_examples) - 1)
-            pos_example = pos_examples[pos_idx]
+        # Add tokenized positive examples
+        if 'tokenized_positive' in contrastive_data:
+            result['positive_input'] = {
+                'input_ids': contrastive_data['tokenized_positive']['input_ids'].squeeze(0),
+                'attention_mask': contrastive_data['tokenized_positive']['attention_mask'].squeeze(0)
+            }
             
-            result['positive_example'] = {
-                'input_ids': pos_example['tokenized']['input_ids'].squeeze(0),
-                'attention_mask': pos_example['tokenized']['attention_mask'].squeeze(0),
-                'similarity': pos_example['similarity'],
-                'type': pos_example['type']
+        if 'tokenized_positive_2' in contrastive_data:
+            result['positive_input_2'] = {
+                'input_ids': contrastive_data['tokenized_positive_2']['input_ids'].squeeze(0),
+                'attention_mask': contrastive_data['tokenized_positive_2']['attention_mask'].squeeze(0)
+            }
+            
+        if 'tokenized_negative' in contrastive_data:
+            result['negative_input'] = {
+                'input_ids': contrastive_data['tokenized_negative']['input_ids'].squeeze(0),
+                'attention_mask': contrastive_data['tokenized_negative']['attention_mask'].squeeze(0)
             }
         
-        # Add negative examples
-        if 'negative_examples' in contrastive_data and contrastive_data['negative_examples']:
-            # Select one random negative example
-            neg_examples = contrastive_data['negative_examples']
-            neg_idx = random.randint(0, len(neg_examples) - 1)
-            neg_example = neg_examples[neg_idx]
+        # Also include raw text for separate encoding approach
+        if 'positive_text' in contrastive_data:
+            result['positive_text'] = contrastive_data['positive_text']
             
-            result['negative_example'] = {
-                'input_ids': neg_example['tokenized']['input_ids'].squeeze(0),
-                'attention_mask': neg_example['tokenized']['attention_mask'].squeeze(0),
-                'similarity': neg_example['similarity'],
-                'type': neg_example['type']
-            }
-        
-        # Add complexity metadata if available
-        if 'complexity_metadata' in contrastive_data:
-            result['complexity_metadata'] = contrastive_data['complexity_metadata']
+        if 'positive_text_2' in contrastive_data:
+            result['positive_text_2'] = contrastive_data['positive_text_2']
+            
+        if 'negative_text' in contrastive_data:
+            result['negative_text'] = contrastive_data['negative_text']
     
     @staticmethod
     def create_datasets(config: Config, logger=None, splits=['train', 'val_seen', 'val_unseen'], tokenizer=None):

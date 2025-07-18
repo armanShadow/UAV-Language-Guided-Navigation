@@ -7,6 +7,7 @@ import math
 from config import Config
 import torch.nn.functional as F
 from transformers.models.t5.modeling_t5 import BaseModelOutput
+from transformers.models.t5.modeling_t5 import T5EncoderModel
 
 class TemporalObservationEncoder(nn.Module):
     """Encodes temporal observations with attention mechanism."""
@@ -174,6 +175,101 @@ class CrossModalFusion(nn.Module):
         return output
 
 
+class SeparateEncodingTextProcessor(nn.Module):
+    """
+    Separate encoding approach: Use pre-tokenized components from dataset.
+    
+    This approach:
+    1. Uses pre-tokenized first_instruction, current_question, and unified_context from dataset
+    2. Encodes each component separately with specialized encoders
+    3. Fuses the separate encodings for multi-level understanding
+    
+    Benefits:
+    - No text parsing needed - uses dataset components directly
+    - Better specialization for each component
+    - Easier to debug and interpret
+    - Simpler implementation
+    """
+    
+    def __init__(self, config, shared_encoder):
+        super().__init__()
+        self.config = config
+        
+        self.encoder = shared_encoder
+        
+        # Feature projections
+        self.goal_proj = nn.Linear(config.model.hidden_size, config.model.hidden_size)
+        self.context_proj = nn.Linear(config.model.hidden_size, config.model.hidden_size)
+        self.unified_proj = nn.Linear(config.model.hidden_size, config.model.hidden_size)
+        
+        # Output projection
+        self.output_proj = nn.Linear(config.model.hidden_size * 3, config.model.hidden_size)
+        
+    def forward(self, unified_input, unified_mask, goal_input, goal_mask, context_input, context_mask):
+        """
+        Process pre-tokenized components with separate encoding.
+        
+        Args:
+            unified_input: Unified dialog context token IDs
+            unified_mask: Unified dialog context attention mask
+            goal_input: First instruction token IDs
+            goal_mask: First instruction attention mask
+            context_input: Current question token IDs
+            context_mask: Current question attention mask
+            
+        Returns:
+            Multi-level processed features
+        """
+        # Encode each component separately
+        
+        # Goal encoding (first instruction)
+        goal_output = self.encoder(
+            input_ids=goal_input,
+            attention_mask=goal_mask,
+            return_dict=True
+        )
+        goal_features = self.goal_proj(goal_output.last_hidden_state.mean(dim=1))
+        
+        # Context encoding (current question)
+        context_output = self.encoder(
+            input_ids=context_input,
+            attention_mask=context_mask,
+            return_dict=True
+        )
+        context_features = self.context_proj(context_output.last_hidden_state.mean(dim=1))
+        
+        # Unified encoding (complete dialog context)
+        unified_output = self.encoder(
+            input_ids=unified_input,
+            attention_mask=unified_mask,
+            return_dict=True
+        )
+        unified_features = self.unified_proj(unified_output.last_hidden_state.mean(dim=1))
+        
+        # Fuse all components
+        fused_features = self._fuse_components(goal_features, context_features, unified_features)
+        
+        return fused_features, unified_output.last_hidden_state
+    
+    def _fuse_components(self, goal_features, context_features, unified_features):
+        """
+        Fuse goal, context, and unified features.
+        
+        Args:
+            goal_features: [batch_size, hidden_size]
+            context_features: [batch_size, hidden_size]
+            unified_features: [batch_size, hidden_size]
+            
+        Returns:
+            Fused features [batch_size, hidden_size]
+        """
+        # Simple concatenation + projection approach
+        concatenated = torch.cat([goal_features, context_features, unified_features], dim=-1)
+        fused_output = self.output_proj(concatenated)
+        
+        return fused_output
+
+
 class AnsweringAgent(nn.Module):
     """
     Answering Agent for aerial navigation.
@@ -231,6 +327,10 @@ class AnsweringAgent(nn.Module):
             dropout=config.model.dropout
         )
         
+        self.separate_encoding_processor = SeparateEncodingTextProcessor(config, self.t5_model.encoder)
+        self.paraphrase_proj = nn.Linear(config.model.hidden_size, config.model.hidden_size)
+        self.paraphrase_weight = nn.Parameter(torch.tensor(0.0))
+        
         # T5 Adapter layer - bridges the gap between our fused features and what T5 decoder expects
         self.t5_adapter = nn.Sequential(
             nn.Linear(config.model.hidden_size, config.model.hidden_size),
@@ -240,9 +340,6 @@ class AnsweringAgent(nn.Module):
             nn.Linear(config.model.hidden_size, config.model.hidden_size),
             nn.LayerNorm(config.model.hidden_size)
         )
-
-        self.destination_reconstruction_head = nn.Linear(config.model.hidden_size, config.model.hidden_size)
-        self.visual_reconstruction_head = nn.Linear(config.model.hidden_size, config.model.hidden_size)
         
         # Initialize adapter weights
         self._init_adapter_weights()
@@ -279,7 +376,8 @@ class AnsweringAgent(nn.Module):
     def forward(self, text_input: dict, current_view: torch.Tensor, 
                 previous_views: torch.Tensor, labels: torch.Tensor = None, generate: bool = False,
                 destination_view: Optional[torch.Tensor] = None, curriculum_ratio: float = 0.0,
-                positive_input: Optional[dict] = None, negative_input: Optional[dict] = None) -> Dict:
+                positive_input: Optional[dict] = None, positive_input_2: Optional[dict] = None, 
+                negative_input: Optional[dict] = None) -> Dict:
         """
         Forward pass of the model.
         
@@ -291,7 +389,8 @@ class AnsweringAgent(nn.Module):
             generate (bool): Whether to generate text instead of calculating loss
             destination_view (torch.Tensor, optional): Destination view for curriculum learning
             curriculum_ratio (float): Ratio for curriculum learning (0-1)
-            positive_input (dict, optional): Positive example for contrastive learning
+            positive_input (dict, optional): First positive example for contrastive learning
+            positive_input_2 (dict, optional): Second positive example for contrastive learning
             negative_input (dict, optional): Negative example for contrastive learning
             
         Returns:
@@ -300,6 +399,9 @@ class AnsweringAgent(nn.Module):
                 - encoder_last_hidden_state: Encoder hidden states
                 - visual_context: Visual context
                 - adapted_features: Adapted features for contrastive learning
+                - positive_adapted_features: First positive adapted features (if positive_input provided)
+                - positive_adapted_features_2: Second positive adapted features (if positive_input_2 provided)
+                - negative_adapted_features: Negative adapted features (if negative_input provided)
         """
         batch_size = current_view.size(0)
         device = current_view.device
@@ -319,7 +421,6 @@ class AnsweringAgent(nn.Module):
         if previous_views.size(0) > 0:
             # Extract features for each previous view
             num_prev = min(previous_views.size(1), self.config.data.max_previous_views)
-            prev_features_list = []
             
             # Reshape to process each view separately
             views_to_process = previous_views[:, :num_prev].contiguous()
@@ -354,11 +455,22 @@ class AnsweringAgent(nn.Module):
         
         # --- Text Processing ---
         # Get T5 encoder outputs for the input text
-        encoder_outputs = self.t5_model.encoder(
-            input_ids=text_input["input_ids"],
-            attention_mask=text_input["attention_mask"],
-            return_dict=True
+        # NOTE: text_input contains unified dialog context:
+        # "First Instruction: ... Question: ... Answer: ... Question: {current}"
+        # This unified approach preserves natural conversation flow and inter-relationships
+        # between goal, history, and current context - optimal for T5's sequence understanding
+        
+        # Separate encoding processing with pre-tokenized components
+        text_fused_features, text_features_seq = self.separate_encoding_processor(
+            unified_input=text_input["input_ids"],
+            unified_mask=text_input["attention_mask"],
+            goal_input=text_input["first_instruction_input"]["input_ids"],
+            goal_mask=text_input["first_instruction_input"]["attention_mask"],
+            context_input=text_input["current_question_input"]["input_ids"],
+            context_mask=text_input["current_question_input"]["attention_mask"]
         )
+        text_features_expanded = text_features_seq
+        
 
         # --- Cross-Modal Fusion ---
         # Visual tokens need to be the same dimension as T5's hidden states
@@ -371,11 +483,11 @@ class AnsweringAgent(nn.Module):
         )
         
         # Get text features from encoder
-        text_features = encoder_outputs.last_hidden_state
+        # text_features = encoder_outputs.last_hidden_state # This line is now redundant
 
         # Apply cross-modal fusion between text and visual features
         fused_features = self.fusion_module(
-            text_features=text_features,
+            text_features=text_features_expanded, # Use expanded text features
             visual_features=visual_ctx_expanded,
             text_mask=text_input["attention_mask"]
         )
@@ -383,17 +495,6 @@ class AnsweringAgent(nn.Module):
         # Adapt the fused features to work with T5 decoder
         encoder_hidden_states = self.t5_adapter(fused_features)
 
-        # --- Create reconstruction targets for additional training signal ---
-        visual_context_target = visual_context.detach()  # Stop gradients
-        reconstructed_visual_features = self.visual_reconstruction_head(encoder_hidden_states.mean(dim=1))
-        
-        # Create reconstruction target for destination if available
-        reconstructed_destination_features = None
-        if dest_features is not None:
-            dest_features_detached = dest_features.detach()  # Stop gradients
-            reconstructed_destination_features = self.destination_reconstruction_head(
-                encoder_hidden_states.mean(dim=1)
-            )
         
         # --- Decoder Processing ---
         # Calculate logits or generate text
@@ -416,58 +517,52 @@ class AnsweringAgent(nn.Module):
                 "logits": logits,
                 "encoder_last_hidden_state": encoder_hidden_states,
                 "visual_context": visual_context,
-                "visual_context_target": visual_context_target,
-                "reconstructed_visual_features": reconstructed_visual_features,
                 "adapted_features": encoder_hidden_states.mean(dim=1),
                 "feature_norm": visual_context.norm(p=2, dim=1).mean()
             }
             
-            if dest_features is not None:
-                outputs["reconstructed_destination_features"] = reconstructed_destination_features
-                
+            p_weight = torch.sigmoid(self.paraphrase_weight)
             # --- Process positive examples for contrastive learning ---
-            if positive_input is not None:
-                positive_encoder_outputs = self.t5_model.encoder(
-                    input_ids=positive_input["input_ids"],
-                    attention_mask=positive_input["attention_mask"],
+            if positive_input is not None:                    
+                # Encode positive paraphrase hint separately and combine with adapted features
+                positive_hint_output = self.t5_model.encoder(
+                    input_ids=positive_input["input_ids"].to(text_input["input_ids"].device),
+                    attention_mask=positive_input["attention_mask"].to(text_input["input_ids"].device),
                     return_dict=True
                 )
+                positive_hint_features = self.paraphrase_proj(positive_hint_output.last_hidden_state.mean(dim=1))
                 
-                # Apply fusion with the same visual context
-                positive_fused = self.fusion_module(
-                    text_features=positive_encoder_outputs.last_hidden_state,
-                    visual_features=visual_ctx_expanded,
-                    text_mask=positive_input["attention_mask"]
+                # Combine adapted features with positive hint
+                combined_positive_features = encoder_hidden_states + p_weight * positive_hint_features  # Weighted combination
+                outputs["positive_adapted_features"] = combined_positive_features
+                
+            # --- Process second positive example for contrastive learning ---
+            if positive_input_2 is not None:                    
+                # Encode second positive paraphrase hint
+                positive_hint_output_2 = self.t5_model.encoder(
+                    input_ids=positive_input_2["input_ids"].to(text_input["input_ids"].device),
+                    attention_mask=positive_input_2["attention_mask"].to(text_input["input_ids"].device),
+                    return_dict=True
                 )
+                positive_hint_features_2 = self.paraphrase_proj(positive_hint_output_2.last_hidden_state.mean(dim=1))
                 
-                # Adapt the fused features
-                positive_adapted = self.t5_adapter(positive_fused)
-                
-                # Add to outputs
-                outputs["positive_encoder_hidden_state"] = positive_adapted
-                outputs["positive_adapted_features"] = positive_adapted.mean(dim=1)
+                # Combine adapted features with positive hint
+                combined_positive_features_2 = encoder_hidden_states + p_weight * positive_hint_features_2
+                outputs["positive_adapted_features_2"] = combined_positive_features_2
                 
             # --- Process negative examples for contrastive learning ---
             if negative_input is not None:
-                negative_encoder_outputs = self.t5_model.encoder(
-                    input_ids=negative_input["input_ids"],
-                    attention_mask=negative_input["attention_mask"],
+                # Encode negative paraphrase hint separately
+                negative_hint_output = self.t5_model.encoder(
+                    input_ids=negative_input["input_ids"].to(text_input["input_ids"].device),
+                    attention_mask=negative_input["attention_mask"].to(text_input["input_ids"].device),
                     return_dict=True
                 )
+                negative_hint_features = self.paraphrase_proj(negative_hint_output.last_hidden_state.mean(dim=1))
                 
-                # Apply fusion with the same visual context
-                negative_fused = self.fusion_module(
-                    text_features=negative_encoder_outputs.last_hidden_state,
-                    visual_features=visual_ctx_expanded,
-                    text_mask=negative_input["attention_mask"]
-                )
-                
-                # Adapt the fused features
-                negative_adapted = self.t5_adapter(negative_fused)
-                
-                # Add to outputs
-                outputs["negative_encoder_hidden_state"] = negative_adapted
-                outputs["negative_adapted_features"] = negative_adapted.mean(dim=1)
+                # Combine adapted features with negative hint
+                combined_negative_features = encoder_hidden_states + p_weight * negative_hint_features
+                outputs["negative_adapted_features"] = combined_negative_features
                 
             return outputs
         else:
