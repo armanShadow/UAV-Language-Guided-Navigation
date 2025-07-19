@@ -741,7 +741,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Check if this is the best model so far (only compare to best, not previous)
                     if val_loss < best_val_loss * (1 - config.training.early_stopping_min_delta):
                         improvement = (best_val_loss - val_loss) / best_val_loss * 100
-                        logger.info(f"🎯 New best model! Improved by {improvement:.2f}%")
+                        logger.info(f"🎯 New best model! Improved by {improvement:.2f}% | Previous best: {best_val_loss:.4f} | New best: {val_loss:.4f}")
                         
                         # Save best model
                         save_dict = {
@@ -766,6 +766,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         early_stopping_counter = 0
                     else:
                         # Only increment counter if no improvement (don't compare to previous loss)
+                        logger.info(f"🔍 previous best: {best_val_loss:.4f} | current loss: {val_loss:.4f}")
                         early_stopping_counter += 1
                         logger.info(f"🔍 Early stopping counter: {early_stopping_counter}/{config.training.early_stopping_patience}")
                         if config.training.early_stopping and early_stopping_counter >= config.training.early_stopping_patience:
