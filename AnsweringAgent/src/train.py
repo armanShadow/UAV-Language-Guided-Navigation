@@ -739,7 +739,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     logger.info(f"📋 Validation Loss: {val_loss:.4f}")
                     
                     # Check if this is the best model so far (only compare to best, not previous)
-                    if val_loss < best_val_loss - best_val_loss * config.training.early_stopping_min_delta:
+                    if val_loss < best_val_loss * (1 - config.training.early_stopping_min_delta):
                         improvement = (best_val_loss - val_loss) / best_val_loss * 100
                         logger.info(f"🎯 New best model! Improved by {improvement:.2f}%")
                         
@@ -813,12 +813,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             }
             
             with CHECKPOINT_LOCK:
-                final_model_path = os.path.join(checkpoint_dir, 'final_model.pth')
+                final_model_path = os.path.join(checkpoint_dir, f'final_model_{epoch+1}.pth')
                 torch.save(save_dict, final_model_path)
                 logger.info(f"💾 Final model saved")
 
             # Print training summary
-            logger.info(f"🎉 Training complete! Best val loss: {best_val_loss:.4f} at epoch {last_best_epoch + 1}")
+            if last_best_epoch is not None:
+                logger.info(f"🎉 Training complete! Best val loss: {best_val_loss:.4f} at epoch {last_best_epoch + 1}")
+            else:
+                logger.info(f"🎉 Training complete! Best val loss: {best_val_loss:.4f} (no improvement during training)")
                 
         return best_val_loss, last_best_epoch
 
