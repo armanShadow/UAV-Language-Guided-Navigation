@@ -122,18 +122,28 @@ class HardNegativeMiner:
         
         cache_path = os.path.join(os.path.dirname(__file__), 'blacklist_embeds.pkl')
 
-        # Try loading cache first
+        # Calculate expected number of embeddings from full blacklist
+        expected_count = sum(len(phrases) for phrases in self.full_blacklist.values())
+
+        # Try loading cache first, but validate it has the full blacklist
         if os.path.exists(cache_path):
             try:
                 with open(cache_path, 'rb') as f:
-                    self.blacklist_embeddings = pickle.load(f)
-                print(f"✅ Loaded cached blacklist embeddings from {cache_path}")
-                print(f"   {len(self.blacklist_embeddings)} phrases available for semantic filtering")
-                return
+                    cached_embeddings = pickle.load(f)
+                
+                # Validate cache has the full blacklist, not just lenient version
+                if len(cached_embeddings) >= expected_count:
+                    self.blacklist_embeddings = cached_embeddings
+                    print(f"✅ Loaded cached blacklist embeddings from {cache_path}")
+                    print(f"   {len(self.blacklist_embeddings)} phrases available for semantic filtering")
+                    return
+                else:
+                    print(f"⚠️ Cache has only {len(cached_embeddings)} embeddings, expected {expected_count}. Regenerating...")
             except Exception as e:
                 print(f"⚠️ Failed to load cached blacklist embeddings: {e}. Recomputing...")
 
         # Generate embeddings for full blacklist (not just current working blacklist)
+        print(f"🔄 Generating embeddings for {expected_count} phrases from full blacklist...")
         for category, phrases in self.full_blacklist.items():
             for phrase in phrases:
                 try:

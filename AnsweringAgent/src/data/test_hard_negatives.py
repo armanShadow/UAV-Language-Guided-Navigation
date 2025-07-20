@@ -250,6 +250,9 @@ def test_mining_functionality():
         blacklisted_count = 0
         semantic_filtered_count = 0
         
+        print(f"  Current blacklist being used for analysis: {list(miner.answer_blacklist.keys())}")
+        print(f"  Total phrases in current blacklist: {sum(len(phrases) for phrases in miner.answer_blacklist.values())}")
+        
         for data in negatives.values():
             answer_text = data['negative_text_2']
             answer_lower = answer_text.lower()
@@ -261,6 +264,8 @@ def test_mining_functionality():
                     pattern = rf"\b{re.escape(phrase)}\b"
                     if re.search(pattern, answer_lower):
                         is_blacklisted = True
+                        if len(negatives) <= 20:  # Only show details for small datasets
+                            print(f"    Found blacklisted phrase '{phrase}' in: '{answer_text[:40]}{'...' if len(answer_text) > 40 else ''}'")
                         break
                 if is_blacklisted:
                     break
@@ -273,12 +278,20 @@ def test_mining_functionality():
                 try:
                     if miner._check_semantic_similarity_to_blacklist(answer_text):
                         semantic_filtered_count += 1
+                        if len(negatives) <= 20:  # Only show details for small datasets
+                            print(f"    Found semantic match in: '{answer_text[:40]}{'...' if len(answer_text) > 40 else ''}'")
                 except Exception:
                     pass
         
         print(f"  Direct blacklist matches: {blacklisted_count}/{len(negatives)} ({blacklisted_count/len(negatives)*100:.1f}%)")
+        if blacklisted_count == 0:
+            print(f"    ↪ This is expected! Blacklisted phrases were filtered during mining.")
+        
         if semantic_filtered_count > 0:
             print(f"  Semantic similarity matches: {semantic_filtered_count}/{len(negatives)} ({semantic_filtered_count/len(negatives)*100:.1f}%)")
+        else:
+            print(f"  Semantic similarity matches: 0/{len(negatives)} (0.0%)")
+            print(f"    ↪ This is expected! Semantically similar phrases were filtered during mining.")
         
         # Phrase diversity
         unique_phrases = set()
