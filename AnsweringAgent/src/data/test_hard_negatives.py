@@ -158,6 +158,58 @@ def test_hard_negative_mining():
         diverse_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'diverse')
         print(f"  Mining success rate: {len(negatives)}/{len(sharded_dataset)} ({len(negatives)/len(sharded_dataset)*100:.1f}%)")
         print(f"  Strategy distribution: {hard_count} hard, {diverse_count} diverse")
+        
+        # Enhanced quality metrics
+        print("🔍 Enhanced Quality Analysis:")
+        
+        # Check for blacklisted phrases
+        blacklisted_count = 0
+        for data in negatives.values():
+            answer = data['negative_text_2'].lower()
+            if any(phrase in answer for phrase in ['yes', 'exactly', 'correct', 'right', 'destiny is exactly that']):
+                blacklisted_count += 1
+        
+        print(f"  Blacklisted phrases found: {blacklisted_count}/{len(negatives)} ({blacklisted_count/len(negatives)*100:.1f}%)")
+        
+        # Test semantic similarity filtering with example phrases
+        print("🔍 Testing semantic similarity filtering:")
+        test_phrases = [
+            "yes, that's correct",
+            "exactly right",
+            "that is the destination",
+            "you are absolutely right",
+            "that's exactly it",
+            "go straight ahead",  # Should be caught by semantic similarity
+            "proceed forward",    # Should be caught by semantic similarity
+            "navigate to the building"  # Should pass
+        ]
+        
+        for phrase in test_phrases:
+            is_good = miner.is_good_answer(phrase)
+            status = "✅ PASS" if is_good else "❌ FILTERED"
+            print(f"    {status}: '{phrase}'")
+        
+        # Phrase diversity analysis
+        unique_phrases = set()
+        for data in negatives.values():
+            unique_phrases.add(data['negative_text_2'].lower().strip())
+        
+        diversity_ratio = len(unique_phrases) / len(negatives)
+        print(f"  Phrase diversity ratio: {diversity_ratio:.3f} ({len(unique_phrases)} unique / {len(negatives)} total)")
+        
+        # Cluster diversity for diverse negatives
+        if diverse_count > 0:
+            cluster_transitions = []
+            for data in negatives.values():
+                metadata = data['validation_metadata_2']
+                if metadata.get('negative_type_2') == 'diverse' and 'anchor_cluster' in metadata:
+                    anchor_cluster = metadata['anchor_cluster']
+                    negative_cluster = metadata['negative_cluster']
+                    cluster_transitions.append((anchor_cluster, negative_cluster))
+            
+            different_clusters = sum(1 for a, n in cluster_transitions if a != n)
+            cluster_diversity = different_clusters / len(cluster_transitions) if cluster_transitions else 0
+            print(f"  Diverse cluster diversity: {cluster_diversity:.3f} ({different_clusters}/{len(cluster_transitions)} different clusters)")
     else:
         print("  No negatives mined - check mining parameters")
     

@@ -48,7 +48,7 @@ class HardNegativeMiner:
             k_nn: Number of nearest neighbors to consider for visual similarity
             cosine_threshold: Threshold for considering instructions as dissimilar
             use_diverse_negatives: Whether to add diverse negatives from outside clusters
-            diverse_ratio: Ratio of samples to use for diverse negative mining (default: 0.5 for 50/50 split)
+            diverse_ratio: Ratio of samples to use for diverse negative mining (default: 0.3 for 30/70 split)
             min_answer_length: Minimum answer length to consider (default: 20 characters)
         """
         self.config = config
@@ -81,6 +81,21 @@ class HardNegativeMiner:
         self.visual_clusters = None
         self.cluster_labels = None
         
+        # Enhanced answer quality filtering
+        self.answer_blacklist = {
+            'short_affirmative': ['yes', 'exactly', 'correct', 'right', 'true', 'sure', 'okay', 'ok'],
+            'generic_responses': ['destiny is exactly that', 'that is correct', 'you are right', 'that is it'],
+            'minimal_answers': ['go', 'turn', 'move', 'head', 'fly', 'navigate']
+        }
+        
+        # Embedding-based blacklist for semantic similarity filtering
+        self.blacklist_embeddings = {}  # Will be populated with embeddings of blacklisted phrases
+        self.semantic_similarity_threshold = 0.85  # Threshold for semantic similarity to blacklisted phrases
+        
+        # Duplicate phrase tracking for better diversity
+        self.used_phrases = {}  # phrase -> count
+        self.max_phrase_reuse = 3  # Maximum times a phrase can be reused
+    
     def extract_visual_features(self, current_view: torch.Tensor) -> np.ndarray:
         """
         Extract visual features from current view using a simple CNN.
@@ -167,6 +182,46 @@ class HardNegativeMiner:
         
         return features
     
+    def _initialize_blacklist_embeddings(self):
+        """Initialize embeddings for blacklisted phrases for semantic similarity checking."""
+        if not hasattr(self, 'normalizer') or not self.normalizer.generate_mpnet_embeddings:
+            print("⚠️ MPNet embeddings not available, using string-based filtering only")
+            return
+        
+        print("🔍 Initializing blacklist embeddings for semantic filtering...")
+        
+        for category, phrases in self.answer_blacklist.items():
+            for phrase in phrases:
+                try:
+                    # Generate embedding for blacklisted phrase
+                    embedding = self.normalizer.generate_mpnet_embedding(phrase)
+                    self.blacklist_embeddings[phrase] = embedding
+                except Exception as e:
+                    print(f"⚠️ Error generating embedding for '{phrase}': {e}")
+        
+        print(f"✅ Initialized {len(self.blacklist_embeddings)} blacklist embeddings")
+    
+    def _check_semantic_similarity_to_blacklist(self, answer: str) -> bool:
+        """Check if answer is semantically similar to any blacklisted phrase."""
+        if not self.blacklist_embeddings or not hasattr(self, 'normalizer'):
+            return False  # Fall back to string-based filtering
+        
+        try:
+            # Generate embedding for the answer
+            answer_embedding = self.normalizer.generate_mpnet_embedding(answer)
+            
+            # Check similarity against all blacklisted embeddings
+            for blacklisted_phrase, blacklist_embedding in self.blacklist_embeddings.items():
+                similarity = np.dot(answer_embedding, blacklist_embedding)
+                if similarity > self.semantic_similarity_threshold:
+                    return True  # Answer is semantically similar to a blacklisted phrase
+            
+            return False  # Answer is not semantically similar to any blacklisted phrase
+            
+        except Exception as e:
+            print(f"⚠️ Error in semantic similarity check: {e}")
+            return False  # Fall back to string-based filtering
+    
     def is_good_answer(self, answer: str) -> bool:
         """
         Check if an answer is good enough for negative mining.
@@ -184,7 +239,16 @@ class HardNegativeMiner:
         if len(answer.strip()) < self.min_answer_length:
             return False
         
-
+        # Check for blacklisted phrases
+        for category, phrases in self.answer_blacklist.items():
+            for phrase in phrases:
+                if phrase in answer.lower():
+                    return False
+        
+        # Check for semantic similarity to blacklisted phrases
+        if self._check_semantic_similarity_to_blacklist(answer):
+            return False
+        
         return True
     
     def build_visual_clusters(self, dataset: Dict[int, Dict[str, Any]], n_clusters: int = 30):
@@ -292,6 +356,7 @@ class HardNegativeMiner:
         # Find samples from different clusters
         different_cluster_candidates = []
         for i, cluster_label in enumerate(self.cluster_labels):
+            # Enforce different clusters for diverse negatives
             if cluster_label != anchor_cluster:
                 sample_idx = self.visual_indices[i]
                 if sample_idx in dataset:
@@ -303,6 +368,10 @@ class HardNegativeMiner:
                     if anchor_first_instruction != neighbor_first_instruction:
                         # Skip if answer is not good enough
                         if not self.is_good_answer(neighbor_answer):
+                            continue
+                        
+                        # Check phrase diversity
+                        if not self._is_phrase_diverse(neighbor_answer):
                             continue
                         
                         # Calculate visual similarity
@@ -452,7 +521,7 @@ class HardNegativeMiner:
         candidates_found = 0
         
         # Try with strict threshold first, then relax if needed
-        thresholds_to_try = [self.cosine_threshold, 0.5, 0.7, 0.85]  # Progressive relaxation
+        thresholds_to_try = [0.25, 0.4, 0.6, 0.75]  # Tighter thresholds for better hard negatives
         
         for threshold in thresholds_to_try:
             for i, pos in enumerate(neighbor_indices):
@@ -490,9 +559,12 @@ class HardNegativeMiner:
                 
                 # We want the least similar text (lowest cosine similarity)
                 if text_similarity < lowest_text_similarity and text_similarity < threshold:
-                    lowest_text_similarity = text_similarity
-                    best_negative_idx = sample_idx
-                    best_visual_similarity = visual_similarity
+                    # Check phrase diversity
+                    neighbor_answer = neighbor_item.get('answer', '')
+                    if self._is_phrase_diverse(neighbor_answer):
+                        lowest_text_similarity = text_similarity
+                        best_negative_idx = sample_idx
+                        best_visual_similarity = visual_similarity
                 elif text_similarity >= threshold:
                     threshold_fail_count += 1
             
@@ -527,7 +599,7 @@ class HardNegativeMiner:
             neighbor_text_features = self.extract_text_features(neighbor_context)
             text_sim = np.dot(anchor_text_features, neighbor_text_features)
 
-            if text_sim < global_best_sim:
+            if text_sim < global_best_sim and self._is_phrase_diverse(neighbor_answer):
                 global_best_sim = text_sim
                 global_best_idx = sample_idx
                 global_best_vis = 1.0 - neighbor_distances[i]
@@ -536,6 +608,29 @@ class HardNegativeMiner:
             return (global_best_idx, global_best_sim, global_best_vis)
         
         return None
+    
+    def _is_phrase_diverse(self, answer: str) -> bool:
+        """Check if answer phrase is diverse enough (not overused)."""
+        if not answer:
+            return False
+        
+        # Normalize answer for comparison
+        normalized_answer = answer.lower().strip()
+        
+        # Check if this phrase has been used too many times
+        if normalized_answer in self.used_phrases:
+            if self.used_phrases[normalized_answer] >= self.max_phrase_reuse:
+                return False
+        
+        return True
+    
+    def _track_phrase_usage(self, answer: str):
+        """Track phrase usage for diversity."""
+        if not answer:
+            return
+        
+        normalized_answer = answer.lower().strip()
+        self.used_phrases[normalized_answer] = self.used_phrases.get(normalized_answer, 0) + 1
     
     def mine_hard_negatives(self, dataset: Dict[int, Dict[str, Any]], 
                            max_samples: Optional[int] = None, debug_mode: bool = False) -> Dict[int, Dict[str, Any]]:
@@ -551,6 +646,9 @@ class HardNegativeMiner:
         """
         print("⛏️ Mining hard negatives...")
         
+        # Initialize blacklist embeddings
+        self._initialize_blacklist_embeddings()
+
         # Build visual K-NN model
         self.build_visual_knn(dataset)
         
@@ -654,7 +752,7 @@ class HardNegativeMiner:
                     'visual_similarity': float(visual_similarity),
                     'mining_method': 'hard_negative_knn'
                 }
-            else:
+            else:  # diverse
                 negative_idx, anchor_cluster, negative_cluster, visual_similarity = negative_result
                 validation_info = {
                     'negative_type_2': negative_type,
@@ -663,9 +761,12 @@ class HardNegativeMiner:
                     'visual_similarity': float(visual_similarity),
                     'mining_method': 'diverse_negative_clustering'
                 }
-
+            
             negative_item = dataset[negative_idx]
-
+            
+            # Track phrase usage for diversity
+            self._track_phrase_usage(negative_item.get('answer', ''))
+            
             # Create negative contrastive data (saved as negative_2 to avoid conflict with existing LM negative)
             negative_data = {
                 'negative_text_2': negative_item.get('answer', ''),
@@ -705,6 +806,32 @@ class HardNegativeMiner:
         
         print(f"✅ Mined {len(negatives)} negatives total")
         print(f"📊 Hard negatives: {hard_count}, Diverse negatives: {diverse_count}")
+        
+        # Enhanced statistics
+        if negatives:
+            # Phrase diversity statistics
+            unique_phrases = len(self.used_phrases)
+            total_negatives = len(negatives)
+            avg_reuse = sum(self.used_phrases.values()) / len(self.used_phrases) if self.used_phrases else 0
+            print(f"📈 Phrase diversity: {unique_phrases} unique phrases, avg reuse: {avg_reuse:.2f}")
+            
+            # Answer quality statistics
+            answer_lengths = [len(data['negative_text_2']) for data in negatives.values()]
+            avg_length = sum(answer_lengths) / len(answer_lengths)
+            print(f"📏 Answer quality: avg length {avg_length:.1f} chars")
+            
+            # Similarity statistics
+            hard_sims = [data['validation_metadata_2']['text_similarity'] 
+                        for data in negatives.values() 
+                        if data.get('negative_type_2') == 'hard' and 'text_similarity' in data['validation_metadata_2']]
+            if hard_sims:
+                avg_hard_sim = sum(hard_sims) / len(hard_sims)
+                print(f"🎯 Hard negative quality: avg text similarity {avg_hard_sim:.3f}")
+            
+            # Semantic filtering statistics
+            if self.blacklist_embeddings:
+                print(f"🔍 Semantic filtering: {len(self.blacklist_embeddings)} blacklist embeddings initialized")
+                print(f"   Similarity threshold: {self.semantic_similarity_threshold}")
         
         return negatives
     
