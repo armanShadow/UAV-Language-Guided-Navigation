@@ -82,15 +82,25 @@ class HardNegativeMiner:
         self.cluster_labels = None
         
         # Enhanced answer quality filtering
+        # Expanded blacklist (token + sentence variants)
         self.answer_blacklist = {
-            'short_affirmative': ['yes', 'exactly', 'correct', 'right', 'true', 'sure', 'okay', 'ok'],
-            'generic_responses': ['destiny is exactly that', 'that is correct', 'you are right', 'that is it'],
-            'minimal_answers': ['go', 'turn', 'move', 'head', 'fly', 'navigate']
+            'short_affirmative': [
+                'yes', 'exactly', 'correct', 'right', 'true', 'sure', 'okay', 'ok',
+                "that's correct", "that's right", "that's true", "you are correct", "absolutely"
+            ],
+            'generic_responses': [
+                'destiny is exactly that', 'that is correct', 'you are right', 'that is it',
+                'yes that is correct', 'yes exactly', 'exactly that'
+            ],
+            'minimal_answers': [
+                'go', 'turn', 'move', 'head', 'fly', 'navigate',
+                'proceed', 'continue', 'advance', 'straight ahead'
+            ]
         }
         
         # Embedding-based blacklist for semantic similarity filtering
         self.blacklist_embeddings = {}  # Will be populated with embeddings of blacklisted phrases
-        self.semantic_similarity_threshold = 0.90  # More lenient threshold for semantic similarity
+        self.semantic_similarity_threshold = 0.88  # Slightly stricter (captures more semantically similar phrases)
         
         # Duplicate phrase tracking for better diversity
         self.used_phrases = {}  # phrase -> count
@@ -190,6 +200,18 @@ class HardNegativeMiner:
         
         print("🔍 Initializing blacklist embeddings for semantic filtering...")
         
+        cache_path = os.path.join(os.path.dirname(__file__), 'blacklist_embeds.pkl')
+
+        # Try loading cache first
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, 'rb') as f:
+                    self.blacklist_embeddings = pickle.load(f)
+                print(f"✅ Loaded cached blacklist embeddings from {cache_path}")
+                return
+            except Exception as e:
+                print(f"⚠️ Failed to load cached blacklist embeddings: {e}. Recomputing...")
+
         for category, phrases in self.answer_blacklist.items():
             for phrase in phrases:
                 try:
@@ -198,8 +220,14 @@ class HardNegativeMiner:
                     self.blacklist_embeddings[phrase] = embedding
                 except Exception as e:
                     print(f"⚠️ Error generating embedding for '{phrase}': {e}")
-        
-        print(f"✅ Initialized {len(self.blacklist_embeddings)} blacklist embeddings")
+
+        # Save cache
+        try:
+            with open(cache_path, 'wb') as f:
+                pickle.dump(self.blacklist_embeddings, f)
+            print(f"💾 Cached blacklist embeddings to {cache_path}")
+        except Exception as e:
+            print(f"⚠️ Could not cache blacklist embeddings: {e}")
     
     def _check_semantic_similarity_to_blacklist(self, answer: str) -> bool:
         """Check if answer is semantically similar to any blacklisted phrase."""
@@ -213,6 +241,8 @@ class HardNegativeMiner:
             # Check similarity against all blacklisted embeddings
             for blacklisted_phrase, blacklist_embedding in self.blacklist_embeddings.items():
                 similarity = np.dot(answer_embedding, blacklist_embedding)
+                if similarity > 0.7 and getattr(self, 'debug_mode', False):
+                    print(f"    ↪ sim({similarity:.2f}) to blacklist phrase '{blacklisted_phrase}'")
                 if similarity > self.semantic_similarity_threshold:
                     return True  # Answer is semantically similar to a blacklisted phrase
             
