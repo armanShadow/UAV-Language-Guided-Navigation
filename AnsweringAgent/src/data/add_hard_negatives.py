@@ -483,8 +483,8 @@ class HardNegativeMiner:
                 anchor_item['contrastive_data']['negative_text_2'] = negative_data['negative_text_2']
                 anchor_item['contrastive_data']['tokenized_negative_2'] = negative_data['tokenized_negative_2']
                 
-                # Add validation metadata (detailed results)
-                anchor_item['contrastive_data']['negative_text_2']['validation_metadata'] = {
+                # Add validation metadata specifically for negative_2
+                anchor_item['contrastive_data']['validation_metadata_negative_2'] = {
                     'negative_type_2': negative_data['negative_type_2'],
                     'map_name_2': negative_data['map_name_2'],
                     'mining_timestamp': datetime.datetime.now().isoformat(),

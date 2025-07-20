@@ -90,10 +90,10 @@ def test_hard_negative_mining():
             print(f"    Negative type: {item.get('negative_type_2', 'unknown')}")
             print(f"    Has tokenized negative_2: {'tokenized_negative_2' in item}")
             
-            # Check validation metadata
-            if 'validation_metadata' in item:
-                metadata = item['validation_metadata']
-                print(f"    Validation metadata:")
+            # Check validation metadata for negative_2
+            if 'contrastive_data' in item and 'validation_metadata_2' in item['contrastive_data']:
+                metadata = item['contrastive_data']['validation_metadata_2']
+                print(f"    Validation metadata for negative_2:")
                 print(f"      Type: {metadata.get('negative_type_2', 'unknown')}")
                 if 'text_similarity' in metadata:
                     print(f"      Text similarity: {metadata['text_similarity']:.3f}")
