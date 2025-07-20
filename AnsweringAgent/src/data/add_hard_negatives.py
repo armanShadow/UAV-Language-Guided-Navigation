@@ -375,13 +375,13 @@ class HardNegativeMiner:
                     if anchor_first_instruction != neighbor_first_instruction:
                         # Skip if answer is not good enough
                         if not self.is_good_answer(neighbor_answer):
-                            if debug_mode and validation_stats.get('total_attempts', 0) <= 3:
+                            if debug_mode:
                                 print(f"    ❌ Bad answer (diverse): '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
                             continue
                         
                         # Check phrase diversity
                         if not self._is_phrase_diverse(neighbor_answer):
-                            if debug_mode and validation_stats.get('total_attempts', 0) <= 3:
+                            if debug_mode:
                                 print(f"    ❌ Phrase not diverse: '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
                             continue
                         
@@ -554,7 +554,7 @@ class HardNegativeMiner:
                 # Skip if answer is not good enough
                 if not self.is_good_answer(neighbor_answer):
                     bad_answer_count += 1
-                    if debug_mode and validation_stats.get('total_attempts', 0) <= 3:
+                    if debug_mode:
                         print(f"    ❌ Bad answer: '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
                     continue
                 
