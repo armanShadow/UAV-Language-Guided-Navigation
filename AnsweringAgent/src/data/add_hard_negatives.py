@@ -263,7 +263,27 @@ class HardNegativeMiner:
                         visual_similarity = np.dot(anchor_features, neighbor_features)
                         different_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
         
-        # Randomly select from different clusters
+        # If no candidates from different clusters, try any cluster
+        if not different_cluster_candidates:
+            for i, cluster_label in enumerate(self.cluster_labels):
+                sample_idx = self.visual_indices[i]
+                if sample_idx in dataset and sample_idx != anchor_idx:
+                    neighbor_item = dataset[sample_idx]
+                    neighbor_first_instruction = neighbor_item.get('first_instruction', '')
+                    neighbor_answer = neighbor_item.get('answer', '')
+                    
+                    # Ensure different goal
+                    if anchor_first_instruction != neighbor_first_instruction:
+                        # Skip if answer is not good enough
+                        if not self.is_good_answer(neighbor_answer):
+                            continue
+                        
+                        # Calculate visual similarity
+                        neighbor_features = self.visual_features[sample_idx]
+                        visual_similarity = np.dot(anchor_features, neighbor_features)
+                        different_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
+        
+        # Randomly select from candidates
         if different_cluster_candidates:
             selected_idx, selected_cluster, visual_similarity = random.choice(different_cluster_candidates)
             return (selected_idx, anchor_cluster, selected_cluster, visual_similarity)
@@ -345,39 +365,47 @@ class HardNegativeMiner:
         lowest_text_similarity = float('inf')
         best_visual_similarity = None
         
-        for i, neighbor_idx in enumerate(neighbor_indices):
-            if neighbor_idx not in dataset:
-                continue
+        # Try with strict threshold first, then relax if needed
+        thresholds_to_try = [self.cosine_threshold, 0.5, 0.7, 0.9]  # Progressive relaxation
+        
+        for threshold in thresholds_to_try:
+            for i, neighbor_idx in enumerate(neighbor_indices):
+                if neighbor_idx not in dataset:
+                    continue
+                    
+                neighbor_item = dataset[neighbor_idx]
+                neighbor_context = neighbor_item.get('dialog_context', '')
+                neighbor_first_instruction = neighbor_item.get('first_instruction', '')
+                neighbor_answer = neighbor_item.get('answer', '')
                 
-            neighbor_item = dataset[neighbor_idx]
-            neighbor_context = neighbor_item.get('dialog_context', '')
-            neighbor_first_instruction = neighbor_item.get('first_instruction', '')
-            neighbor_answer = neighbor_item.get('answer', '')
+                # Skip if same goal (first instruction)
+                if anchor_first_instruction == neighbor_first_instruction:
+                    continue
+                
+                # Skip if answer is not good enough
+                if not self.is_good_answer(neighbor_answer):
+                    continue
+                
+                # Calculate text similarity
+                anchor_text_features = self.extract_text_features(anchor_context)
+                neighbor_text_features = self.extract_text_features(neighbor_context)
+                
+                # Cosine similarity
+                text_similarity = np.dot(anchor_text_features, neighbor_text_features)
+                
+                # Get visual similarity (distance to similarity)
+                visual_distance = neighbor_distances[i]
+                visual_similarity = 1.0 - visual_distance  # Convert distance to similarity
+                
+                # We want the least similar text (lowest cosine similarity)
+                if text_similarity < lowest_text_similarity and text_similarity < threshold:
+                    lowest_text_similarity = text_similarity
+                    best_negative_idx = neighbor_idx
+                    best_visual_similarity = visual_similarity
             
-            # Skip if same goal (first instruction)
-            if anchor_first_instruction == neighbor_first_instruction:
-                continue
-            
-            # Skip if answer is not good enough
-            if not self.is_good_answer(neighbor_answer):
-                continue
-            
-            # Calculate text similarity
-            anchor_text_features = self.extract_text_features(anchor_context)
-            neighbor_text_features = self.extract_text_features(neighbor_context)
-            
-            # Cosine similarity
-            text_similarity = np.dot(anchor_text_features, neighbor_text_features)
-            
-            # Get visual similarity (distance to similarity)
-            visual_distance = neighbor_distances[i]
-            visual_similarity = 1.0 - visual_distance  # Convert distance to similarity
-            
-            # We want the least similar text (lowest cosine similarity)
-            if text_similarity < lowest_text_similarity and text_similarity < self.cosine_threshold:
-                lowest_text_similarity = text_similarity
-                best_negative_idx = neighbor_idx
-                best_visual_similarity = visual_similarity
+            # If we found a negative, break
+            if best_negative_idx is not None:
+                break
         
         if best_negative_idx is not None:
             return (best_negative_idx, lowest_text_similarity, best_visual_similarity)
