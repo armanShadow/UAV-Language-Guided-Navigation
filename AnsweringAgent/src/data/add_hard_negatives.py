@@ -540,9 +540,6 @@ class HardNegativeMiner:
                 
                 if debug_mode and validation_stats['total_attempts'] <= 3:
                     print(f"  ✅ Found {negative_type} negative")
-            else:
-                if debug_mode and validation_stats['total_attempts'] <= 3:
-                    print(f"  ❌ No negative found after fallback")
                 
                 # Get the negative data
                 if negative_type == "hard":
@@ -589,6 +586,8 @@ class HardNegativeMiner:
                 
                 negatives[anchor_idx] = negative_data
             else:
+                if debug_mode and validation_stats['total_attempts'] <= 3:
+                    print(f"  ❌ No negative found after fallback")
                 validation_stats['no_candidates_found'] += 1
         
         # Print detailed validation statistics
