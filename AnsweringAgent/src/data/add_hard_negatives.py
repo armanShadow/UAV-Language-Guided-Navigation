@@ -367,8 +367,15 @@ class HardNegativeMiner:
         lowest_text_similarity = float('inf')
         best_visual_similarity = None
         
+        # Validation counters for this anchor
+        total_neighbors = len(neighbor_indices)
+        same_goal_count = 0
+        bad_answer_count = 0
+        threshold_fail_count = 0
+        candidates_found = 0
+        
         # Try with strict threshold first, then relax if needed
-        thresholds_to_try = [self.cosine_threshold, 0.5, 0.7, 0.9, 0.95]  # Progressive relaxation
+        thresholds_to_try = [self.cosine_threshold, 0.5, 0.7, 0.85]  # Progressive relaxation
         
         for threshold in thresholds_to_try:
             for i, neighbor_idx in enumerate(neighbor_indices):
@@ -382,10 +389,12 @@ class HardNegativeMiner:
                 
                 # Skip if same goal (first instruction)
                 if anchor_first_instruction == neighbor_first_instruction:
+                    same_goal_count += 1
                     continue
                 
                 # Skip if answer is not good enough
                 if not self.is_good_answer(neighbor_answer):
+                    bad_answer_count += 1
                     continue
                 
                 # Calculate text similarity
@@ -399,11 +408,15 @@ class HardNegativeMiner:
                 visual_distance = neighbor_distances[i]
                 visual_similarity = 1.0 - visual_distance  # Convert distance to similarity
                 
+                candidates_found += 1
+                
                 # We want the least similar text (lowest cosine similarity)
                 if text_similarity < lowest_text_similarity and text_similarity < threshold:
                     lowest_text_similarity = text_similarity
                     best_negative_idx = neighbor_idx
                     best_visual_similarity = visual_similarity
+                elif text_similarity >= threshold:
+                    threshold_fail_count += 1
             
             # If we found a negative, break
             if best_negative_idx is not None:
@@ -411,10 +424,41 @@ class HardNegativeMiner:
         
         if best_negative_idx is not None:
             return (best_negative_idx, lowest_text_similarity, best_visual_similarity)
+
+        # Fallback: if no neighbor met thresholds, pick the visual neighbor with the lowest text similarity regardless of threshold
+        global_best_idx = None
+        global_best_text_sim = float('inf')
+        global_best_visual_sim = None
+
+        for i, neighbor_idx in enumerate(neighbor_indices):
+            if neighbor_idx not in dataset:
+                continue
+            neighbor_item = dataset[neighbor_idx]
+            neighbor_context = neighbor_item.get('dialog_context', '')
+            neighbor_first_instruction = neighbor_item.get('first_instruction', '')
+            neighbor_answer = neighbor_item.get('answer', '')
+
+            # Skip if same goal or bad answer quality
+            if anchor_first_instruction == neighbor_first_instruction or not self.is_good_answer(neighbor_answer):
+                continue
+
+            anchor_text_features = self.extract_text_features(anchor_context)
+            neighbor_text_features = self.extract_text_features(neighbor_context)
+
+            text_sim = np.dot(anchor_text_features, neighbor_text_features)
+            visual_sim = 1.0 - neighbor_distances[i]
+
+            if text_sim < global_best_text_sim:
+                global_best_text_sim = text_sim
+                global_best_idx = neighbor_idx
+                global_best_visual_sim = visual_sim
+
+        if global_best_idx is not None:
+            return (global_best_idx, global_best_text_sim, global_best_visual_sim)
         return None
     
     def mine_hard_negatives(self, dataset: Dict[int, Dict[str, Any]], 
-                           max_samples: Optional[int] = None) -> Dict[int, Dict[str, Any]]:
+                           max_samples: Optional[int] = None, debug_mode: bool = False) -> Dict[int, Dict[str, Any]]:
         """
         Mine hard negatives for the entire dataset.
         
@@ -438,30 +482,68 @@ class HardNegativeMiner:
         negatives = {}
         samples_to_process = list(dataset.keys())[:max_samples] if max_samples else list(dataset.keys())
         
+        # Validation statistics
+        validation_stats = {
+            'total_attempts': 0,
+            'hard_attempts': 0,
+            'diverse_attempts': 0,
+            'hard_success': 0,
+            'diverse_success': 0,
+            'fallback_used': 0,
+            'no_candidates_found': 0
+        }
+        
         for anchor_idx in tqdm(samples_to_process, desc="Mining negatives"):
+            validation_stats['total_attempts'] += 1
+            
             # Decide whether to use hard negative or diverse negative (50/50 split)
             use_diverse = random.random() < self.diverse_ratio
+            
+            # Debug mode: print detailed info for first few samples
+            if debug_mode and validation_stats['total_attempts'] <= 3:
+                print(f"\n🔍 Debug sample {validation_stats['total_attempts']}: anchor_idx={anchor_idx}")
+                print(f"  Strategy: {'diverse' if use_diverse else 'hard'}")
             
             # 1st attempt
             if use_diverse and self.use_diverse_negatives:
                 # Find diverse negative (from different clusters)
                 negative_result = self.find_diverse_negative(anchor_idx, dataset)
                 negative_type = "diverse"
+                validation_stats['diverse_attempts'] += 1
             else:
                 # Find hard negative (from nearest neighbors)
                 negative_result = self.find_hard_negative(anchor_idx, dataset)
                 negative_type = "hard"
+                validation_stats['hard_attempts'] += 1
             
             # Fallback to the other strategy if nothing found
             if negative_result is None:
+                validation_stats['fallback_used'] += 1
+                if debug_mode and validation_stats['total_attempts'] <= 3:
+                    print(f"  ⚠️ First attempt failed, trying fallback...")
+                
                 if negative_type == "hard" and self.use_diverse_negatives:
                     negative_result = self.find_diverse_negative(anchor_idx, dataset)
                     negative_type = "diverse"
+                    validation_stats['diverse_attempts'] += 1
                 else:
                     negative_result = self.find_hard_negative(anchor_idx, dataset)
                     negative_type = "hard"
+                    validation_stats['hard_attempts'] += 1
             
             if negative_result is not None:
+                # Track success
+                if negative_type == "hard":
+                    validation_stats['hard_success'] += 1
+                else:
+                    validation_stats['diverse_success'] += 1
+                
+                if debug_mode and validation_stats['total_attempts'] <= 3:
+                    print(f"  ✅ Found {negative_type} negative")
+            else:
+                if debug_mode and validation_stats['total_attempts'] <= 3:
+                    print(f"  ❌ No negative found after fallback")
+                
                 # Get the negative data
                 if negative_type == "hard":
                     negative_idx, text_similarity, visual_similarity = negative_result
@@ -506,6 +588,17 @@ class HardNegativeMiner:
                     )
                 
                 negatives[anchor_idx] = negative_data
+            else:
+                validation_stats['no_candidates_found'] += 1
+        
+        # Print detailed validation statistics
+        print(f"📊 Validation Statistics:")
+        print(f"  Total attempts: {validation_stats['total_attempts']}")
+        print(f"  Hard attempts: {validation_stats['hard_attempts']} (success: {validation_stats['hard_success']})")
+        print(f"  Diverse attempts: {validation_stats['diverse_attempts']} (success: {validation_stats['diverse_success']})")
+        print(f"  Fallback used: {validation_stats['fallback_used']}")
+        print(f"  No candidates found: {validation_stats['no_candidates_found']}")
+        print(f"  Success rate: {len(negatives)}/{validation_stats['total_attempts']} ({len(negatives)/validation_stats['total_attempts']*100:.1f}%)")
         
         # Count types
         hard_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'hard')

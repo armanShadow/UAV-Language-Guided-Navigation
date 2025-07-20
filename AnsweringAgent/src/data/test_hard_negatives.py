@@ -59,7 +59,7 @@ def test_hard_negative_mining():
     
     # Test mining negatives (hard + diverse)
     print("⛏️ Testing negative mining...")
-    negatives = miner.mine_hard_negatives(test_dataset, max_samples=50)
+    negatives = miner.mine_hard_negatives(test_dataset, max_samples=50, debug_mode=True)
     
     print(f"✅ Mined {len(negatives)} negatives total")
     
