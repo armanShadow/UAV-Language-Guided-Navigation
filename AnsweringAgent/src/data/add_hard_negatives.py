@@ -378,11 +378,12 @@ class HardNegativeMiner:
         thresholds_to_try = [self.cosine_threshold, 0.5, 0.7, 0.85]  # Progressive relaxation
         
         for threshold in thresholds_to_try:
-            for i, neighbor_idx in enumerate(neighbor_indices):
-                if neighbor_idx not in dataset:
+            for i, pos in enumerate(neighbor_indices):
+                # Map from KNN position to actual dataset key
+                sample_idx = self.visual_indices[pos]
+                if sample_idx not in dataset:
                     continue
-                    
-                neighbor_item = dataset[neighbor_idx]
+                neighbor_item = dataset[sample_idx]
                 neighbor_context = neighbor_item.get('dialog_context', '')
                 neighbor_first_instruction = neighbor_item.get('first_instruction', '')
                 neighbor_answer = neighbor_item.get('answer', '')
@@ -413,7 +414,7 @@ class HardNegativeMiner:
                 # We want the least similar text (lowest cosine similarity)
                 if text_similarity < lowest_text_similarity and text_similarity < threshold:
                     lowest_text_similarity = text_similarity
-                    best_negative_idx = neighbor_idx
+                    best_negative_idx = sample_idx
                     best_visual_similarity = visual_similarity
                 elif text_similarity >= threshold:
                     threshold_fail_count += 1
@@ -425,36 +426,38 @@ class HardNegativeMiner:
         if best_negative_idx is not None:
             return (best_negative_idx, lowest_text_similarity, best_visual_similarity)
 
-        # Fallback: if no neighbor met thresholds, pick the visual neighbor with the lowest text similarity regardless of threshold
+        # FINAL FALLBACK: pick the neighbour with the lowest text similarity regardless of threshold
         global_best_idx = None
-        global_best_text_sim = float('inf')
-        global_best_visual_sim = None
+        global_best_sim = float('inf')
+        global_best_vis = None
 
-        for i, neighbor_idx in enumerate(neighbor_indices):
-            if neighbor_idx not in dataset:
+        for i, pos in enumerate(neighbor_indices):
+            sample_idx = self.visual_indices[pos]
+            if sample_idx not in dataset:
                 continue
-            neighbor_item = dataset[neighbor_idx]
+            neighbor_item = dataset[sample_idx]
             neighbor_context = neighbor_item.get('dialog_context', '')
             neighbor_first_instruction = neighbor_item.get('first_instruction', '')
             neighbor_answer = neighbor_item.get('answer', '')
 
-            # Skip if same goal or bad answer quality
-            if anchor_first_instruction == neighbor_first_instruction or not self.is_good_answer(neighbor_answer):
+            # Same goal or bad answer still disqualify
+            if anchor_first_instruction == neighbor_first_instruction:
+                continue
+            if not self.is_good_answer(neighbor_answer):
                 continue
 
             anchor_text_features = self.extract_text_features(anchor_context)
             neighbor_text_features = self.extract_text_features(neighbor_context)
-
             text_sim = np.dot(anchor_text_features, neighbor_text_features)
-            visual_sim = 1.0 - neighbor_distances[i]
 
-            if text_sim < global_best_text_sim:
-                global_best_text_sim = text_sim
-                global_best_idx = neighbor_idx
-                global_best_visual_sim = visual_sim
+            if text_sim < global_best_sim:
+                global_best_sim = text_sim
+                global_best_idx = sample_idx
+                global_best_vis = 1.0 - neighbor_distances[i]
 
         if global_best_idx is not None:
-            return (global_best_idx, global_best_text_sim, global_best_visual_sim)
+            return (global_best_idx, global_best_sim, global_best_vis)
+        
         return None
     
     def mine_hard_negatives(self, dataset: Dict[int, Dict[str, Any]], 
