@@ -57,6 +57,21 @@ def test_semantic_filtering():
     else:
         print("⚠️ No semantic filtering available")
     
+    # Simulate small dataset filtering (same as mining logic)
+    print("📊 Applying same filtering logic as mining (small dataset)...")
+    original_blacklist = miner.answer_blacklist.copy()
+    original_min_length = miner.min_answer_length
+    
+    # Apply lenient filtering (same as mining)
+    miner.min_answer_length = max(15, miner.min_answer_length - 5)
+    miner.answer_blacklist = {
+        'short_affirmative': ['yes', 'exactly', 'correct'],  # removed 'right' to prevent directional false-positives
+        'generic_responses': ['destiny is exactly that', 'that is correct'],
+    }
+    print(f"  Adjusted min_answer_length to {miner.min_answer_length}")
+    print(f"  Using lenient direct blacklist with {sum(len(phrases) for phrases in miner.answer_blacklist.values())} phrases")
+    print(f"  Semantic filtering still uses full blacklist with {len(miner.blacklist_embeddings)} phrases")
+    
     # Test caching functionality
     print("💾 Testing embedding cache...")
     cache_path = os.path.join(os.path.dirname(__file__), 'blacklist_embeds.pkl')
@@ -77,17 +92,17 @@ def test_semantic_filtering():
     else:
         print("⚠️ No cache file found")
     
-    # Test filtering with various phrases
-    print("🔍 Testing answer filtering...")
+    # Test filtering with various phrases (using realistic lenient blacklist)
+    print("🔍 Testing answer filtering with lenient blacklist...")
     
     test_phrases = [
-        # Should be filtered by direct blacklist
-        ("yes", "direct blacklist"),
-        ("exactly", "direct blacklist"),
-        ("correct", "direct blacklist"),
-        ("destiny is exactly that", "direct blacklist"),
+        # Should be filtered by direct blacklist (lenient)
+        ("yes", "direct blacklist (lenient)"),
+        ("exactly", "direct blacklist (lenient)"),
+        ("correct", "direct blacklist (lenient)"),
+        ("destiny is exactly that", "direct blacklist (lenient)"),
         
-        # Should be filtered by semantic similarity
+        # Should be filtered by semantic similarity (using full blacklist)
         ("yes, that's absolutely correct", "semantic similarity"),
         ("you're exactly right", "semantic similarity"),
         ("that's the right answer", "semantic similarity"),
@@ -97,7 +112,7 @@ def test_semantic_filtering():
         ("turn left", "too short"),
         ("move right", "too short"),
         
-        # Should pass
+        # Should NOW pass (not in lenient blacklist)
         ("You should turn left at the intersection and continue for about 100 meters", "should pass"),
         ("Navigate to the building and follow the path around it", "should pass"),
         ("Take the second turn and proceed towards the landmark", "should pass"),
@@ -121,16 +136,20 @@ def test_semantic_filtering():
     
     print(f"\n📊 Filtering results: {passed_count} passed, {filtered_count} filtered")
     
-    # Test blacklist categories
+    # Test blacklist categories (current lenient blacklist)
     print("📋 Testing blacklist categories...")
     
-    print(f"📊 Current blacklist after any overrides:")
+    print(f"📊 Current blacklist after lenient override:")
     for category, phrases in miner.answer_blacklist.items():
         print(f"  {category}: {len(phrases)} phrases")
         for phrase in phrases[:2]:  # Show first 2 from each category
             is_good = miner.is_good_answer(phrase)
             status = "✅ PASS" if is_good else "❌ FILTERED"
             print(f"    {status}: '{phrase}'")
+    
+    # Restore original settings
+    miner.answer_blacklist = original_blacklist
+    miner.min_answer_length = original_min_length
     
     print("✅ Semantic filtering test completed!")
     return True

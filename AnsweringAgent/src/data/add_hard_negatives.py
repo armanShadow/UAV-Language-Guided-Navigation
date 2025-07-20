@@ -340,14 +340,38 @@ class HardNegativeMiner:
         
         if visual_features_list:
             visual_features_array = np.array(visual_features_list)
-            n_clusters = min(n_clusters, len(visual_features_array) // 10)
-            self.visual_clusters = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-            self.cluster_labels = self.visual_clusters.fit_predict(visual_features_array)
             
-            print(f"✅ Built {n_clusters} visual clusters with {len(visual_features_list)} samples")
+            # For small datasets, ensure we have meaningful clustering
+            min_samples_per_cluster = 2
+            max_possible_clusters = len(visual_features_array) // min_samples_per_cluster
+            n_clusters = min(n_clusters, max_possible_clusters)
+            
+            # Need at least 2 clusters for diverse negatives to work
+            if n_clusters < 2:
+                print(f"⚠️ Too few samples ({len(visual_features_array)}) for meaningful clustering. Using random diverse selection.")
+                # Create artificial clusters by random assignment
+                self.cluster_labels = np.random.randint(0, 2, size=len(visual_features_array))
+                self.visual_clusters = None  # Flag that we're using random clustering
+                print(f"✅ Using random cluster assignment with 2 artificial clusters")
+            else:
+                self.visual_clusters = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                self.cluster_labels = self.visual_clusters.fit_predict(visual_features_array)
+                print(f"✅ Built {n_clusters} visual clusters with {len(visual_features_list)} samples")
             
             unique_labels, counts = np.unique(self.cluster_labels, return_counts=True)
             print(f"📊 Cluster distribution: min={counts.min()}, max={counts.max()}, mean={counts.mean():.1f}")
+            
+            # Show cluster assignments for small datasets
+            if len(visual_features_array) <= 20:
+                cluster_assignments = {}
+                for i, cluster_id in enumerate(self.cluster_labels):
+                    if cluster_id not in cluster_assignments:
+                        cluster_assignments[cluster_id] = []
+                    cluster_assignments[cluster_id].append(self.visual_indices[i])
+                
+                print("📋 Cluster assignments:")
+                for cluster_id, sample_indices in cluster_assignments.items():
+                    print(f"  Cluster {cluster_id}: samples {sample_indices}")
         else:
             print("❌ No visual features extracted for clustering!")
     
