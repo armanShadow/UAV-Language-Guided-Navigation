@@ -237,7 +237,7 @@ class HardNegativeMiner:
         
         # Check minimum length
         if len(answer.strip()) < self.min_answer_length:
-            if hasattr(self, 'debug_mode') and self.debug_mode:
+            if hasattr(self, 'debug_mode') and getattr(self, 'debug_mode', False):
                 print(f"    ❌ Filtered: too short ({len(answer.strip())} chars)")
             return False
         
@@ -245,13 +245,13 @@ class HardNegativeMiner:
         for category, phrases in self.answer_blacklist.items():
             for phrase in phrases:
                 if phrase in answer.lower():
-                    if hasattr(self, 'debug_mode') and self.debug_mode:
+                    if hasattr(self, 'debug_mode') and getattr(self, 'debug_mode', False):
                         print(f"    ❌ Filtered: contains blacklisted phrase '{phrase}'")
                     return False
         
         # Check for semantic similarity to blacklisted phrases
         if self._check_semantic_similarity_to_blacklist(answer):
-            if hasattr(self, 'debug_mode') and self.debug_mode:
+            if hasattr(self, 'debug_mode') and getattr(self, 'debug_mode', False):
                 print(f"    ❌ Filtered: semantically similar to blacklisted phrase")
             return False
         
@@ -337,13 +337,14 @@ class HardNegativeMiner:
         else:
             print("❌ No visual features extracted for clustering!")
     
-    def find_diverse_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]]) -> Optional[tuple]:
+    def find_diverse_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]], debug_mode: bool = False) -> Optional[tuple]:
         """
         Find a diverse negative from outside the anchor's visual cluster.
         
         Args:
             anchor_idx: Index of the anchor sample
             dataset: Processed dataset dictionary
+            debug_mode: Whether to enable debug logging
             
         Returns:
             Tuple of (negative_idx, anchor_cluster, negative_cluster, visual_similarity), or None if not found
@@ -374,13 +375,13 @@ class HardNegativeMiner:
                     if anchor_first_instruction != neighbor_first_instruction:
                         # Skip if answer is not good enough
                         if not self.is_good_answer(neighbor_answer):
-                            if hasattr(self, 'debug_mode') and self.debug_mode and validation_stats.get('total_attempts', 0) <= 3:
+                            if debug_mode and validation_stats.get('total_attempts', 0) <= 3:
                                 print(f"    ❌ Bad answer (diverse): '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
                             continue
                         
                         # Check phrase diversity
                         if not self._is_phrase_diverse(neighbor_answer):
-                            if hasattr(self, 'debug_mode') and self.debug_mode and validation_stats.get('total_attempts', 0) <= 3:
+                            if debug_mode and validation_stats.get('total_attempts', 0) <= 3:
                                 print(f"    ❌ Phrase not diverse: '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
                             continue
                         
@@ -487,7 +488,7 @@ class HardNegativeMiner:
         else:
             print("❌ No visual features extracted!")
     
-    def find_hard_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]]) -> Optional[tuple]:
+    def find_hard_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]], debug_mode: bool = False) -> Optional[tuple]:
         """
         Find a hard negative for the given anchor.
         
@@ -499,6 +500,7 @@ class HardNegativeMiner:
         Args:
             anchor_idx: Index of the anchor sample
             dataset: Processed dataset dictionary
+            debug_mode: Whether to enable debug logging
             
         Returns:
             Tuple of (negative_idx, text_similarity, visual_similarity), or None if not found
@@ -552,7 +554,7 @@ class HardNegativeMiner:
                 # Skip if answer is not good enough
                 if not self.is_good_answer(neighbor_answer):
                     bad_answer_count += 1
-                    if debug_mode and validation_stats['total_attempts'] <= 3:
+                    if debug_mode and validation_stats.get('total_attempts', 0) <= 3:
                         print(f"    ❌ Bad answer: '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
                     continue
                 
@@ -721,10 +723,10 @@ class HardNegativeMiner:
             for strategy in strategy_order:
                 if strategy == "hard":
                     validation_stats['hard_attempts'] += 1
-                    negative_result = self.find_hard_negative(anchor_idx, dataset)
+                    negative_result = self.find_hard_negative(anchor_idx, dataset, debug_mode)
                 else:  # diverse
                     validation_stats['diverse_attempts'] += 1
-                    negative_result = self.find_diverse_negative(anchor_idx, dataset)
+                    negative_result = self.find_diverse_negative(anchor_idx, dataset, debug_mode)
 
                 if negative_result is not None:
                     negative_type = strategy
