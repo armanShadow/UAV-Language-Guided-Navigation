@@ -36,8 +36,8 @@ from transformers import T5Tokenizer
 class HardNegativeMiner:
     """Mines hard negative samples using visual K-NN and least-similar instruction selection."""
     
-    def __init__(self, config: Config, tokenizer, image_dir: str, k_nn: int = 50, cosine_threshold: float = 0.3,
-                 use_diverse_negatives: bool = True, diverse_ratio: float = 0.5, min_answer_length: int = 20):
+    def __init__(self, config: Config, tokenizer, image_dir: str, k_nn: int = 30, cosine_threshold: float = 0.3,
+                 use_diverse_negatives: bool = True, diverse_ratio: float = 0.3, min_answer_length: int = 20):
         """
         Initialize the hard negative miner.
         
@@ -59,6 +59,11 @@ class HardNegativeMiner:
         self.use_diverse_negatives = use_diverse_negatives
         self.diverse_ratio = diverse_ratio
         self.min_answer_length = min_answer_length
+        
+        # GPU optimization settings
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.batch_size = 64  # Process images in batches for GPU efficiency
+        self.num_workers = 4  # For parallel data loading
         
         # Initialize normalizer for image processing with MPNet embeddings
         self.normalizer = AnsweringAgentNormalizer(tokenizer, config, generate_mpnet_embeddings=True)
@@ -87,15 +92,20 @@ class HardNegativeMiner:
         Returns:
             Visual features as numpy array
         """
+        # Move to GPU if available
+        if current_view.device != self.device:
+            current_view = current_view.to(self.device)
+        
         # Simple feature extraction using average pooling
         # This is lightweight and sufficient for K-NN mining
         features = F.adaptive_avg_pool2d(current_view.unsqueeze(0), (8, 8))
-        features = features.view(-1).cpu().numpy()
+        features = features.view(-1)
         
-        # Normalize features
-        features = features / (np.linalg.norm(features) + 1e-8)
+        # Normalize features on GPU
+        features = features / (torch.norm(features) + 1e-8)
         
-        return features
+        # Move back to CPU for numpy operations
+        return features.cpu().numpy()
     
     def extract_text_features(self, dialog_context: str) -> np.ndarray:
         """
@@ -177,7 +187,7 @@ class HardNegativeMiner:
 
         return True
     
-    def build_visual_clusters(self, dataset: Dict[int, Dict[str, Any]], n_clusters: int = 20):
+    def build_visual_clusters(self, dataset: Dict[int, Dict[str, Any]], n_clusters: int = 30):
         """
         Build visual clusters for diverse negative sampling.
         
@@ -187,22 +197,59 @@ class HardNegativeMiner:
         """
         print("🔍 Building visual clusters for diverse negative sampling...")
         
-        # Extract all visual features
+        # Use existing features if already extracted, otherwise extract in batches
+        if not self.visual_features:
+            # Extract all visual features in batches
+            items_list = list(dataset.items())
+            batch_size = self.batch_size
+            
+            for batch_start in tqdm(range(0, len(items_list), batch_size), desc="Extracting visual features for clustering"):
+                batch_end = min(batch_start + batch_size, len(items_list))
+                batch_items = items_list[batch_start:batch_end]
+                
+                # Prepare batch tensors
+                batch_tensors = []
+                batch_indices = []
+                
+                for idx, item in batch_items:
+                    try:
+                        current_view = item['current_view_image']
+                        batch_tensors.append(current_view)
+                        batch_indices.append(idx)
+                    except Exception as e:
+                        print(f"⚠️ Error preparing item {idx}: {e}")
+                        continue
+                
+                if not batch_tensors:
+                    continue
+                    
+                # Stack tensors and move to GPU
+                batch_tensor = torch.stack(batch_tensors).to(self.device)
+                
+                # Extract features in batch
+                try:
+                    # Batch feature extraction
+                    features = F.adaptive_avg_pool2d(batch_tensor, (8, 8))
+                    features = features.view(len(batch_tensors), -1)
+                    
+                    # Normalize features on GPU
+                    features = features / (torch.norm(features, dim=1, keepdim=True) + 1e-8)
+                    
+                    # Store results
+                    for i, idx in enumerate(batch_indices):
+                        feature_np = features[i].cpu().numpy()
+                        self.visual_features[idx] = feature_np
+                        
+                except Exception as e:
+                    print(f"⚠️ Error processing batch {batch_start}-{batch_end}: {e}")
+                    continue
+        
+        # Prepare features list for clustering
         visual_features_list = []
         self.visual_indices = []
-        
-        for idx, item in tqdm(dataset.items(), desc="Extracting visual features for clustering"):
-            try:
-                current_view = item['current_view_image']
-                visual_features = self.extract_visual_features(current_view)
-                
-                visual_features_list.append(visual_features)
-                self.visual_indices.append(idx)
-                self.visual_features[idx] = visual_features
-                
-            except Exception as e:
-                print(f"⚠️ Error extracting features for item {idx}: {e}")
-                continue
+        for idx, features in self.visual_features.items():
+            visual_features_list.append(features)
+            self.visual_indices.append(idx)
         
         if visual_features_list:
             visual_features_array = np.array(visual_features_list)
@@ -302,21 +349,51 @@ class HardNegativeMiner:
         visual_features_list = []
         self.visual_indices = []
         
-        for idx, item in tqdm(dataset.items(), desc="Extracting visual features"):
+        # Batch process visual features for GPU efficiency
+        items_list = list(dataset.items())
+        batch_size = self.batch_size
+        
+        for batch_start in tqdm(range(0, len(items_list), batch_size), desc="Extracting visual features"):
+            batch_end = min(batch_start + batch_size, len(items_list))
+            batch_items = items_list[batch_start:batch_end]
+            
+            # Prepare batch tensors
+            batch_tensors = []
+            batch_indices = []
+            
+            for idx, item in batch_items:
+                try:
+                    current_view = item['current_view_image']
+                    batch_tensors.append(current_view)
+                    batch_indices.append(idx)
+                except Exception as e:
+                    print(f"⚠️ Error preparing item {idx}: {e}")
+                    continue
+            
+            if not batch_tensors:
+                continue
+                
+            # Stack tensors and move to GPU
+            batch_tensor = torch.stack(batch_tensors).to(self.device)
+            
+            # Extract features in batch
             try:
-                # Extract visual features
-                current_view = item['current_view_image']
-                visual_features = self.extract_visual_features(current_view)
+                # Batch feature extraction
+                features = F.adaptive_avg_pool2d(batch_tensor, (8, 8))
+                features = features.view(len(batch_tensors), -1)
                 
-                # Store features and index
-                visual_features_list.append(visual_features)
-                self.visual_indices.append(idx)
+                # Normalize features on GPU
+                features = features / (torch.norm(features, dim=1, keepdim=True) + 1e-8)
                 
-                # Store for later use
-                self.visual_features[idx] = visual_features
-                
+                # Store results
+                for i, idx in enumerate(batch_indices):
+                    feature_np = features[i].cpu().numpy()
+                    visual_features_list.append(feature_np)
+                    self.visual_indices.append(idx)
+                    self.visual_features[idx] = feature_np
+                    
             except Exception as e:
-                print(f"⚠️ Error extracting features for item {idx}: {e}")
+                print(f"⚠️ Error processing batch {batch_start}-{batch_end}: {e}")
                 continue
         
         # Build K-NN model
@@ -498,85 +575,100 @@ class HardNegativeMiner:
         
         for anchor_idx in tqdm(samples_to_process, desc="Mining negatives"):
             validation_stats['total_attempts'] += 1
-            
-            # Always attempt HARD negative first
+
+            # Decide mining order based on diverse_ratio probability
+            if self.use_diverse_negatives and random.random() < self.diverse_ratio:
+                strategy_order = ["diverse", "hard"]
+            else:
+                # Default to hard-first; if diverse mining disabled, list will only contain 'hard'
+                strategy_order = ["hard"] if not self.use_diverse_negatives else ["hard", "diverse"]
+
             if debug_mode and validation_stats['total_attempts'] <= 3:
                 print(f"\n🔍 Debug sample {validation_stats['total_attempts']}: anchor_idx={anchor_idx}")
-                print("  Strategy: hard-first")
+                print(f"  Strategy order: {strategy_order}")
 
-            negative_result = self.find_hard_negative(anchor_idx, dataset)
-            negative_type = "hard"
-            validation_stats['hard_attempts'] += 1
-            
-            # Fallback to the other strategy if nothing found
-            if negative_result is None:
-                validation_stats['fallback_used'] += 1
-                if debug_mode and validation_stats['total_attempts'] <= 3:
-                    print(f"  ⚠️ First attempt failed, trying fallback...")
-                # Try DIVERSE negative as fallback (if enabled)
-                if self.use_diverse_negatives:
-                    negative_result = self.find_diverse_negative(anchor_idx, dataset)
-                    negative_type = "diverse"
-                    validation_stats['diverse_attempts'] += 1
-             
-            if negative_result is not None:
-                # Track success
-                if negative_type == "hard":
-                    validation_stats['hard_success'] += 1
-                else:
-                    validation_stats['diverse_success'] += 1
-                
-                if debug_mode and validation_stats['total_attempts'] <= 3:
-                    print(f"  ✅ Found {negative_type} negative")
-                
-                # Get the negative data
-                if negative_type == "hard":
-                    negative_idx, text_similarity, visual_similarity = negative_result
-                    validation_info = {
-                        'negative_type_2': negative_type,
-                        'text_similarity': float(text_similarity),
-                        'visual_similarity': float(visual_similarity),
-                        'mining_method': 'hard_negative_knn'
-                    }
+            negative_result = None
+            negative_type = None
+
+            for strategy in strategy_order:
+                if strategy == "hard":
+                    validation_stats['hard_attempts'] += 1
+                    negative_result = self.find_hard_negative(anchor_idx, dataset)
                 else:  # diverse
-                    negative_idx, anchor_cluster, negative_cluster, visual_similarity = negative_result
-                    validation_info = {
-                        'negative_type_2': negative_type,
-                        'anchor_cluster': int(anchor_cluster),
-                        'negative_cluster': int(negative_cluster),
-                        'visual_similarity': float(visual_similarity),
-                        'mining_method': 'diverse_negative_clustering'
-                    }
-                
-                negative_item = dataset[negative_idx]
-                
-                # Create negative contrastive data (as negative_2 to avoid conflict with existing LM negative)
-                negative_data = {
-                    'negative_text_2': negative_item.get('answer', ''),
-                    'negative_context_2': negative_item.get('dialog_context', ''),
-                    'negative_question_2': negative_item.get('question', ''),
-                    'negative_first_instruction_2': negative_item.get('first_instruction', ''),
-                    'negative_visual_features_2': negative_item.get('current_view_image', None),
-                    'negative_type_2': negative_type,  # Track which type this is
-                    'map_name_2': negative_item.get('map_name', 'unknown'),  # Save map name
-                    'validation_metadata_2': validation_info
-                }
-                
-                # Tokenize negative text
-                if self.tokenizer:
-                    negative_data['tokenized_negative_2'] = self.tokenizer(
-                        negative_data['negative_text_2'],
-                        max_length=self.config.model.max_answer_length if self.config else 128,
-                        padding="max_length",
-                        truncation=True,
-                        return_tensors="pt"
-                    )
-                
-                negatives[anchor_idx] = negative_data
-            else:
+                    validation_stats['diverse_attempts'] += 1
+                    negative_result = self.find_diverse_negative(anchor_idx, dataset)
+
+                if negative_result is not None:
+                    negative_type = strategy
+                    # Record fallback usage if the first strategy failed and we switched
+                    if strategy != strategy_order[0]:
+                        validation_stats['fallback_used'] += 1
+                    break
+
+            # If no result after trying available strategies
+            if negative_result is None:
                 if debug_mode and validation_stats['total_attempts'] <= 3:
-                    print(f"  ❌ No negative found after fallback")
+                    print(f"  ❌ No negative found after trying {strategy_order}")
                 validation_stats['no_candidates_found'] += 1
+                continue
+            
+            # At this point we must have a valid negative_result
+            # Track success
+            if negative_type == "hard":
+                validation_stats['hard_success'] += 1
+            else:
+                validation_stats['diverse_success'] += 1
+
+            # -----------------------------------------------------------------
+            # Shared post-processing for both HARD and DIVERSE negatives
+            # -----------------------------------------------------------------
+            if debug_mode and validation_stats['total_attempts'] <= 3:
+                print(f"  ✅ Found {negative_type} negative")
+
+            # Build validation metadata specific to the negative type
+            if negative_type == "hard":
+                negative_idx, text_similarity, visual_similarity = negative_result
+                validation_info = {
+                    'negative_type_2': negative_type,
+                    'text_similarity': float(text_similarity),
+                    'visual_similarity': float(visual_similarity),
+                    'mining_method': 'hard_negative_knn'
+                }
+            else:
+                negative_idx, anchor_cluster, negative_cluster, visual_similarity = negative_result
+                validation_info = {
+                    'negative_type_2': negative_type,
+                    'anchor_cluster': int(anchor_cluster),
+                    'negative_cluster': int(negative_cluster),
+                    'visual_similarity': float(visual_similarity),
+                    'mining_method': 'diverse_negative_clustering'
+                }
+
+            negative_item = dataset[negative_idx]
+
+            # Create negative contrastive data (saved as negative_2 to avoid conflict with existing LM negative)
+            negative_data = {
+                'negative_text_2': negative_item.get('answer', ''),
+                'negative_context_2': negative_item.get('dialog_context', ''),
+                'negative_question_2': negative_item.get('question', ''),
+                'negative_first_instruction_2': negative_item.get('first_instruction', ''),
+                'negative_visual_features_2': negative_item.get('current_view_image', None),
+                'negative_type_2': negative_type,  # Track which type this is
+                'map_name_2': negative_item.get('map_name', 'unknown'),  # Save map name
+                'validation_metadata_2': validation_info
+            }
+
+            # Tokenize negative text
+            if self.tokenizer:
+                negative_data['tokenized_negative_2'] = self.tokenizer(
+                    negative_data['negative_text_2'],
+                    max_length=self.config.model.max_answer_length if self.config else 128,
+                    padding="max_length",
+                    truncation=True,
+                    return_tensors="pt"
+                )
+
+            negatives[anchor_idx] = negative_data
         
         # Print detailed validation statistics
         print(f"📊 Validation Statistics:")
@@ -713,7 +805,7 @@ def main():
     parser.add_argument('--config', type=str, default='config.py', help='Path to config file')
     parser.add_argument('--split', type=str, default='train', choices=['train', 'val_seen', 'val_unseen'], 
                        help='Dataset split to process')
-    parser.add_argument('--k-nn', type=int, default=50, help='Number of K-NN neighbors to consider')
+    parser.add_argument('--k-nn', type=int, default=30, help='Number of K-NN neighbors to consider')
     parser.add_argument('--cosine-threshold', type=float, default=0.3, 
                        help='Cosine similarity threshold for hard negatives')
     parser.add_argument('--max-samples', type=int, default=None, 
@@ -722,12 +814,31 @@ def main():
                        help='Directory containing satellite images')
     parser.add_argument('--use-diverse-negatives', action='store_true', default=True,
                        help='Whether to add diverse negatives from outside clusters')
-    parser.add_argument('--diverse-ratio', type=float, default=0.5,
+    parser.add_argument('--diverse-ratio', type=float, default=0.3,
                        help='Ratio of samples to use for diverse negative mining')
     parser.add_argument('--min-answer-length', type=int, default=20,
                        help='Minimum answer length to consider for negative mining')
+    parser.add_argument('--batch-size', type=int, default=64,
+                       help='Batch size for GPU processing')
+    parser.add_argument('--num-workers', type=int, default=4,
+                       help='Number of workers for data loading')
+    parser.add_argument('--gpu-id', type=int, default=0,
+                       help='GPU ID to use (0-9 for your 10 RTX 2080s)')
+    
+    # Dataset sharding arguments (useful for multi-GPU setups to avoid duplicated work)
+    parser.add_argument('--num-shards', type=int, default=1,
+                       help='Total number of dataset shards (typically = number of GPUs)')
+    parser.add_argument('--shard-id', type=int, default=0,
+                       help='Shard index for this process (0 ≤ shard_id < num_shards)')
     
     args = parser.parse_args()
+    
+    # Set GPU device
+    if torch.cuda.is_available():
+        torch.cuda.set_device(args.gpu_id)
+        print(f"🚀 Using GPU {args.gpu_id}: {torch.cuda.get_device_name(args.gpu_id)}")
+    else:
+        print("⚠️ CUDA not available, using CPU")
     
     # Load configuration
     config = Config()
@@ -738,6 +849,12 @@ def main():
     
     # Load dataset
     dataset = load_dataset(config, args.split)
+
+    # Optional: shard dataset so each GPU/process works on a unique subset
+    if args.num_shards > 1:
+        original_size = len(dataset)
+        dataset = {k: v for k, v in dataset.items() if (k % args.num_shards) == args.shard_id}
+        print(f"🔀 Sharded dataset: keeping {len(dataset)} / {original_size} samples for shard {args.shard_id} of {args.num_shards}")
     
     # Initialize hard negative miner
     miner = HardNegativeMiner(
@@ -750,6 +867,12 @@ def main():
         diverse_ratio=args.diverse_ratio,
         min_answer_length=args.min_answer_length
     )
+    
+    # Update GPU settings
+    miner.batch_size = args.batch_size
+    miner.num_workers = args.num_workers
+    if torch.cuda.is_available():
+        miner.device = torch.device(f'cuda:{args.gpu_id}')
     
     # Mine hard negatives
     hard_negatives = miner.mine_hard_negatives(dataset, max_samples=args.max_samples)
