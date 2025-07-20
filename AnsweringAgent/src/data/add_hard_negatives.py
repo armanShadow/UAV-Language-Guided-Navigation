@@ -322,10 +322,12 @@ class HardNegativeMiner:
         # Build K-NN model
         if visual_features_list:
             visual_features_array = np.array(visual_features_list)
-            self.visual_knn = NearestNeighbors(n_neighbors=min(self.k_nn + 1, len(visual_features_array)), 
+            # Increase K for better coverage, especially for small datasets
+            k_neighbors = min(max(self.k_nn + 1, 20), len(visual_features_array))
+            self.visual_knn = NearestNeighbors(n_neighbors=k_neighbors, 
                                              metric='cosine')
             self.visual_knn.fit(visual_features_array)
-            print(f"✅ Built K-NN model with {len(visual_features_list)} samples")
+            print(f"✅ Built K-NN model with {len(visual_features_list)} samples (K={k_neighbors})")
         else:
             print("❌ No visual features extracted!")
     
@@ -366,7 +368,7 @@ class HardNegativeMiner:
         best_visual_similarity = None
         
         # Try with strict threshold first, then relax if needed
-        thresholds_to_try = [self.cosine_threshold, 0.5, 0.7, 0.9]  # Progressive relaxation
+        thresholds_to_try = [self.cosine_threshold, 0.5, 0.7, 0.9, 0.95]  # Progressive relaxation
         
         for threshold in thresholds_to_try:
             for i, neighbor_idx in enumerate(neighbor_indices):
@@ -440,6 +442,7 @@ class HardNegativeMiner:
             # Decide whether to use hard negative or diverse negative (50/50 split)
             use_diverse = random.random() < self.diverse_ratio
             
+            # 1st attempt
             if use_diverse and self.use_diverse_negatives:
                 # Find diverse negative (from different clusters)
                 negative_result = self.find_diverse_negative(anchor_idx, dataset)
@@ -448,6 +451,15 @@ class HardNegativeMiner:
                 # Find hard negative (from nearest neighbors)
                 negative_result = self.find_hard_negative(anchor_idx, dataset)
                 negative_type = "hard"
+            
+            # Fallback to the other strategy if nothing found
+            if negative_result is None:
+                if negative_type == "hard" and self.use_diverse_negatives:
+                    negative_result = self.find_diverse_negative(anchor_idx, dataset)
+                    negative_type = "diverse"
+                else:
+                    negative_result = self.find_hard_negative(anchor_idx, dataset)
+                    negative_type = "hard"
             
             if negative_result is not None:
                 # Get the negative data
