@@ -499,41 +499,26 @@ class HardNegativeMiner:
         for anchor_idx in tqdm(samples_to_process, desc="Mining negatives"):
             validation_stats['total_attempts'] += 1
             
-            # Decide whether to use hard negative or diverse negative (50/50 split)
-            use_diverse = random.random() < self.diverse_ratio
-            
-            # Debug mode: print detailed info for first few samples
+            # Always attempt HARD negative first
             if debug_mode and validation_stats['total_attempts'] <= 3:
                 print(f"\n🔍 Debug sample {validation_stats['total_attempts']}: anchor_idx={anchor_idx}")
-                print(f"  Strategy: {'diverse' if use_diverse else 'hard'}")
-            
-            # 1st attempt
-            if use_diverse and self.use_diverse_negatives:
-                # Find diverse negative (from different clusters)
-                negative_result = self.find_diverse_negative(anchor_idx, dataset)
-                negative_type = "diverse"
-                validation_stats['diverse_attempts'] += 1
-            else:
-                # Find hard negative (from nearest neighbors)
-                negative_result = self.find_hard_negative(anchor_idx, dataset)
-                negative_type = "hard"
-                validation_stats['hard_attempts'] += 1
+                print("  Strategy: hard-first")
+
+            negative_result = self.find_hard_negative(anchor_idx, dataset)
+            negative_type = "hard"
+            validation_stats['hard_attempts'] += 1
             
             # Fallback to the other strategy if nothing found
             if negative_result is None:
                 validation_stats['fallback_used'] += 1
                 if debug_mode and validation_stats['total_attempts'] <= 3:
                     print(f"  ⚠️ First attempt failed, trying fallback...")
-                
-                if negative_type == "hard" and self.use_diverse_negatives:
+                # Try DIVERSE negative as fallback (if enabled)
+                if self.use_diverse_negatives:
                     negative_result = self.find_diverse_negative(anchor_idx, dataset)
                     negative_type = "diverse"
                     validation_stats['diverse_attempts'] += 1
-                else:
-                    negative_result = self.find_hard_negative(anchor_idx, dataset)
-                    negative_type = "hard"
-                    validation_stats['hard_attempts'] += 1
-            
+             
             if negative_result is not None:
                 # Track success
                 if negative_type == "hard":
