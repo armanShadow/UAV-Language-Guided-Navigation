@@ -99,7 +99,7 @@ class HardNegativeMiner:
     
     def extract_text_features(self, dialog_context: str) -> np.ndarray:
         """
-        Extract text features from dialog context using MPNet embeddings.
+        Extract text features from dialog context using MPNet embeddings or fallback method.
         
         Args:
             dialog_context: Dialog context string
@@ -118,20 +118,42 @@ class HardNegativeMiner:
                 # Fallback to simple approach
                 pass
         
-        # Fallback: Simple TF-IDF like features for text similarity
-        words = dialog_context.lower().split()
-        word_freq = defaultdict(int)
-        for word in words:
-            word_freq[word] += 1
+        # Fallback: Improved TF-IDF like features for text similarity
+        import re
+        from collections import Counter
         
-        # Create feature vector (simplified)
-        unique_words = list(word_freq.keys())
+        # Clean and tokenize text
+        text = dialog_context.lower()
+        # Remove special characters but keep spaces
+        text = re.sub(r'[^\w\s]', ' ', text)
+        words = text.split()
+        
+        # Filter out very short words and common stop words
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'}
+        
+        # Count word frequencies
+        word_freq = Counter()
+        for word in words:
+            if len(word) > 2 and word not in stop_words:
+                word_freq[word] += 1
+        
+        # Create feature vector with fixed size for consistency
+        max_features = 1000  # Limit feature size
+        unique_words = list(word_freq.keys())[:max_features]
+        
+        if not unique_words:
+            # If no meaningful words, return zero vector
+            return np.zeros(100, dtype=np.float32)
+        
+        # Create feature vector
         features = np.zeros(len(unique_words))
         for i, word in enumerate(unique_words):
             features[i] = word_freq[word]
         
         # Normalize features
-        features = features / (np.linalg.norm(features) + 1e-8)
+        norm = np.linalg.norm(features)
+        if norm > 0:
+            features = features / norm
         
         return features
     

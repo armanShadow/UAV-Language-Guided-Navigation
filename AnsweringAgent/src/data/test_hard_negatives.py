@@ -10,8 +10,8 @@ import torch
 import numpy as np
 from transformers import T5Tokenizer
 
-# Add the current directory to the path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add the parent directory to the path to access config and other modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config
 from data.add_hard_negatives import HardNegativeMiner, load_dataset, save_dataset
