@@ -90,7 +90,7 @@ class HardNegativeMiner:
         
         # Embedding-based blacklist for semantic similarity filtering
         self.blacklist_embeddings = {}  # Will be populated with embeddings of blacklisted phrases
-        self.semantic_similarity_threshold = 0.85  # Threshold for semantic similarity to blacklisted phrases
+        self.semantic_similarity_threshold = 0.90  # More lenient threshold for semantic similarity
         
         # Duplicate phrase tracking for better diversity
         self.used_phrases = {}  # phrase -> count
@@ -237,16 +237,22 @@ class HardNegativeMiner:
         
         # Check minimum length
         if len(answer.strip()) < self.min_answer_length:
+            if hasattr(self, 'debug_mode') and self.debug_mode:
+                print(f"    ❌ Filtered: too short ({len(answer.strip())} chars)")
             return False
         
         # Check for blacklisted phrases
         for category, phrases in self.answer_blacklist.items():
             for phrase in phrases:
                 if phrase in answer.lower():
+                    if hasattr(self, 'debug_mode') and self.debug_mode:
+                        print(f"    ❌ Filtered: contains blacklisted phrase '{phrase}'")
                     return False
         
         # Check for semantic similarity to blacklisted phrases
         if self._check_semantic_similarity_to_blacklist(answer):
+            if hasattr(self, 'debug_mode') and self.debug_mode:
+                print(f"    ❌ Filtered: semantically similar to blacklisted phrase")
             return False
         
         return True
@@ -368,10 +374,14 @@ class HardNegativeMiner:
                     if anchor_first_instruction != neighbor_first_instruction:
                         # Skip if answer is not good enough
                         if not self.is_good_answer(neighbor_answer):
+                            if hasattr(self, 'debug_mode') and self.debug_mode and validation_stats.get('total_attempts', 0) <= 3:
+                                print(f"    ❌ Bad answer (diverse): '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
                             continue
                         
                         # Check phrase diversity
                         if not self._is_phrase_diverse(neighbor_answer):
+                            if hasattr(self, 'debug_mode') and self.debug_mode and validation_stats.get('total_attempts', 0) <= 3:
+                                print(f"    ❌ Phrase not diverse: '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
                             continue
                         
                         # Calculate visual similarity
@@ -542,6 +552,8 @@ class HardNegativeMiner:
                 # Skip if answer is not good enough
                 if not self.is_good_answer(neighbor_answer):
                     bad_answer_count += 1
+                    if debug_mode and validation_stats['total_attempts'] <= 3:
+                        print(f"    ❌ Bad answer: '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
                     continue
                 
                 # Calculate text similarity
@@ -645,6 +657,21 @@ class HardNegativeMiner:
             Dictionary mapping anchor_idx -> negative_data (either hard or diverse)
         """
         print("⛏️ Mining hard negatives...")
+        
+        # Set debug mode for filtering
+        self.debug_mode = debug_mode
+        
+        # Adjust filtering for small datasets
+        if len(dataset) < 100:
+            print("📊 Small dataset detected, using lenient filtering...")
+            self.min_answer_length = max(15, self.min_answer_length - 5)  # Reduce minimum length
+            # Only apply strict blacklist for small datasets
+            self.answer_blacklist = {
+                'short_affirmative': ['yes', 'exactly', 'correct', 'right'],
+                'generic_responses': ['destiny is exactly that', 'that is correct'],
+            }
+            print(f"  Adjusted min_answer_length to {self.min_answer_length}")
+            print(f"  Using lenient blacklist with {sum(len(phrases) for phrases in self.answer_blacklist.values())} phrases")
         
         # Initialize blacklist embeddings
         self._initialize_blacklist_embeddings()
