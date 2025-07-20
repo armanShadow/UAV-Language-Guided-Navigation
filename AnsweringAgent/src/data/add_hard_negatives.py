@@ -29,7 +29,7 @@ import random
 from collections import defaultdict
 
 # Import local modules
-from Normalizer import AnsweringAgentNormalizer
+from data.Normalizer import AnsweringAgentNormalizer
 from config import Config
 from transformers import T5Tokenizer
 
