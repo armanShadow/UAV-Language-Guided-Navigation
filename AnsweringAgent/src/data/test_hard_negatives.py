@@ -34,8 +34,8 @@ def test_semantic_filtering():
         config=config,
         tokenizer=tokenizer,
         image_dir=image_dir,
-        k_nn=15,
-        cosine_threshold=0.3,
+        k_nn=100,  # Increased from 15
+        cosine_threshold=0.2,  # Lowered from 0.3
         use_diverse_negatives=True,
         diverse_ratio=0.3,
         min_answer_length=20
@@ -63,11 +63,12 @@ def test_semantic_filtering():
     original_min_length = miner.min_answer_length
     
     # Apply lenient filtering (same as mining)
-    miner.min_answer_length = max(15, miner.min_answer_length - 5)
+    miner.min_answer_length = 15  # More lenient for small datasets
     miner.answer_blacklist = {
         'short_affirmative': ['yes', 'exactly', 'correct'],  # removed 'right' to prevent directional false-positives
         'generic_responses': ['destiny is exactly that', 'that is correct'],
     }
+    miner.max_phrase_reuse = 5  # Increased for small datasets
     print(f"  Adjusted min_answer_length to {miner.min_answer_length}")
     print(f"  Using lenient direct blacklist with {sum(len(phrases) for phrases in miner.answer_blacklist.values())} phrases")
     print(f"  Semantic filtering still uses full blacklist with {len(miner.blacklist_embeddings)} phrases")
@@ -202,8 +203,8 @@ def test_mining_functionality():
         config=config,
         tokenizer=tokenizer,
         image_dir=image_dir,
-        k_nn=15,
-        cosine_threshold=0.3,
+        k_nn=100,  # Increased from 15
+        cosine_threshold=0.2,  # Lowered from 0.3
         use_diverse_negatives=True,
         diverse_ratio=0.3,
         min_answer_length=20

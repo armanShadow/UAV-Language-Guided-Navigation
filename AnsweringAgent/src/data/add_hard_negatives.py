@@ -37,7 +37,7 @@ from transformers import T5Tokenizer
 class HardNegativeMiner:
     """Mines hard negative samples using visual K-NN and least-similar instruction selection."""
     
-    def __init__(self, config: Config, tokenizer, image_dir: str, k_nn: int = 30, cosine_threshold: float = 0.3,
+    def __init__(self, config: Config, tokenizer, image_dir: str, k_nn: int = 100, cosine_threshold: float = 0.2,
                  use_diverse_negatives: bool = True, diverse_ratio: float = 0.3, min_answer_length: int = 20):
         """
         Initialize the hard negative miner.
@@ -46,8 +46,8 @@ class HardNegativeMiner:
             config: Configuration object
             tokenizer: Tokenizer for text processing
             image_dir: Directory containing satellite images
-            k_nn: Number of nearest neighbors to consider for visual similarity
-            cosine_threshold: Threshold for considering instructions as dissimilar
+            k_nn: Number of nearest neighbors to consider for visual similarity (increased to 100)
+            cosine_threshold: Threshold for considering instructions as dissimilar (lowered to 0.2)
             use_diverse_negatives: Whether to add diverse negatives from outside clusters
             diverse_ratio: Ratio of samples to use for diverse negative mining (default: 0.3 for 30/70 split)
             min_answer_length: Minimum answer length to consider (default: 20 characters)
@@ -317,7 +317,7 @@ class HardNegativeMiner:
         
         if visual_features_list:
             visual_features_array = np.array(visual_features_list)
-            k_neighbors = min(max(self.k_nn + 1, 20), len(visual_features_array))
+            k_neighbors = min(max(self.k_nn + 1, 50), len(visual_features_array))  # Increased minimum from 20 to 50
             self.visual_knn = NearestNeighbors(n_neighbors=k_neighbors, metric='cosine')
             self.visual_knn.fit(visual_features_array)
             print(f"✅ Built K-NN model with {len(visual_features_list)} samples (K={k_neighbors})")
@@ -376,13 +376,13 @@ class HardNegativeMiner:
             print("❌ No visual features extracted for clustering!")
     
     def find_hard_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]]) -> Optional[tuple]:
-        """Find a hard negative for the given anchor using visual K-NN and text dissimilarity."""
+        """Find a hard negative for the given anchor using visual K-NN and answer text dissimilarity."""
         if anchor_idx not in self.visual_features or self.visual_knn is None:
             return None
         
         anchor_item = dataset[anchor_idx]
         anchor_features = self.visual_features[anchor_idx]
-        anchor_context = anchor_item.get('dialog_context', '')
+        anchor_answer = anchor_item.get('answer', '')  # Use answer instead of context
         anchor_first_instruction = anchor_item.get('first_instruction', '')
         
         distances, indices = self.visual_knn.kneighbors([anchor_features])
@@ -392,123 +392,166 @@ class HardNegativeMiner:
         best_negative_idx = None
         lowest_text_similarity = float('inf')
         best_visual_similarity = None
+        best_threshold_used = None
         
-        thresholds_to_try = [0.25, 0.4, 0.6, 0.75]
+        # Count filtering for debugging
+        total_neighbors = len(neighbor_indices)
+        same_goal_count = 0
+        bad_answer_count = 0
+        phrase_diversity_fails = 0
+        
+        thresholds_to_try = [0.2, 0.35, 0.5, 0.65, 0.8]  # More aggressive thresholds
+        
+        if self.debug_mode and total_neighbors <= 3:
+            print(f"    🔍 Searching through {total_neighbors} visual neighbors...")
         
         for threshold in thresholds_to_try:
+            found_at_threshold = False
+            candidates_at_threshold = 0
+            
             for i, pos in enumerate(neighbor_indices):
                 sample_idx = self.visual_indices[pos]
                 if sample_idx not in dataset:
                     continue
                     
                 neighbor_item = dataset[sample_idx]
-                neighbor_context = neighbor_item.get('dialog_context', '')
+                neighbor_answer = neighbor_item.get('answer', '')  # Use answer instead of context
                 neighbor_first_instruction = neighbor_item.get('first_instruction', '')
-                neighbor_answer = neighbor_item.get('answer', '')
                 
                 # Skip if same goal
                 if anchor_first_instruction == neighbor_first_instruction:
+                    same_goal_count += 1
                     continue
                 
                 # Skip if answer is not good enough
                 if not self.is_good_answer(neighbor_answer):
+                    bad_answer_count += 1
                     continue
                 
-                # Calculate text similarity
-                anchor_text_features = self.extract_text_features(anchor_context)
-                neighbor_text_features = self.extract_text_features(neighbor_context)
+                # Check phrase diversity
+                if not self._is_phrase_diverse(neighbor_answer):
+                    phrase_diversity_fails += 1
+                    continue
+                
+                # Calculate ANSWER-level text similarity (key fix)
+                anchor_text_features = self.extract_text_features(anchor_answer)
+                neighbor_text_features = self.extract_text_features(neighbor_answer)
                 text_similarity = np.dot(anchor_text_features, neighbor_text_features)
                 
                 visual_distance = neighbor_distances[i]
                 visual_similarity = 1.0 - visual_distance
                 
-                if text_similarity < lowest_text_similarity and text_similarity < threshold:
-                    if self._is_phrase_diverse(neighbor_answer):
-                        lowest_text_similarity = text_similarity
-                        best_negative_idx = sample_idx
-                        best_visual_similarity = visual_similarity
-            
-            if best_negative_idx is not None:
-                break
-        
-        # Final fallback: any valid neighbor with lowest similarity
-        if best_negative_idx is None:
-            for i, pos in enumerate(neighbor_indices):
-                sample_idx = self.visual_indices[pos]
-                if sample_idx not in dataset:
-                    continue
-                    
-                neighbor_item = dataset[sample_idx]
-                neighbor_first_instruction = neighbor_item.get('first_instruction', '')
-                neighbor_answer = neighbor_item.get('answer', '')
+                candidates_at_threshold += 1
                 
-                if (anchor_first_instruction != neighbor_first_instruction and 
-                    self.is_good_answer(neighbor_answer) and 
-                    self._is_phrase_diverse(neighbor_answer)):
-                    
-                    neighbor_context = neighbor_item.get('dialog_context', '')
-                    anchor_text_features = self.extract_text_features(anchor_context)
-                    neighbor_text_features = self.extract_text_features(neighbor_context)
-                    text_sim = np.dot(anchor_text_features, neighbor_text_features)
-                    
-                    if text_sim < lowest_text_similarity:
-                        lowest_text_similarity = text_sim
-                        best_negative_idx = sample_idx
-                        best_visual_similarity = 1.0 - neighbor_distances[i]
+                # Find the least similar text (lowest cosine similarity)
+                if text_similarity < lowest_text_similarity and text_similarity < threshold:
+                    lowest_text_similarity = text_similarity
+                    best_negative_idx = sample_idx
+                    best_visual_similarity = visual_similarity
+                    best_threshold_used = threshold
+                    found_at_threshold = True
+            
+            if self.debug_mode and total_neighbors <= 3:
+                print(f"    📊 Threshold {threshold}: {candidates_at_threshold} candidates, found: {found_at_threshold}")
+            
+            # Continue to try higher thresholds even if we found something
+            # This gives us the globally best candidate across all thresholds
+        
+        # Debug statistics for small datasets
+        if self.debug_mode and total_neighbors <= 10:
+            print(f"    📊 Filtering stats: {total_neighbors} neighbors → same_goal:{same_goal_count}, bad_answer:{bad_answer_count}, diversity_fail:{phrase_diversity_fails}")
+            if best_negative_idx is not None:
+                print(f"    ✅ Found negative with sim={lowest_text_similarity:.3f} at threshold={best_threshold_used}")
         
         if best_negative_idx is not None:
             return (best_negative_idx, lowest_text_similarity, best_visual_similarity)
+        
+        # Final fallback: take any valid neighbor with lowest similarity regardless of threshold
+        if self.debug_mode and total_neighbors <= 10:
+            print(f"    🔄 Fallback: trying any valid neighbor...")
+        
+        fallback_best_idx = None
+        fallback_best_sim = float('inf')
+        fallback_best_vis = None
+        
+        for i, pos in enumerate(neighbor_indices):
+            sample_idx = self.visual_indices[pos]
+            if sample_idx not in dataset:
+                continue
+                
+            neighbor_item = dataset[sample_idx]
+            neighbor_first_instruction = neighbor_item.get('first_instruction', '')
+            neighbor_answer = neighbor_item.get('answer', '')
+            
+            if (anchor_first_instruction != neighbor_first_instruction and 
+                self.is_good_answer(neighbor_answer) and 
+                self._is_phrase_diverse(neighbor_answer)):
+                
+                # Use answer-level similarity
+                anchor_text_features = self.extract_text_features(anchor_answer)
+                neighbor_text_features = self.extract_text_features(neighbor_answer)
+                text_sim = np.dot(anchor_text_features, neighbor_text_features)
+                
+                if text_sim < fallback_best_sim:
+                    fallback_best_sim = text_sim
+                    fallback_best_idx = sample_idx
+                    fallback_best_vis = 1.0 - neighbor_distances[i]
+        
+        if fallback_best_idx is not None:
+            if self.debug_mode and total_neighbors <= 10:
+                print(f"    ✅ Fallback found negative with sim={fallback_best_sim:.3f}")
+            return (fallback_best_idx, fallback_best_sim, fallback_best_vis)
         
         return None
     
     def find_diverse_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]]) -> Optional[tuple]:
         """Find a diverse negative from outside the anchor's visual cluster."""
-        if anchor_idx not in self.visual_features or self.visual_clusters is None:
+        if anchor_idx not in self.visual_features or self.cluster_labels is None:
             return None
         
         anchor_item = dataset[anchor_idx]
         anchor_first_instruction = anchor_item.get('first_instruction', '')
         anchor_features = self.visual_features[anchor_idx]
         
+        # Find anchor's cluster
         anchor_idx_in_array = self.visual_indices.index(anchor_idx)
         anchor_cluster = self.cluster_labels[anchor_idx_in_array]
         
-        # Find candidates from different clusters
+        # Find candidates from different clusters first
         different_cluster_candidates = []
+        same_cluster_candidates = []
+        
         for i, cluster_label in enumerate(self.cluster_labels):
-            if cluster_label != anchor_cluster:
-                sample_idx = self.visual_indices[i]
-                if sample_idx in dataset:
-                    neighbor_item = dataset[sample_idx]
-                    neighbor_first_instruction = neighbor_item.get('first_instruction', '')
-                    neighbor_answer = neighbor_item.get('answer', '')
+            sample_idx = self.visual_indices[i]
+            if sample_idx in dataset and sample_idx != anchor_idx:
+                neighbor_item = dataset[sample_idx]
+                neighbor_first_instruction = neighbor_item.get('first_instruction', '')
+                neighbor_answer = neighbor_item.get('answer', '')
+                
+                # Must have different goal and good answer
+                if (anchor_first_instruction != neighbor_first_instruction and
+                    self.is_good_answer(neighbor_answer) and
+                    self._is_phrase_diverse(neighbor_answer)):
                     
-                    if (anchor_first_instruction != neighbor_first_instruction and
-                        self.is_good_answer(neighbor_answer) and
-                        self._is_phrase_diverse(neighbor_answer)):
-                        
-                        neighbor_features = self.visual_features[sample_idx]
-                        visual_similarity = np.dot(anchor_features, neighbor_features)
-                        different_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
-        
-        # If no different cluster candidates, try any cluster
-        if not different_cluster_candidates:
-            for i, cluster_label in enumerate(self.cluster_labels):
-                sample_idx = self.visual_indices[i]
-                if sample_idx in dataset and sample_idx != anchor_idx:
-                    neighbor_item = dataset[sample_idx]
-                    neighbor_first_instruction = neighbor_item.get('first_instruction', '')
-                    neighbor_answer = neighbor_item.get('answer', '')
+                    neighbor_features = self.visual_features[sample_idx]
+                    visual_similarity = np.dot(anchor_features, neighbor_features)
                     
-                    if (anchor_first_instruction != neighbor_first_instruction and
-                        self.is_good_answer(neighbor_answer)):
-                        
-                        neighbor_features = self.visual_features[sample_idx]
-                        visual_similarity = np.dot(anchor_features, neighbor_features)
+                    # Prioritize different clusters
+                    if cluster_label != anchor_cluster:
                         different_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
+                    else:
+                        same_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
         
+        # Try different clusters first, then same cluster as fallback
         if different_cluster_candidates:
-            selected_idx, selected_cluster, visual_similarity = random.choice(different_cluster_candidates)
+            # Sort by visual similarity (ascending for more diverse)
+            different_cluster_candidates.sort(key=lambda x: x[2])
+            selected_idx, selected_cluster, visual_similarity = different_cluster_candidates[0]
+            return (selected_idx, anchor_cluster, selected_cluster, visual_similarity)
+        elif same_cluster_candidates:
+            # Fallback to same cluster but lowest visual similarity
+            same_cluster_candidates.sort(key=lambda x: x[2])
+            selected_idx, selected_cluster, visual_similarity = same_cluster_candidates[0]
             return (selected_idx, anchor_cluster, selected_cluster, visual_similarity)
         
         return None
@@ -518,10 +561,39 @@ class HardNegativeMiner:
         if not answer:
             return False
         
+        # Normalize answer for comparison
         normalized_answer = answer.lower().strip()
         
+        # For very short answers, be extra strict
+        if len(normalized_answer) < 30:
+            max_reuse = 1  # Very short answers can only be used once
+        elif len(normalized_answer) < 60:
+            max_reuse = 2  # Short answers can be used twice
+        else:
+            max_reuse = self.max_phrase_reuse  # Longer answers can be reused more
+        
+        # Check if this phrase has been used too many times
         if normalized_answer in self.used_phrases:
-            if self.used_phrases[normalized_answer] >= self.max_phrase_reuse:
+            if self.used_phrases[normalized_answer] >= max_reuse:
+                if self.debug_mode:
+                    print(f"    ❌ Phrase overused ({self.used_phrases[normalized_answer]} times): '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
+                return False
+        
+        # Additional quality check: avoid very generic short phrases
+        generic_short_phrases = {
+            'your goal is the big building right in front of you',
+            'go south to black lot',
+            'turn left at the intersection',
+            'the destination is ahead',
+            'go straight ahead',
+            'turn right at the corner'
+        }
+        
+        if normalized_answer in generic_short_phrases:
+            # Allow these only once each
+            if normalized_answer in self.used_phrases and self.used_phrases[normalized_answer] >= 1:
+                if self.debug_mode:
+                    print(f"    ❌ Generic phrase already used: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
                 return False
         
         return True
@@ -547,13 +619,16 @@ class HardNegativeMiner:
         # Adjust direct string filtering for small datasets
         if len(dataset) < 100:
             print("📊 Small dataset detected, using lenient direct filtering...")
-            self.min_answer_length = max(15, self.min_answer_length - 5)
+            self.min_answer_length = 15  # More lenient for small datasets
             # Use smaller blacklist for direct string matching to avoid over-filtering
             self.answer_blacklist = {
                 'short_affirmative': ['yes', 'exactly', 'correct'],  # removed 'right' to prevent directional false-positives
                 'generic_responses': ['destiny is exactly that', 'that is correct'],
             }
+            # Increase phrase reuse for small datasets
+            self.max_phrase_reuse = 5
             print(f"  Adjusted min_answer_length to {self.min_answer_length}")
+            print(f"  Increased max_phrase_reuse to {self.max_phrase_reuse}")
             print(f"  Using lenient direct blacklist with {sum(len(phrases) for phrases in self.answer_blacklist.values())} phrases")
             print(f"  Semantic filtering still uses full blacklist with {len(self.blacklist_embeddings)} phrases")
         
