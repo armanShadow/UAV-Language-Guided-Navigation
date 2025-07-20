@@ -282,7 +282,7 @@ class HardNegativeMiner:
         # Check for semantic similarity to blacklisted phrases
         if self._check_semantic_similarity_to_blacklist(answer):
             if hasattr(self, 'debug_mode') and getattr(self, 'debug_mode', False):
-                print(f"    ❌ Filtered: semantically similar to blacklisted phrase")
+                print(f"    ❌ Filtered: semantically similar to blacklisted phrase -> '{answer[:60]}{'...' if len(answer) > 60 else ''}'")
             return False
         
         return True
@@ -405,8 +405,7 @@ class HardNegativeMiner:
                     if anchor_first_instruction != neighbor_first_instruction:
                         # Skip if answer is not good enough
                         if not self.is_good_answer(neighbor_answer):
-                            if debug_mode:
-                                print(f"    ❌ Bad answer (diverse): '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
+                            # is_good_answer already provides detailed debug output when debug_mode is enabled
                             continue
                         
                         # Check phrase diversity
@@ -583,9 +582,7 @@ class HardNegativeMiner:
                 
                 # Skip if answer is not good enough
                 if not self.is_good_answer(neighbor_answer):
-                    bad_answer_count += 1
-                    if debug_mode:
-                        print(f"    ❌ Bad answer: '{neighbor_answer[:50]}{'...' if len(neighbor_answer) > 50 else ''}'")
+                    bad_answer_count += 1  # is_good_answer already logs detailed reason when debug_mode is enabled
                     continue
                 
                 # Calculate text similarity
