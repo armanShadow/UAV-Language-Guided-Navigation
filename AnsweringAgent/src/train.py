@@ -346,6 +346,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     positive_input = None
                     positive_input_2 = None
                     negative_input = None
+                    negative_input_2 = None
                     contrastive_examples_found = False
                     
                     if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
@@ -359,6 +360,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             
                             if 'negative_input' in batch:
                                 negative_input = {k: v.to(device, non_blocking=True) for k, v in batch['negative_input'].items()}
+                                
+                            if 'negative_input_2' in batch:
+                                negative_input_2 = {k: v.to(device, non_blocking=True) for k, v in batch['negative_input_2'].items()}
                                    
                     # Debug log on first batch to check data loading
                     if batch_idx == 0 and epoch == 0 and rank == 0:
@@ -384,7 +388,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             curriculum_ratio=curriculum_ratio,
                             positive_input=positive_input,
                             positive_input_2=positive_input_2,
-                            negative_input=negative_input
+                            negative_input=negative_input,
+                            negative_input_2=negative_input_2
                         )
                         
                         logits = outputs["logits"]
@@ -639,6 +644,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             positive_input = None
                             positive_input_2 = None
                             negative_input = None
+                            negative_input_2 = None
                             
                             # Check for new format (both tokenized and raw text) vs old format
                             if 'positive_input' in batch:
@@ -650,6 +656,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 
                                 if 'negative_input' in batch:
                                     negative_input = {k: v.to(device, non_blocking=True) for k, v in batch['negative_input'].items()}
+                                    
+                                if 'negative_input_2' in batch:
+                                    negative_input_2 = {k: v.to(device, non_blocking=True) for k, v in batch['negative_input_2'].items()}
                                     
                         
                             # Use mixed precision for validation as well for consistent numerical behavior
@@ -663,7 +672,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     curriculum_ratio=0.0,  # No curriculum during validation
                                     positive_input=positive_input,
                                     positive_input_2=positive_input_2,
-                                    negative_input=negative_input
+                                    negative_input=negative_input,
+                                    negative_input_2=negative_input_2
                                 )
                                 
                                 logits = outputs["logits"]

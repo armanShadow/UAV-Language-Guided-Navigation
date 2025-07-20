@@ -243,15 +243,12 @@ class AnsweringDataset(Dataset):
                 'attention_mask': contrastive_data['tokenized_negative']['attention_mask'].squeeze(0)
             }
         
-        # Also include raw text for separate encoding approach
-        if 'positive_text' in contrastive_data:
-            result['positive_text'] = contrastive_data['positive_text']
-            
-        if 'positive_text_2' in contrastive_data:
-            result['positive_text_2'] = contrastive_data['positive_text_2']
-            
-        if 'negative_text' in contrastive_data:
-            result['negative_text'] = contrastive_data['negative_text']
+        # Add negative_2 examples (second negative from mining)
+        if 'tokenized_negative_2' in contrastive_data:
+            result['negative_input_2'] = {
+                'input_ids': contrastive_data['tokenized_negative_2']['input_ids'].squeeze(0),
+                'attention_mask': contrastive_data['tokenized_negative_2']['attention_mask'].squeeze(0)
+            }
     
     @staticmethod
     def create_datasets(config: Config, logger=None, splits=['train', 'val_seen', 'val_unseen'], tokenizer=None):

@@ -9,3 +9,5 @@ documents/
 /AnsweringAgent/outputs/logs
 /Mirror/
 /thesis_materials/
+*.log
+training.log

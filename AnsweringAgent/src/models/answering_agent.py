@@ -389,7 +389,7 @@ class AnsweringAgent(nn.Module):
                 previous_views: torch.Tensor, labels: torch.Tensor = None, generate: bool = False,
                 destination_view: Optional[torch.Tensor] = None, curriculum_ratio: float = 0.0,
                 positive_input: Optional[dict] = None, positive_input_2: Optional[dict] = None, 
-                negative_input: Optional[dict] = None) -> Dict:
+                negative_input: Optional[dict] = None, negative_input_2: Optional[dict] = None) -> Dict:
         """
         Forward pass of the model.
         
@@ -588,6 +588,24 @@ class AnsweringAgent(nn.Module):
                 # Combine adapted features with negative hint
                 combined_negative_features = encoder_hidden_mean + p_weight * negative_hint_features
                 outputs["negative_adapted_features"] = self.contrastive_proj(combined_negative_features)  # Apply contrastive projection
+                
+                
+            # --- Process negative_2 examples for contrastive learning (mined negatives) ---
+            if negative_input_2 is not None:
+                # Encode negative_2 hint separately
+                negative_hint_output_2 = self.t5_model.encoder(
+                    input_ids=negative_input_2["input_ids"].to(text_input["input_ids"].device),
+                    attention_mask=negative_input_2["attention_mask"].to(text_input["input_ids"].device),
+                    return_dict=True
+                )
+                negative_hint_features_2 = self.paraphrase_proj(negative_hint_output_2.last_hidden_state.mean(dim=1))
+                
+                # Mean-pool encoder_hidden_states to match hint features shape
+                encoder_hidden_mean = encoder_hidden_states.mean(dim=1)  # [batch, hidden]
+                
+                # Combine adapted features with negative_2 hint
+                combined_negative_features_2 = encoder_hidden_mean + p_weight * negative_hint_features_2
+                outputs["negative_adapted_features_2"] = self.contrastive_proj(combined_negative_features_2)  # Apply contrastive projection
                 
             return outputs
         else:
