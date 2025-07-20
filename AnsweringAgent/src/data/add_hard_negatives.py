@@ -586,6 +586,9 @@ class HardNegativeMiner:
             if debug_mode and validation_stats['total_attempts'] <= 3:
                 print(f"\n🔍 Debug sample {validation_stats['total_attempts']}: anchor_idx={anchor_idx}")
                 print(f"  Strategy order: {strategy_order}")
+                print(f"  First instruction: {dataset[anchor_idx].get('first_instruction', 'N/A')}")
+                print(f"  Current question: {dataset[anchor_idx].get('question', 'N/A')}")
+                print(f"  Original answer: {dataset[anchor_idx].get('answer', 'N/A')}")
 
             negative_result = None
             negative_type = None
@@ -624,6 +627,23 @@ class HardNegativeMiner:
             # -----------------------------------------------------------------
             if debug_mode and validation_stats['total_attempts'] <= 3:
                 print(f"  ✅ Found {negative_type} negative")
+                # Get the negative item for detailed logging
+                if negative_type == "hard":
+                    negative_idx, text_similarity, visual_similarity = negative_result
+                else:
+                    negative_idx, anchor_cluster, negative_cluster, visual_similarity = negative_result
+                
+                negative_item = dataset[negative_idx]
+                print(f"  Negative sample {negative_idx}:")
+                print(f"    First instruction: {negative_item.get('first_instruction', 'N/A')}")
+                print(f"    Current question: {negative_item.get('question', 'N/A')}")
+                print(f"    Negative answer: {negative_item.get('answer', 'N/A')}")
+                if negative_type == "hard":
+                    print(f"    Text similarity: {text_similarity:.3f}")
+                    print(f"    Visual similarity: {visual_similarity:.3f}")
+                else:
+                    print(f"    Visual similarity: {visual_similarity:.3f}")
+                    print(f"    Clusters: {anchor_cluster} -> {negative_cluster}")
 
             # Build validation metadata specific to the negative type
             if negative_type == "hard":

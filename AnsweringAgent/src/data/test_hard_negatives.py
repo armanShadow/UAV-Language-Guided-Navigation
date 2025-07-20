@@ -105,11 +105,13 @@ def test_hard_negative_mining():
     
     # Test a few samples to verify structure
     print("🔍 Verifying sample structure...")
-    for idx, item in list(updated_dataset.items())[:3]:
+    for idx, item in list(updated_dataset.items())[:8]:
         if 'contrastive_data' in item and 'negative_text_2' in item['contrastive_data']:
             print(f"  Sample {idx}:")
-            print(f"    Original answer: {item.get('answer', '')[:50]}...")
-            print(f"    Negative_2: {item['contrastive_data']['negative_text_2'][:50]}...")
+            print(f"    First instruction: {item.get('first_instruction', 'N/A')}")
+            print(f"    Current question: {item.get('question', 'N/A')}")
+            print(f"    Original answer: {item.get('answer', 'N/A')}")
+            print(f"    Negative_2: {item['contrastive_data']['negative_text_2']}")
             print(f"    Negative type: {item['contrastive_data'].get('validation_metadata_negative_2', {}).get('negative_type_2', 'unknown')}")
             print(f"    Has tokenized negative_2: {'tokenized_negative_2' in item['contrastive_data']}")
             
@@ -124,7 +126,40 @@ def test_hard_negative_mining():
                     print(f"      Visual similarity: {metadata['visual_similarity']:.3f}")
                 if 'anchor_cluster' in metadata:
                     print(f"      Clusters: {metadata['anchor_cluster']} -> {metadata['negative_cluster']}")
-            break
+            print()  # Add spacing between samples
+    
+    # Summary statistics
+    print("📊 Summary Statistics:")
+    if negatives:
+        # Answer length statistics
+        original_lengths = [len(item.get('answer', '')) for item in sharded_dataset.values()]
+        negative_lengths = [len(data['negative_text_2']) for data in negatives.values()]
+        
+        print(f"  Original answers: avg={sum(original_lengths)/len(original_lengths):.1f} chars")
+        print(f"  Negative answers: avg={sum(negative_lengths)/len(negative_lengths):.1f} chars")
+        
+        # Similarity statistics for hard negatives
+        hard_similarities = []
+        diverse_similarities = []
+        for data in negatives.values():
+            metadata = data['validation_metadata_2']
+            if metadata.get('negative_type_2') == 'hard' and 'text_similarity' in metadata:
+                hard_similarities.append(metadata['text_similarity'])
+            elif metadata.get('negative_type_2') == 'diverse' and 'visual_similarity' in metadata:
+                diverse_similarities.append(metadata['visual_similarity'])
+        
+        if hard_similarities:
+            print(f"  Hard negatives text similarity: avg={sum(hard_similarities)/len(hard_similarities):.3f}")
+        if diverse_similarities:
+            print(f"  Diverse negatives visual similarity: avg={sum(diverse_similarities)/len(diverse_similarities):.3f}")
+        
+        # Mining strategy effectiveness
+        hard_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'hard')
+        diverse_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'diverse')
+        print(f"  Mining success rate: {len(negatives)}/{len(sharded_dataset)} ({len(negatives)/len(sharded_dataset)*100:.1f}%)")
+        print(f"  Strategy distribution: {hard_count} hard, {diverse_count} diverse")
+    else:
+        print("  No negatives mined - check mining parameters")
     
     # Test answer quality filtering
     print("🔍 Testing answer quality filtering...")
