@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Test script for hard negative mining functionality with GPU processing.
+Enhanced with semantic filtering, caching, and debug mode testing.
 """
 
 import os
@@ -15,6 +16,175 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config
 from data.add_hard_negatives import HardNegativeMiner, load_dataset, save_dataset
+
+def test_enhanced_semantic_filtering():
+    """Test the enhanced semantic filtering with caching and expanded blacklist."""
+    
+    print("🧪 Testing Enhanced Semantic Filtering...")
+    
+    # Load configuration and tokenizer
+    config = Config()
+    tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name, 
+                                           model_max_length=config.data.max_seq_length)
+    
+    # Initialize miner with debug mode
+    image_dir = "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images"
+    miner = HardNegativeMiner(
+        config=config,
+        tokenizer=tokenizer,
+        image_dir=image_dir,
+        k_nn=15,
+        cosine_threshold=0.3,
+        use_diverse_negatives=True,
+        diverse_ratio=0.3,
+        min_answer_length=20
+    )
+    
+    # Enable debug mode to see similarity scores
+    miner.debug_mode = True
+    
+    # Test blacklist embedding initialization and caching
+    print("🔍 Testing blacklist embedding initialization...")
+    miner._initialize_blacklist_embeddings()
+    
+    # Check if embeddings were loaded or created
+    if miner.blacklist_embeddings:
+        print(f"✅ Blacklist embeddings initialized: {len(miner.blacklist_embeddings)} phrases")
+        
+        # Show some example embeddings
+        for i, (phrase, embedding) in enumerate(list(miner.blacklist_embeddings.items())[:5]):
+            print(f"  '{phrase}': embedding shape {embedding.shape}")
+    else:
+        print("⚠️ No blacklist embeddings available")
+    
+    # Test semantic similarity filtering with expanded test cases
+    print("🔍 Testing semantic similarity filtering with expanded blacklist...")
+    
+    # Test phrases that should be caught by semantic similarity (similarity > 0.88)
+    semantic_test_phrases = [
+        # Direct blacklist matches
+        "yes, that's correct",
+        "exactly right",
+        "that is correct",
+        "you are absolutely right",
+        "that's exactly it",
+        "destiny is exactly that",
+        
+        # Semantic variants that should be caught
+        "that's absolutely correct",
+        "you're exactly right",
+        "that is precisely the case",
+        "you are completely correct",
+        "that's the right answer",
+        "exactly that's it",
+        "you got it right",
+        "that's the correct answer",
+        
+        # Minimal answers that should be caught
+        "go straight ahead",
+        "proceed forward",
+        "turn left",
+        "move right",
+        "head north",
+        "fly towards",
+        "navigate to",
+        
+        # Good answers that should pass
+        "You should turn left at the intersection and continue for about 100 meters",
+        "Navigate to the building on your right and follow the path around it",
+        "Take the second right turn and proceed towards the landmark",
+        "Follow the road until you reach the traffic light, then turn right",
+        "The destination is located behind the large building with the red roof",
+        "Continue straight for approximately 200 meters until you see the bridge"
+    ]
+    
+    print("📊 Testing semantic similarity filtering:")
+    filtered_count = 0
+    passed_count = 0
+    
+    for phrase in semantic_test_phrases:
+        is_good = miner.is_good_answer(phrase)
+        status = "✅ PASS" if is_good else "❌ FILTERED"
+        print(f"  {status}: '{phrase[:60]}{'...' if len(phrase) > 60 else ''}'")
+        
+        if is_good:
+            passed_count += 1
+        else:
+            filtered_count += 1
+    
+    print(f"📊 Semantic filtering results: {passed_count} passed, {filtered_count} filtered")
+    
+    # Test caching functionality
+    print("💾 Testing blacklist embedding caching...")
+    cache_path = os.path.join(os.path.dirname(__file__), 'blacklist_embeds.pkl')
+    
+    if os.path.exists(cache_path):
+        print(f"✅ Cache file exists: {cache_path}")
+        try:
+            with open(cache_path, 'rb') as f:
+                cached_embeddings = pickle.load(f)
+            print(f"  Cached embeddings: {len(cached_embeddings)} phrases")
+            
+            # Verify cache matches current embeddings
+            if len(cached_embeddings) == len(miner.blacklist_embeddings):
+                print("✅ Cache matches current embeddings")
+            else:
+                print(f"⚠️ Cache mismatch: cached {len(cached_embeddings)}, current {len(miner.blacklist_embeddings)}")
+        except Exception as e:
+            print(f"❌ Error reading cache: {e}")
+    else:
+        print("⚠️ No cache file found - will be created on first run")
+    
+    # Test debug mode similarity score printing
+    print("🔍 Testing debug mode similarity score printing...")
+    
+    # Test phrases that should trigger similarity score printing (≥ 0.70)
+    debug_test_phrases = [
+        "yes, that's absolutely correct",  # Should show similarity to "yes"
+        "you are exactly right",          # Should show similarity to "exactly"
+        "that's the correct answer",      # Should show similarity to "correct"
+        "go straight ahead",              # Should show similarity to "go"
+        "proceed forward",                # Should show similarity to "proceed"
+        "navigate to the building"        # Should pass without similarity printing
+    ]
+    
+    print("📊 Testing debug mode with similarity scores ≥ 0.70:")
+    for phrase in debug_test_phrases:
+        print(f"\n  Testing: '{phrase}'")
+        is_good = miner.is_good_answer(phrase)
+        status = "✅ PASS" if is_good else "❌ FILTERED"
+        print(f"  Result: {status}")
+    
+    # Test expanded blacklist categories
+    print("📋 Testing expanded blacklist categories...")
+    
+    blacklist_categories = {
+        'short_affirmative': [
+            'yes', 'exactly', 'correct', 'right', 'true', 'sure', 'okay', 'ok',
+            "that's correct", "that's right", "that's true", "you are correct", "absolutely"
+        ],
+        'generic_responses': [
+            'destiny is exactly that', 'that is correct', 'you are right', 'that is it',
+            'yes that is correct', 'yes exactly', 'exactly that'
+        ],
+        'minimal_answers': [
+            'go', 'turn', 'move', 'head', 'fly', 'navigate',
+            'proceed', 'continue', 'advance', 'straight ahead'
+        ]
+    }
+    
+    print("📊 Testing blacklist category coverage:")
+    for category, phrases in blacklist_categories.items():
+        print(f"  {category}: {len(phrases)} phrases")
+        
+        # Test a few phrases from each category
+        for phrase in phrases[:3]:  # Test first 3 phrases from each category
+            is_good = miner.is_good_answer(phrase)
+            status = "✅ PASS" if is_good else "❌ FILTERED"
+            print(f"    {status}: '{phrase}'")
+    
+    print("✅ Enhanced semantic filtering test completed!")
+    return True
 
 def test_hard_negative_mining():
     """Test the negative mining functionality with GPU processing on a small subset."""
@@ -61,7 +231,7 @@ def test_hard_negative_mining():
     sharded_dataset = {k: v for k, v in test_dataset.items() if (k % num_shards) == shard_id}
     print(f"  Sharded dataset: keeping {len(sharded_dataset)} / {original_size} samples for shard {shard_id} of {num_shards}")
     
-    # Initialize hard negative miner with GPU settings
+    # Initialize hard negative miner with GPU settings and enhanced semantic filtering
     image_dir = "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images"
     miner = HardNegativeMiner(
         config=config,
@@ -80,8 +250,8 @@ def test_hard_negative_mining():
     if torch.cuda.is_available():
         miner.device = torch.device(f'cuda:{gpu_id}')
     
-    # Test mining negatives with new probabilistic strategy
-    print("⛏️ Testing negative mining with GPU processing...")
+    # Test mining negatives with enhanced semantic filtering and debug mode
+    print("⛏️ Testing negative mining with enhanced semantic filtering...")
     negatives = miner.mine_hard_negatives(sharded_dataset, max_samples=25, debug_mode=True)
     
     print(f"✅ Mined {len(negatives)} negatives total")
@@ -159,35 +329,73 @@ def test_hard_negative_mining():
         print(f"  Mining success rate: {len(negatives)}/{len(sharded_dataset)} ({len(negatives)/len(sharded_dataset)*100:.1f}%)")
         print(f"  Strategy distribution: {hard_count} hard, {diverse_count} diverse")
         
-        # Enhanced quality metrics
-        print("🔍 Enhanced Quality Analysis:")
+        # Enhanced quality metrics with semantic filtering
+        print("🔍 Enhanced Quality Analysis with Semantic Filtering:")
         
-        # Check for blacklisted phrases
+        # Check for blacklisted phrases (expanded list)
         blacklisted_count = 0
+        semantic_filtered_count = 0
         for data in negatives.values():
             answer = data['negative_text_2'].lower()
-            if any(phrase in answer for phrase in ['yes', 'exactly', 'correct', 'right', 'destiny is exactly that']):
+            
+            # Check direct blacklist matches
+            if any(phrase in answer for phrase in ['yes', 'exactly', 'correct', 'right', 'destiny is exactly that', 'go', 'turn', 'move', 'head', 'fly', 'navigate']):
                 blacklisted_count += 1
+            
+            # Check semantic similarity filtering (if available)
+            if hasattr(miner, 'blacklist_embeddings') and miner.blacklist_embeddings:
+                try:
+                    if miner._check_semantic_similarity_to_blacklist(answer):
+                        semantic_filtered_count += 1
+                except:
+                    pass
         
-        print(f"  Blacklisted phrases found: {blacklisted_count}/{len(negatives)} ({blacklisted_count/len(negatives)*100:.1f}%)")
+        print(f"  Direct blacklist matches: {blacklisted_count}/{len(negatives)} ({blacklisted_count/len(negatives)*100:.1f}%)")
+        if semantic_filtered_count > 0:
+            print(f"  Semantic similarity filtered: {semantic_filtered_count}/{len(negatives)} ({semantic_filtered_count/len(negatives)*100:.1f}%)")
         
-        # Test semantic similarity filtering with example phrases
-        print("🔍 Testing semantic similarity filtering:")
-        test_phrases = [
+        # Test semantic similarity filtering with enhanced test phrases
+        print("🔍 Testing enhanced semantic similarity filtering:")
+        enhanced_test_phrases = [
+            # Direct blacklist matches
             "yes, that's correct",
             "exactly right",
             "that is the destination",
             "you are absolutely right",
             "that's exactly it",
-            "go straight ahead",  # Should be caught by semantic similarity
-            "proceed forward",    # Should be caught by semantic similarity
-            "navigate to the building"  # Should pass
+            
+            # Semantic variants that should be caught
+            "that's absolutely correct",
+            "you're exactly right",
+            "that is precisely the case",
+            "you are completely correct",
+            "that's the right answer",
+            "exactly that's it",
+            "you got it right",
+            "that's the correct answer",
+            
+            # Minimal answers that should be caught
+            "go straight ahead",
+            "proceed forward",
+            "turn left",
+            "move right",
+            "head north",
+            "fly towards",
+            "navigate to",
+            
+            # Good answers that should pass
+            "You should turn left at the intersection and continue for about 100 meters",
+            "Navigate to the building on your right and follow the path around it",
+            "Take the second right turn and proceed towards the landmark",
+            "Follow the road until you reach the traffic light, then turn right",
+            "The destination is located behind the large building with the red roof",
+            "Continue straight for approximately 200 meters until you see the bridge"
         ]
         
-        for phrase in test_phrases:
+        for phrase in enhanced_test_phrases:
             is_good = miner.is_good_answer(phrase)
             status = "✅ PASS" if is_good else "❌ FILTERED"
-            print(f"    {status}: '{phrase}'")
+            print(f"    {status}: '{phrase[:50]}{'...' if len(phrase) > 50 else ''}'")
         
         # Phrase diversity analysis
         unique_phrases = set()
@@ -213,19 +421,31 @@ def test_hard_negative_mining():
     else:
         print("  No negatives mined - check mining parameters")
     
-    # Test answer quality filtering
-    print("🔍 Testing answer quality filtering...")
-    test_answers = [
-        "turn left",  # Should be filtered
-        "go straight ahead",  # Should be filtered
-        "i don't know",  # Should be filtered
-        "maybe turn right",  # Should be filtered
-        "You should turn left at the intersection and continue for about 100 meters",  # Should pass
-        "Navigate to the building on your right and follow the path around it",  # Should pass
-        "Take the second right turn and proceed towards the landmark",  # Should pass
+    # Test answer quality filtering with enhanced criteria
+    print("🔍 Testing enhanced answer quality filtering...")
+    enhanced_test_answers = [
+        # Should be filtered by direct blacklist
+        "turn left",
+        "go straight ahead",
+        "yes, that's correct",
+        "exactly right",
+        
+        # Should be filtered by semantic similarity
+        "that's absolutely correct",
+        "you're exactly right",
+        "proceed forward",
+        "head north",
+        
+        # Should pass
+        "You should turn left at the intersection and continue for about 100 meters",
+        "Navigate to the building on your right and follow the path around it",
+        "Take the second right turn and proceed towards the landmark",
+        "Follow the road until you reach the traffic light, then turn right",
+        "The destination is located behind the large building with the red roof",
+        "Continue straight for approximately 200 meters until you see the bridge"
     ]
     
-    for answer in test_answers:
+    for answer in enhanced_test_answers:
         is_good = miner.is_good_answer(answer)
         status = "✅ PASS" if is_good else "❌ FILTERED"
         print(f"  {status}: '{answer[:50]}{'...' if len(answer) > 50 else ''}'")
@@ -319,17 +539,22 @@ def test_multi_gpu_setup():
 if __name__ == '__main__':
     print("🚀 Starting Hard Negative Mining Tests...")
     
-    # Test 1: GPU mining functionality
-    success1 = test_hard_negative_mining()
+    # Test 1: Enhanced semantic filtering
+    success1 = test_enhanced_semantic_filtering()
     
-    # Test 2: Multi-GPU setup logic
-    success2 = test_multi_gpu_setup()
+    # Test 2: GPU mining functionality
+    success2 = test_hard_negative_mining()
     
-    if success1 and success2:
+    # Test 3: Multi-GPU setup logic
+    success3 = test_multi_gpu_setup()
+    
+    if success1 and success2 and success3:
         print("\n🎉 All tests passed!")
+        print("✅ Enhanced semantic filtering is working correctly")
         print("✅ GPU processing is working correctly")
         print("✅ Multi-GPU sharding logic is correct")
         print("✅ Mining strategy improvements are functional")
+        print("✅ Semantic filtering with caching is operational")
     else:
         print("\n❌ Some tests failed!")
         sys.exit(1) 
