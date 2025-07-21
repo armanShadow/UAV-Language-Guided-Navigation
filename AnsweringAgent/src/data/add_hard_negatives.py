@@ -221,15 +221,26 @@ class HardNegativeMiner:
         return True
     
     def extract_visual_features(self, current_view: torch.Tensor) -> np.ndarray:
-        """Extract visual features from current view using a simple CNN."""
+        """Extract visual features from current view using a more robust CNN approach."""
         if current_view.device != self.device:
             current_view = current_view.to(self.device)
         
-        features = F.adaptive_avg_pool2d(current_view.unsqueeze(0), (8, 8))
-        features = features.view(-1)
-        features = features / (torch.norm(features) + 1e-8)
+        # Use multiple pooling scales to capture more visual information
+        features_list = []
         
-        return features.cpu().numpy()
+        # Global average pooling at different scales
+        for pool_size in [(4, 4), (8, 8), (16, 16)]:
+            features = F.adaptive_avg_pool2d(current_view.unsqueeze(0), pool_size)
+            features = features.view(-1)
+            features_list.append(features)
+        
+        # Concatenate multi-scale features
+        combined_features = torch.cat(features_list, dim=0)
+        
+        # Normalize to unit vector
+        combined_features = combined_features / (torch.norm(combined_features) + 1e-8)
+        
+        return combined_features.cpu().numpy()
     
     def extract_text_features(self, dialog_context: str) -> np.ndarray:
         """Extract text features from dialog context using MPNet embeddings or fallback."""
@@ -402,7 +413,10 @@ class HardNegativeMiner:
         
         thresholds_to_try = [0.2, 0.35, 0.5, 0.65, 0.8]  # More aggressive thresholds
         
-        if self.debug_mode and total_neighbors <= 3:
+        # Only show debug info for very small datasets
+        show_debug = self.debug_mode and total_neighbors <= 3
+        
+        if show_debug:
             print(f"    🔍 Searching through {total_neighbors} visual neighbors...")
         
         for threshold in thresholds_to_try:
@@ -438,6 +452,7 @@ class HardNegativeMiner:
                 neighbor_text_features = self.extract_text_features(neighbor_answer)
                 text_similarity = np.dot(anchor_text_features, neighbor_text_features)
                 
+                # Convert cosine distance to similarity (1 - distance = similarity)
                 visual_distance = neighbor_distances[i]
                 visual_similarity = 1.0 - visual_distance
                 
@@ -451,29 +466,29 @@ class HardNegativeMiner:
                     best_threshold_used = threshold
                     found_at_threshold = True
             
-            if self.debug_mode and total_neighbors <= 3:
+            if show_debug:
                 print(f"    📊 Threshold {threshold}: {candidates_at_threshold} candidates, found: {found_at_threshold}")
             
             # Continue to try higher thresholds even if we found something
             # This gives us the globally best candidate across all thresholds
         
-        # Debug statistics for small datasets
-        if self.debug_mode and total_neighbors <= 10:
+        # Debug statistics for small datasets only
+        if show_debug:
             print(f"    📊 Filtering stats: {total_neighbors} neighbors → same_goal:{same_goal_count}, bad_answer:{bad_answer_count}, diversity_fail:{phrase_diversity_fails}")
             if best_negative_idx is not None:
-                print(f"    ✅ Found negative with sim={lowest_text_similarity:.3f} at threshold={best_threshold_used}")
+                print(f"    ✅ Found negative with text_sim={lowest_text_similarity:.3f}, visual_sim={best_visual_similarity:.3f} at threshold={best_threshold_used}")
         
         if best_negative_idx is not None:
             return (best_negative_idx, lowest_text_similarity, best_visual_similarity)
-        
+
         # Final fallback: take any valid neighbor with lowest similarity regardless of threshold
-        if self.debug_mode and total_neighbors <= 10:
+        if show_debug:
             print(f"    🔄 Fallback: trying any valid neighbor...")
         
         fallback_best_idx = None
         fallback_best_sim = float('inf')
         fallback_best_vis = None
-        
+
         for i, pos in enumerate(neighbor_indices):
             sample_idx = self.visual_indices[pos]
             if sample_idx not in dataset:
@@ -482,7 +497,7 @@ class HardNegativeMiner:
             neighbor_item = dataset[sample_idx]
             neighbor_first_instruction = neighbor_item.get('first_instruction', '')
             neighbor_answer = neighbor_item.get('answer', '')
-            
+
             if (anchor_first_instruction != neighbor_first_instruction and 
                 self.is_good_answer(neighbor_answer) and 
                 self._is_phrase_diverse(neighbor_answer)):
@@ -492,14 +507,17 @@ class HardNegativeMiner:
                 neighbor_text_features = self.extract_text_features(neighbor_answer)
                 text_sim = np.dot(anchor_text_features, neighbor_text_features)
                 
+                visual_distance = neighbor_distances[i]
+                visual_sim = 1.0 - visual_distance
+
                 if text_sim < fallback_best_sim:
                     fallback_best_sim = text_sim
                     fallback_best_idx = sample_idx
-                    fallback_best_vis = 1.0 - neighbor_distances[i]
+                    fallback_best_vis = visual_sim
         
         if fallback_best_idx is not None:
-            if self.debug_mode and total_neighbors <= 10:
-                print(f"    ✅ Fallback found negative with sim={fallback_best_sim:.3f}")
+            if show_debug:
+                print(f"    ✅ Fallback found negative with text_sim={fallback_best_sim:.3f}, visual_sim={fallback_best_vis:.3f}")
             return (fallback_best_idx, fallback_best_sim, fallback_best_vis)
         
         return None
@@ -614,11 +632,20 @@ class HardNegativeMiner:
         self.debug_mode = debug_mode
         
         # Initialize semantic filtering with full blacklist
-        self._initialize_blacklist_embeddings()
+        if not debug_mode:
+            # Suppress initialization prints for cleaner output
+            import contextlib
+            import io
+            with contextlib.redirect_stdout(io.StringIO()):
+                self._initialize_blacklist_embeddings()
+            print(f"🔍 Semantic filtering: {len(self.blacklist_embeddings)} embeddings loaded")
+        else:
+            self._initialize_blacklist_embeddings()
         
         # Adjust direct string filtering for small datasets
         if len(dataset) < 100:
-            print("📊 Small dataset detected, using lenient direct filtering...")
+            if debug_mode:
+                print("📊 Small dataset detected, using lenient direct filtering...")
             self.min_answer_length = 15  # More lenient for small datasets
             # Use smaller blacklist for direct string matching to avoid over-filtering
             self.answer_blacklist = {
@@ -627,10 +654,11 @@ class HardNegativeMiner:
             }
             # Increase phrase reuse for small datasets
             self.max_phrase_reuse = 5
-            print(f"  Adjusted min_answer_length to {self.min_answer_length}")
-            print(f"  Increased max_phrase_reuse to {self.max_phrase_reuse}")
-            print(f"  Using lenient direct blacklist with {sum(len(phrases) for phrases in self.answer_blacklist.values())} phrases")
-            print(f"  Semantic filtering still uses full blacklist with {len(self.blacklist_embeddings)} phrases")
+            if debug_mode:
+                print(f"  Adjusted min_answer_length to {self.min_answer_length}")
+                print(f"  Increased max_phrase_reuse to {self.max_phrase_reuse}")
+                print(f"  Using lenient direct blacklist with {sum(len(phrases) for phrases in self.answer_blacklist.values())} phrases")
+                print(f"  Semantic filtering still uses full blacklist with {len(self.blacklist_embeddings)} phrases")
         
         # Build visual models
         self.build_visual_knn(dataset)
@@ -651,7 +679,11 @@ class HardNegativeMiner:
             'no_candidates_found': 0
         }
         
-        for anchor_idx in tqdm(samples_to_process, desc="Mining negatives"):
+        # Only show detailed debug for very small datasets
+        show_detailed_debug = debug_mode and len(samples_to_process) <= 10
+        
+        progress_bar = tqdm(samples_to_process, desc="Mining negatives", disable=False)
+        for anchor_idx in progress_bar:
             validation_stats['total_attempts'] += 1
 
             # Decide mining strategy
@@ -660,7 +692,7 @@ class HardNegativeMiner:
             else:
                 strategy_order = ["hard"] if not self.use_diverse_negatives else ["hard", "diverse"]
 
-            if debug_mode and validation_stats['total_attempts'] <= 3:
+            if show_detailed_debug and validation_stats['total_attempts'] <= 3:
                 print(f"\n🔍 Debug sample {validation_stats['total_attempts']}: anchor_idx={anchor_idx}")
                 print(f"  Strategy order: {strategy_order}")
                 print(f"  First instruction: {dataset[anchor_idx].get('first_instruction', 'N/A')}")
@@ -769,8 +801,24 @@ class HardNegativeMiner:
                 avg_hard_sim = sum(hard_sims) / len(hard_sims)
                 print(f"🎯 Hard negative quality: avg text similarity {avg_hard_sim:.3f}")
             
-            if self.blacklist_embeddings:
-                print(f"🔍 Semantic filtering: {len(self.blacklist_embeddings)} blacklist embeddings initialized")
+            # Report visual similarity statistics
+            hard_visual_sims = [data['validation_metadata_2']['visual_similarity'] 
+                               for data in negatives.values() 
+                               if data.get('negative_type_2') == 'hard' and 'visual_similarity' in data['validation_metadata_2']]
+            diverse_visual_sims = [data['validation_metadata_2']['visual_similarity'] 
+                                  for data in negatives.values() 
+                                  if data.get('negative_type_2') == 'diverse' and 'visual_similarity' in data['validation_metadata_2']]
+            
+            if hard_visual_sims:
+                avg_hard_visual_sim = sum(hard_visual_sims) / len(hard_visual_sims)
+                print(f"👁️ Hard visual similarity: avg {avg_hard_visual_sim:.3f}")
+            
+            if diverse_visual_sims:
+                avg_diverse_visual_sim = sum(diverse_visual_sims) / len(diverse_visual_sims)
+                print(f"🌈 Diverse visual similarity: avg {avg_diverse_visual_sim:.3f}")
+            
+            if not debug_mode:
+                print(f"🔍 Semantic filtering: {len(self.blacklist_embeddings)} blacklist embeddings")
                 print(f"   Similarity threshold: {self.semantic_similarity_threshold}")
         
         return negatives

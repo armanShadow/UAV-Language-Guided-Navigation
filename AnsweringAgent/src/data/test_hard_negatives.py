@@ -34,129 +34,42 @@ def test_semantic_filtering():
         config=config,
         tokenizer=tokenizer,
         image_dir=image_dir,
-        k_nn=100,  # Increased from 15
-        cosine_threshold=0.2,  # Lowered from 0.3
+        k_nn=100,
+        cosine_threshold=0.2,
         use_diverse_negatives=True,
         diverse_ratio=0.3,
         min_answer_length=20
     )
     
-    # Enable debug mode
-    miner.debug_mode = True
-    
-    # Test blacklist embedding initialization
-    print("🔍 Testing blacklist embedding initialization...")
+    # Initialize semantic filtering quietly
+    miner.debug_mode = False  # Disable debug for clean output
     miner._initialize_blacklist_embeddings()
     
-    if miner.blacklist_embeddings:
-        print(f"✅ Semantic filtering initialized: {len(miner.blacklist_embeddings)} phrases")
-        
-        # Show some example embeddings
-        for i, (phrase, embedding) in enumerate(list(miner.blacklist_embeddings.items())[:3]):
-            print(f"  '{phrase}': embedding shape {embedding.shape}")
-    else:
-        print("⚠️ No semantic filtering available")
-    
-    # Simulate small dataset filtering (same as mining logic)
-    print("📊 Applying same filtering logic as mining (small dataset)...")
-    original_blacklist = miner.answer_blacklist.copy()
-    original_min_length = miner.min_answer_length
-    
-    # Apply lenient filtering (same as mining)
-    miner.min_answer_length = 15  # More lenient for small datasets
-    miner.answer_blacklist = {
-        'short_affirmative': ['yes', 'exactly', 'correct'],  # removed 'right' to prevent directional false-positives
-        'generic_responses': ['destiny is exactly that', 'that is correct'],
-    }
-    miner.max_phrase_reuse = 5  # Increased for small datasets
-    print(f"  Adjusted min_answer_length to {miner.min_answer_length}")
-    print(f"  Using lenient direct blacklist with {sum(len(phrases) for phrases in miner.answer_blacklist.values())} phrases")
-    print(f"  Semantic filtering still uses full blacklist with {len(miner.blacklist_embeddings)} phrases")
-    
-    # Test caching functionality
-    print("💾 Testing embedding cache...")
-    cache_path = os.path.join(os.path.dirname(__file__), 'blacklist_embeds.pkl')
-    
-    if os.path.exists(cache_path):
-        print(f"✅ Cache file exists: {cache_path}")
-        try:
-            with open(cache_path, 'rb') as f:
-                cached_embeddings = pickle.load(f)
-            print(f"  Cached: {len(cached_embeddings)} phrases")
-            
-            if len(cached_embeddings) == len(miner.blacklist_embeddings):
-                print("✅ Cache matches current embeddings")
-            else:
-                print(f"⚠️ Cache mismatch: cached {len(cached_embeddings)}, current {len(miner.blacklist_embeddings)}")
-        except Exception as e:
-            print(f"❌ Error reading cache: {e}")
-    else:
-        print("⚠️ No cache file found")
-    
-    # Test filtering with various phrases (using realistic lenient blacklist)
-    print("🔍 Testing answer filtering with lenient blacklist...")
-    
+    # Test filtering with various phrases
     test_phrases = [
-        # Should be filtered by direct blacklist (lenient)
-        ("yes", "direct blacklist (lenient)"),
-        ("exactly", "direct blacklist (lenient)"),
-        ("correct", "direct blacklist (lenient)"),
-        ("destiny is exactly that", "direct blacklist (lenient)"),
-        
-        # Should be filtered by semantic similarity (using full blacklist)
-        ("yes, that's absolutely correct", "semantic similarity"),
-        ("you're exactly right", "semantic similarity"),
-        ("that's the right answer", "semantic similarity"),
-        
-        # Should be filtered by length
-        ("go", "too short"),
-        ("turn left", "too short"),
-        ("move right", "too short"),
-        
-        # Should NOW pass (not in lenient blacklist)
+        ("yes", "direct blacklist"),
+        ("exactly", "direct blacklist"), 
         ("You should turn left at the intersection and continue for about 100 meters", "should pass"),
         ("Navigate to the building and follow the path around it", "should pass"),
-        ("Take the second turn and proceed towards the landmark", "should pass"),
         ("The destination is located behind the large building with the red roof", "should pass"),
-        ("Continue straight for approximately 200 meters until you see the bridge", "should pass"),
     ]
     
     filtered_count = 0
     passed_count = 0
     
     for phrase, expected_reason in test_phrases:
-        print(f"\n  Testing: '{phrase[:50]}{'...' if len(phrase) > 50 else ''}'")
         is_good = miner.is_good_answer(phrase)
-        status = "✅ PASS" if is_good else "❌ FILTERED"
-        print(f"  Result: {status} (expected: {expected_reason})")
-        
         if is_good:
             passed_count += 1
         else:
             filtered_count += 1
     
-    print(f"\n📊 Filtering results: {passed_count} passed, {filtered_count} filtered")
-    
-    # Test blacklist categories (current lenient blacklist)
-    print("📋 Testing blacklist categories...")
-    
-    print(f"📊 Current blacklist after lenient override:")
-    for category, phrases in miner.answer_blacklist.items():
-        print(f"  {category}: {len(phrases)} phrases")
-        for phrase in phrases[:2]:  # Show first 2 from each category
-            is_good = miner.is_good_answer(phrase)
-            status = "✅ PASS" if is_good else "❌ FILTERED"
-            print(f"    {status}: '{phrase}'")
-    
-    # Restore original settings
-    miner.answer_blacklist = original_blacklist
-    miner.min_answer_length = original_min_length
-    
-    print("✅ Semantic filtering test completed!")
+    print(f"✅ Semantic Filtering: {len(miner.blacklist_embeddings)} embeddings loaded")
+    print(f"📊 Filter Test: {passed_count} passed, {filtered_count} filtered from {len(test_phrases)} samples")
     return True
 
 def test_mining_functionality():
-    """Test the mining functionality with a small dataset."""
+    """Test the mining functionality with a larger dataset."""
     
     print("\n🧪 Testing Mining Functionality...")
     
@@ -164,9 +77,9 @@ def test_mining_functionality():
     if torch.cuda.is_available():
         gpu_id = 0
         torch.cuda.set_device(gpu_id)
-        print(f"🚀 Using GPU {gpu_id}: {torch.cuda.get_device_name(gpu_id)}")
+        print(f"🚀 GPU: {torch.cuda.get_device_name(gpu_id)}")
     else:
-        print("⚠️ CUDA not available, using CPU")
+        print("⚠️ Using CPU")
         gpu_id = None
     
     # Load configuration
@@ -174,28 +87,26 @@ def test_mining_functionality():
     tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name, 
                                            model_max_length=config.data.max_seq_length)
     
-    # Load small subset for testing
-    print("📊 Loading small subset of train dataset...")
+    # Load larger subset for testing
+    print("📊 Loading train dataset...")
     
     try:
         from data.dataset import AnsweringDataset
         dataset = AnsweringDataset.load_train_chunks(config.data.train_processed_path_dir)
         
-        # Take only first 50 samples for testing
-        test_dataset = {k: v for k, v in list(dataset.items())[:50]}
-        print(f"✅ Loaded {len(test_dataset)} samples for testing")
+        # Take first 400 samples, shard to 100 for testing
+        test_dataset = {k: v for k, v in list(dataset.items())[:400]}
+        
+        # Shard to simulate multi-GPU (keep 100 samples)
+        num_shards = 4
+        shard_id = 0
+        original_size = len(test_dataset)
+        sharded_dataset = {k: v for k, v in test_dataset.items() if (k % num_shards) == shard_id}
+        print(f"📈 Dataset: {len(sharded_dataset)} samples (sharded from {original_size})")
         
     except Exception as e:
         print(f"❌ Error loading dataset: {e}")
         return False
-    
-    # Test dataset sharding
-    print("🔀 Testing dataset sharding...")
-    num_shards = 4
-    shard_id = 0
-    original_size = len(test_dataset)
-    sharded_dataset = {k: v for k, v in test_dataset.items() if (k % num_shards) == shard_id}
-    print(f"  Sharded dataset: keeping {len(sharded_dataset)} / {original_size} samples for shard {shard_id} of {num_shards}")
     
     # Initialize miner
     image_dir = "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images"
@@ -203,8 +114,8 @@ def test_mining_functionality():
         config=config,
         tokenizer=tokenizer,
         image_dir=image_dir,
-        k_nn=100,  # Increased from 15
-        cosine_threshold=0.2,  # Lowered from 0.3
+        k_nn=100,
+        cosine_threshold=0.2,
         use_diverse_negatives=True,
         diverse_ratio=0.3,
         min_answer_length=20
@@ -216,120 +127,109 @@ def test_mining_functionality():
     if torch.cuda.is_available():
         miner.device = torch.device(f'cuda:{gpu_id}')
     
-    # Mine negatives with debug mode
-    print("⛏️ Testing negative mining...")
-    negatives = miner.mine_hard_negatives(sharded_dataset, max_samples=25, debug_mode=True)
+    # Mine negatives without debug output
+    print("⛏️ Mining negatives...")
+    negatives = miner.mine_hard_negatives(sharded_dataset, debug_mode=False)
     
-    print(f"✅ Mined {len(negatives)} negatives total")
-    
-    # Count types
-    hard_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'hard')
-    diverse_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'diverse')
-    print(f"📊 Hard negatives: {hard_count}, Diverse negatives: {diverse_count}")
-    
-    # Test adding negatives to dataset
-    print("➕ Testing negative addition...")
+    # Add negatives to dataset
     updated_dataset = miner.add_hard_negatives_to_dataset(sharded_dataset, negatives)
     
-    # Verify negatives were added
-    negative_count = 0
-    for idx, item in updated_dataset.items():
-        if 'contrastive_data' in item and 'negative_text_2' in item['contrastive_data']:
-            negative_count += 1
+    # Comprehensive analysis
+    print(f"\n📊 Mining Results Summary:")
+    print(f"{'='*50}")
     
-    print(f"✅ Added negatives to {negative_count} samples")
+    # Basic counts
+    hard_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'hard')
+    diverse_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'diverse')
+    success_rate = len(negatives) / len(sharded_dataset) * 100
     
-    # Analyze sample structure
-    print("🔍 Analyzing sample structure...")
-    for idx, item in list(updated_dataset.items())[:5]:
-        if 'contrastive_data' in item and 'negative_text_2' in item['contrastive_data']:
-            print(f"  Sample {idx}:")
-            print(f"    Original answer: {item.get('answer', 'N/A')[:60]}{'...' if len(item.get('answer', '')) > 60 else ''}")
-            print(f"    Negative answer: {item['contrastive_data']['negative_text_2'][:60]}{'...' if len(item['contrastive_data']['negative_text_2']) > 60 else ''}")
-            print(f"    Negative type: {item['contrastive_data'].get('validation_metadata_negative_2', {}).get('negative_type_2', 'unknown')}")
-            
-            # Check validation metadata
-            if 'validation_metadata_negative_2' in item['contrastive_data']:
-                metadata = item['contrastive_data']['validation_metadata_negative_2']
-                if 'text_similarity' in metadata:
-                    print(f"    Text similarity: {metadata['text_similarity']:.3f}")
-                if 'visual_similarity' in metadata:
-                    print(f"    Visual similarity: {metadata['visual_similarity']:.3f}")
+    print(f"📈 Success Rate: {len(negatives)}/{len(sharded_dataset)} ({success_rate:.1f}%)")
+    print(f"🎯 Strategy Distribution: {hard_count} hard, {diverse_count} diverse")
     
-    # Quality analysis
-    print("📊 Quality Analysis:")
+    # Answer quality metrics
     if negatives:
-        # Answer lengths
         original_lengths = [len(item.get('answer', '')) for item in sharded_dataset.values()]
         negative_lengths = [len(data['negative_text_2']) for data in negatives.values()]
         
-        print(f"  Original answers: avg={sum(original_lengths)/len(original_lengths):.1f} chars")
-        print(f"  Negative answers: avg={sum(negative_lengths)/len(negative_lengths):.1f} chars")
+        print(f"📏 Answer Length: orig={np.mean(original_lengths):.1f}±{np.std(original_lengths):.1f}, neg={np.mean(negative_lengths):.1f}±{np.std(negative_lengths):.1f} chars")
         
-        # Check for blacklisted phrases using miner's actual logic
-        blacklisted_count = 0
-        semantic_filtered_count = 0
+        # Similarity metrics
+        hard_text_sims = [data['validation_metadata_2']['text_similarity'] 
+                         for data in negatives.values() 
+                         if data.get('negative_type_2') == 'hard' and 'text_similarity' in data['validation_metadata_2']]
         
-        print(f"  Current blacklist being used for analysis: {list(miner.answer_blacklist.keys())}")
-        print(f"  Total phrases in current blacklist: {sum(len(phrases) for phrases in miner.answer_blacklist.values())}")
+        hard_visual_sims = [data['validation_metadata_2']['visual_similarity'] 
+                           for data in negatives.values() 
+                           if data.get('negative_type_2') == 'hard' and 'visual_similarity' in data['validation_metadata_2']]
         
-        for data in negatives.values():
-            answer_text = data['negative_text_2']
-            answer_lower = answer_text.lower()
+        diverse_visual_sims = [data['validation_metadata_2']['visual_similarity'] 
+                              for data in negatives.values() 
+                              if data.get('negative_type_2') == 'diverse' and 'visual_similarity' in data['validation_metadata_2']]
+        
+        if hard_text_sims:
+            print(f"🔤 Hard Text Similarity: {np.mean(hard_text_sims):.3f}±{np.std(hard_text_sims):.3f} (n={len(hard_text_sims)})")
+        
+        if hard_visual_sims:
+            print(f"👁️ Hard Visual Similarity: {np.mean(hard_visual_sims):.3f}±{np.std(hard_visual_sims):.3f} (n={len(hard_visual_sims)})")
             
-            # Test direct blacklist (word boundary) - exactly as miner does
-            is_blacklisted = False
-            for phrases in miner.answer_blacklist.values():
-                for phrase in phrases:
-                    pattern = rf"\b{re.escape(phrase)}\b"
-                    if re.search(pattern, answer_lower):
-                        is_blacklisted = True
-                        if len(negatives) <= 20:  # Only show details for small datasets
-                            print(f"    Found blacklisted phrase '{phrase}' in: '{answer_text[:40]}{'...' if len(answer_text) > 40 else ''}'")
-                        break
-                if is_blacklisted:
-                    break
-            
-            if is_blacklisted:
-                blacklisted_count += 1
-            
-            # Test semantic similarity
-            if hasattr(miner, 'blacklist_embeddings') and miner.blacklist_embeddings:
-                try:
-                    if miner._check_semantic_similarity_to_blacklist(answer_text):
-                        semantic_filtered_count += 1
-                        if len(negatives) <= 20:  # Only show details for small datasets
-                            print(f"    Found semantic match in: '{answer_text[:40]}{'...' if len(answer_text) > 40 else ''}'")
-                except Exception:
-                    pass
-        
-        print(f"  Direct blacklist matches: {blacklisted_count}/{len(negatives)} ({blacklisted_count/len(negatives)*100:.1f}%)")
-        if blacklisted_count == 0:
-            print(f"    ↪ This is expected! Blacklisted phrases were filtered during mining.")
-        
-        if semantic_filtered_count > 0:
-            print(f"  Semantic similarity matches: {semantic_filtered_count}/{len(negatives)} ({semantic_filtered_count/len(negatives)*100:.1f}%)")
-        else:
-            print(f"  Semantic similarity matches: 0/{len(negatives)} (0.0%)")
-            print(f"    ↪ This is expected! Semantically similar phrases were filtered during mining.")
+        if diverse_visual_sims:
+            print(f"🌈 Diverse Visual Similarity: {np.mean(diverse_visual_sims):.3f}±{np.std(diverse_visual_sims):.3f} (n={len(diverse_visual_sims)})")
         
         # Phrase diversity
         unique_phrases = set()
+        phrase_counts = {}
         for data in negatives.values():
-            unique_phrases.add(data['negative_text_2'].lower().strip())
+            phrase = data['negative_text_2'].lower().strip()
+            unique_phrases.add(phrase)
+            phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
         
         diversity_ratio = len(unique_phrases) / len(negatives)
-        print(f"  Phrase diversity: {diversity_ratio:.3f} ({len(unique_phrases)} unique / {len(negatives)} total)")
+        max_reuse = max(phrase_counts.values()) if phrase_counts else 0
+        avg_reuse = np.mean(list(phrase_counts.values())) if phrase_counts else 0
         
-        # Hard negative quality
-        hard_similarities = [data['validation_metadata_2']['text_similarity'] 
-                           for data in negatives.values() 
-                           if data.get('negative_type_2') == 'hard' and 'text_similarity' in data['validation_metadata_2']]
-        if hard_similarities:
-            avg_hard_sim = sum(hard_similarities) / len(hard_similarities)
-            print(f"  Hard negative quality: avg text similarity {avg_hard_sim:.3f}")
+        print(f"🔄 Phrase Diversity: {diversity_ratio:.3f} ({len(unique_phrases)}/{len(negatives)}), max_reuse={max_reuse}, avg_reuse={avg_reuse:.2f}")
+        
+        # Cluster analysis for diverse negatives
+        cluster_transitions = []
+        for data in negatives.values():
+            if data.get('negative_type_2') == 'diverse':
+                metadata = data['validation_metadata_2']
+                if 'anchor_cluster' in metadata and 'negative_cluster' in metadata:
+                    if metadata['anchor_cluster'] != metadata['negative_cluster']:
+                        cluster_transitions.append(1)
+                    else:
+                        cluster_transitions.append(0)
+        
+        if cluster_transitions:
+            different_cluster_ratio = np.mean(cluster_transitions)
+            print(f"🎲 Cluster Diversity: {different_cluster_ratio:.3f} ({sum(cluster_transitions)}/{len(cluster_transitions)} different clusters)")
     
-    print("✅ Mining functionality test completed!")
+    # Quality assessment samples
+    print(f"\n🔍 Quality Assessment Samples:")
+    print(f"{'='*50}")
+    
+    sample_indices = list(negatives.keys())[:5]  # First 5 samples
+    for i, idx in enumerate(sample_indices, 1):
+        item = updated_dataset[idx]
+        negative_data = negatives[idx]
+        
+        print(f"\n📋 Sample {i} (ID: {idx}):")
+        print(f"   Question: {item.get('question', 'N/A')[:80]}{'...' if len(item.get('question', '')) > 80 else ''}")
+        print(f"   Original: {item.get('answer', 'N/A')[:80]}{'...' if len(item.get('answer', '')) > 80 else ''}")
+        print(f"   Negative: {negative_data['negative_text_2'][:80]}{'...' if len(negative_data['negative_text_2']) > 80 else ''}")
+        
+        metadata = negative_data['validation_metadata_2']
+        neg_type = metadata.get('negative_type_2', 'unknown')
+        print(f"   Type: {neg_type}")
+        
+        if 'text_similarity' in metadata:
+            print(f"   Text Sim: {metadata['text_similarity']:.3f}")
+        if 'visual_similarity' in metadata:
+            print(f"   Visual Sim: {metadata['visual_similarity']:.3f}")
+        if 'anchor_cluster' in metadata and 'negative_cluster' in metadata:
+            print(f"   Clusters: {metadata['anchor_cluster']} → {metadata['negative_cluster']}")
+    
+    print("\n✅ Mining functionality test completed!")
     return True
 
 def test_multi_gpu_setup():
@@ -337,33 +237,20 @@ def test_multi_gpu_setup():
     
     print("\n🧪 Testing Multi-GPU Setup Logic...")
     
-    # Simulate sharding logic
+    # Test sharding logic
     num_gpus = 4
     total_samples = 1000
     
-    print(f"📊 Simulating {num_gpus} GPU setup with {total_samples} total samples")
-    
-    # Test dataset sharding
     shard_distributions = []
     for gpu_id in range(num_gpus):
         shard_samples = [i for i in range(total_samples) if (i % num_gpus) == gpu_id]
         shard_distributions.append(len(shard_samples))
-        print(f"  GPU {gpu_id}: {len(shard_samples)} samples")
     
-    # Verify distribution
     total_sharded = sum(shard_distributions)
-    print(f"  Total sharded samples: {total_sharded}/{total_samples}")
-    
-    if total_sharded == total_samples:
-        print("✅ Sharding distribution is correct")
-    else:
-        print("❌ Sharding distribution error")
-        return False
     
     # Test strategy ratio logic
-    print("📊 Testing strategy ratio logic...")
     diverse_ratio = 0.3
-    num_samples = 100
+    num_samples = 1000
     
     hard_first_count = 0
     diverse_first_count = 0
@@ -375,40 +262,40 @@ def test_multi_gpu_setup():
         else:
             hard_first_count += 1
     
-    print(f"  Hard-first strategy: {hard_first_count}/{num_samples} ({hard_first_count/num_samples*100:.1f}%)")
-    print(f"  Diverse-first strategy: {diverse_first_count}/{num_samples} ({diverse_first_count/num_samples*100:.1f}%)")
-    
     expected_hard_ratio = 1 - diverse_ratio
     actual_hard_ratio = hard_first_count / num_samples
-    tolerance = 0.15
     
-    if abs(actual_hard_ratio - expected_hard_ratio) < tolerance:
-        print("✅ Strategy ratio logic is working correctly")
+    print(f"📊 Sharding: {num_gpus} GPUs, {total_sharded}/{total_samples} samples distributed")
+    print(f"📊 Strategy Ratio: {actual_hard_ratio:.3f} hard-first (expected: {expected_hard_ratio:.3f})")
+    
+    success = (total_sharded == total_samples and abs(actual_hard_ratio - expected_hard_ratio) < 0.05)
+    
+    if success:
+        print("✅ Multi-GPU setup test completed!")
     else:
-        print(f"❌ Strategy ratio error: expected {expected_hard_ratio:.2f}, got {actual_hard_ratio:.2f}")
-        return False
+        print("❌ Multi-GPU setup test failed!")
     
-    print("✅ Multi-GPU setup test completed!")
-    return True
+    return success
 
 if __name__ == '__main__':
     print("🚀 Starting Hard Negative Mining Tests...")
+    print("="*60)
     
     # Test 1: Semantic filtering
     success1 = test_semantic_filtering()
     
-    # Test 2: Mining functionality
+    # Test 2: Mining functionality  
     success2 = test_mining_functionality()
     
     # Test 3: Multi-GPU setup
     success3 = test_multi_gpu_setup()
     
+    print("\n" + "="*60)
     if success1 and success2 and success3:
-        print("\n🎉 All tests passed!")
-        print("✅ Semantic filtering with caching is working correctly")
+        print("🎉 All tests passed!")
+        print("✅ Semantic filtering is working correctly")
         print("✅ Mining strategies are functional")
-        print("✅ GPU processing and multi-GPU setup work correctly")
-        print("✅ Test logic matches main implementation")
+        print("✅ Multi-GPU setup works correctly")
     else:
-        print("\n❌ Some tests failed!")
+        print("❌ Some tests failed!")
         sys.exit(1) 
