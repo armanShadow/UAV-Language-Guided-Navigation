@@ -706,14 +706,19 @@ class HardNegativeMiner:
             return True
         
         # Only do expensive similarity check for longer phrases and if we have many used phrases
-        # OPTIMIZATION: Only run similarity check if we're about to accept this candidate
-        # (This check is now called only after text similarity passes, so it's already a candidate)
+        # OPTIMISATION: compare only with phrases of similar length and cap comparisons to 25
         if len(self.used_phrases) > 20:
-            for used_phrase in self.used_phrases.keys():
-                if self._phrases_too_similar(normalized_answer, used_phrase):
-                    if self.debug_mode:
-                        print(f"    ❌ Too similar to existing phrase: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
-                    return False
+            cand_len = len(normalized_answer)
+            # phrases whose length differs by ≤10 characters
+            candidates = [p for p in self.used_phrases.keys()
+                          if abs(len(p) - cand_len) <= 10]
+            if candidates:
+                sample_size = min(25, len(candidates))
+                for used_phrase in random.sample(candidates, sample_size):
+                    if self._phrases_too_similar(normalized_answer, used_phrase):
+                        if self.debug_mode:
+                            print(f"    ❌ Too similar to existing phrase: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
+                        return False
         
         return True
     
@@ -1306,8 +1311,12 @@ def main():
                        help='Total number of dataset shards')
     parser.add_argument('--shard-id', type=int, default=0,
                        help='Shard index for this process')
-    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=3,
+    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=6,
                        help='Maximum phrase reuse when diversity is relaxed in fallback mode')
+    parser.add_argument('--skip-existing-negatives', action='store_true', default=True,
+                       help='Skip samples that already have a mined negative in the dataset')
+    parser.add_argument('--seed-existing-phrases', action='store_true', default=True,
+                       help='Seed phrase-diversity tracker with phrases from existing negatives to keep global diversity')
     
     args = parser.parse_args()
     
@@ -1324,13 +1333,30 @@ def main():
                                            model_max_length=config.data.max_seq_length)
     
     dataset = load_dataset(config, args.split)
-    
-    if args.num_shards > 1:
-        original_size = len(dataset)
-        dataset = {k: v for k, v in dataset.items() if (k % args.num_shards) == args.shard_id}
-        print(f"🔀 Sharded dataset: keeping {len(dataset)} / {original_size} samples for shard {args.shard_id} of {args.num_shards}")
-    
-    # Single-GPU mode (simplified and optimized)
+
+    # Optionally seed phrase usage with already mined negatives so that diversity is consistent across runs
+    if args.seed_existing_phrases:
+        def _seed_phrases(miner_ref, data_ref):
+            for item in data_ref.values():
+                neg = item.get('contrastive_data', {}).get('negative_text_2')
+                if neg:
+                    norm = neg.lower().strip()
+                    miner_ref.used_phrases[norm] = miner_ref.used_phrases.get(norm, 0) + 1
+        
+    # Build list of samples to process depending on --skip-existing-negatives
+    if args.skip_existing_negatives:
+        samples_to_mine = {k: v for k, v in dataset.items()
+                           if 'contrastive_data' not in v or 'negative_text_2' not in v['contrastive_data']}
+    else:
+        samples_to_mine = dataset
+
+    if len(samples_to_mine) == 0:
+        print("✅ All samples already have negatives – nothing to mine.")
+        return
+
+    print(f"🚀 Starting mining on GPU {args.gpu_id}")
+    print(f"📊 Processing {len(samples_to_mine)} of {len(dataset)} samples (skip_existing={args.skip_existing_negatives})")
+
     miner = HardNegativeMiner(
         config=config,
         tokenizer=tokenizer,
@@ -1348,15 +1374,15 @@ def main():
     miner.num_workers = args.num_workers
     if torch.cuda.is_available():
         miner.device = torch.device(f'cuda:{args.gpu_id}')
-    
-    print(f"🚀 Starting mining on GPU {args.gpu_id}")
-    print(f"📊 Processing {len(dataset)} samples")
-    
-    hard_negatives = miner.mine_hard_negatives(dataset, max_samples=args.max_samples)
+
+    # Seed phrases if requested
+    if args.seed_existing_phrases:
+        _seed_phrases(miner, dataset)
+
+    hard_negatives = miner.mine_hard_negatives(samples_to_mine, max_samples=args.max_samples)
     updated_dataset = miner.add_hard_negatives_to_dataset(dataset, hard_negatives)
+
     save_dataset(updated_dataset, config, args.split)
-    
-    print(f"🎉 Successfully added {len(hard_negatives)} negatives to {args.split} dataset!")
 
 if __name__ == '__main__':
     main() 
