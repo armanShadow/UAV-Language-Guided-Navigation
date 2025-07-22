@@ -169,15 +169,28 @@ class HardNegativeMiner:
         try:
             answer_embedding = self.normalizer.generate_mpnet_embedding(answer)
             
+            max_similarity = 0.0
+            most_similar_phrase = ""
+            
             for blacklisted_phrase, blacklist_embedding in self.blacklist_embeddings.items():
                 similarity = np.dot(answer_embedding, blacklist_embedding)
+                
+                if similarity > max_similarity:
+                    max_similarity = similarity
+                    most_similar_phrase = blacklisted_phrase
                 
                 # Debug mode: show similarity scores >= 0.70
                 if similarity >= 0.7 and self.debug_mode:
                     print(f"    ↪ sim({similarity:.2f}) to blacklist phrase '{blacklisted_phrase}'")
                 
                 if similarity > self.semantic_similarity_threshold:
+                    if self.debug_mode:
+                        print(f"    🚫 Semantic filter triggered: sim({similarity:.2f}) > {self.semantic_similarity_threshold} for '{blacklisted_phrase}'")
                     return True
+            
+            # Show the highest similarity even if below threshold (for debugging)
+            if self.debug_mode and max_similarity > 0.5:
+                print(f"    📊 Highest semantic similarity: {max_similarity:.2f} to '{most_similar_phrase}' (threshold: {self.semantic_similarity_threshold})")
             
             return False
             
@@ -416,10 +429,7 @@ class HardNegativeMiner:
         
         # Count filtering for debugging
         total_neighbors = len(neighbor_indices)
-        local_same_goal = 0
-        local_bad_answer = 0
-        local_phrase_diversity_fails = 0
-        local_no_text_match = 0
+        processed_neighbors = 0
         
         thresholds_to_try = [0.2, 0.35, 0.5, 0.65, 0.8]  # More aggressive thresholds
         
@@ -442,9 +452,11 @@ class HardNegativeMiner:
                 neighbor_answer = neighbor_item.get('answer', '')  # Use answer instead of context
                 neighbor_first_instruction = neighbor_item.get('first_instruction', '')
                 
+                processed_neighbors += 1
+                
                 # Skip if same goal
                 if anchor_first_instruction == neighbor_first_instruction:
-                    local_same_goal += 1
+                    rejection_stats['same_goal'] = rejection_stats.get('same_goal', 0) + 1
                     continue
                 
                 # Skip if answer is not good enough
@@ -456,12 +468,11 @@ class HardNegativeMiner:
                         rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
                     elif rejection_reason == 'blacklist_semantic':
                         rejection_stats['bad_answer_semantic'] = rejection_stats.get('bad_answer_semantic', 0) + 1
-                    local_bad_answer += 1
                     continue
                 
                 # Check phrase diversity
                 if not self._is_phrase_diverse(neighbor_answer):
-                    local_phrase_diversity_fails += 1
+                    rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + 1
                     continue
                 
                 # Calculate ANSWER-level text similarity (key fix)
@@ -482,6 +493,9 @@ class HardNegativeMiner:
                     best_visual_similarity = visual_similarity
                     best_threshold_used = threshold
                     found_at_threshold = True
+                else:
+                    # Count as no text similarity match if not accepted
+                    rejection_stats['no_text_similarity_match'] = rejection_stats.get('no_text_similarity_match', 0) + 1
             
             if show_debug:
                 print(f"    📊 Threshold {threshold}: {candidates_at_threshold} candidates, found: {found_at_threshold}")
@@ -489,17 +503,9 @@ class HardNegativeMiner:
             # Continue to try higher thresholds even if we found something
             # This gives us the globally best candidate across all thresholds
         
-        # Update rejection stats
-        rejection_stats['same_goal'] = rejection_stats.get('same_goal', 0) + local_same_goal
-        rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + local_phrase_diversity_fails
-        
-        if best_negative_idx is None:
-            local_no_text_match = total_neighbors - local_same_goal - local_bad_answer - local_phrase_diversity_fails
-            rejection_stats['no_text_similarity_match'] = rejection_stats.get('no_text_similarity_match', 0) + local_no_text_match
-        
         # Debug statistics for small datasets only
         if show_debug:
-            print(f"    📊 Filtering stats: {total_neighbors} neighbors → same_goal:{local_same_goal}, bad_answer:{local_bad_answer}, diversity_fail:{local_phrase_diversity_fails}")
+            print(f"    📊 Processed {processed_neighbors} neighbors")
             if best_negative_idx is not None:
                 print(f"    ✅ Found negative with text_sim={lowest_text_similarity:.3f}, visual_sim={best_visual_similarity:.3f} at threshold={best_threshold_used}")
         
@@ -569,10 +575,6 @@ class HardNegativeMiner:
         different_cluster_candidates = []
         same_cluster_candidates = []
         
-        local_same_goal = 0
-        local_bad_answer = 0
-        local_phrase_diversity_fails = 0
-        
         for i, cluster_label in enumerate(self.cluster_labels):
             sample_idx = self.visual_indices[i]
             if sample_idx in dataset and sample_idx != anchor_idx:
@@ -582,7 +584,7 @@ class HardNegativeMiner:
                 
                 # Track rejections for same goal
                 if anchor_first_instruction == neighbor_first_instruction:
-                    local_same_goal += 1
+                    rejection_stats['same_goal'] = rejection_stats.get('same_goal', 0) + 1
                     continue
                     
                 # Track rejections for bad answers
@@ -594,12 +596,11 @@ class HardNegativeMiner:
                         rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
                     elif rejection_reason == 'blacklist_semantic':
                         rejection_stats['bad_answer_semantic'] = rejection_stats.get('bad_answer_semantic', 0) + 1
-                    local_bad_answer += 1
                     continue
                     
                 # Track rejections for phrase diversity
                 if not self._is_phrase_diverse(neighbor_answer):
-                    local_phrase_diversity_fails += 1
+                    rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + 1
                     continue
                 
                 neighbor_features = self.visual_features[sample_idx]
@@ -610,10 +611,6 @@ class HardNegativeMiner:
                     different_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
                 else:
                     same_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
-        
-        # Update rejection stats
-        rejection_stats['same_goal'] = rejection_stats.get('same_goal', 0) + local_same_goal
-        rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + local_phrase_diversity_fails
         
         # Try different clusters first, then same cluster as fallback
         if different_cluster_candidates:
@@ -700,22 +697,29 @@ class HardNegativeMiner:
             self._initialize_blacklist_embeddings()
         
         # Adjust direct string filtering for small datasets
-        if len(dataset) < 100:
+        if len(dataset) < 150:  # Increased threshold to apply lenient filtering more often
             if debug_mode:
-                print("📊 Small dataset detected, using lenient direct filtering...")
-            self.min_answer_length = 15  # More lenient for small datasets
-            # Use smaller blacklist for direct string matching to avoid over-filtering
+                print("📊 Small dataset detected, using semantic-first filtering...")
+            self.min_answer_length = 12  # More lenient for small datasets
+            # Use minimal blacklist for direct string matching - rely mainly on semantic filtering
             self.answer_blacklist = {
-                'short_affirmative': ['yes', 'exactly', 'correct'],  # removed 'right' to prevent directional false-positives
-                'generic_responses': ['destiny is exactly that', 'that is correct'],
+                'short_affirmative': ['yes'],  # Only the most problematic phrase
             }
+            # Lower semantic threshold to make it more effective
+            self.semantic_similarity_threshold = 0.75  # Lowered from 0.88 to 0.75
             # Increase phrase reuse for small datasets
-            self.max_phrase_reuse = 5
+            self.max_phrase_reuse = 10  # Increased further
             if debug_mode:
                 print(f"  Adjusted min_answer_length to {self.min_answer_length}")
+                print(f"  Lowered semantic_similarity_threshold to {self.semantic_similarity_threshold}")
                 print(f"  Increased max_phrase_reuse to {self.max_phrase_reuse}")
-                print(f"  Using lenient direct blacklist with {sum(len(phrases) for phrases in self.answer_blacklist.values())} phrases")
-                print(f"  Semantic filtering still uses full blacklist with {len(self.blacklist_embeddings)} phrases")
+                print(f"  Using minimal direct blacklist with {sum(len(phrases) for phrases in self.answer_blacklist.values())} phrases")
+                print(f"  Primary filtering: MPNet semantic similarity with {len(self.blacklist_embeddings)} phrases")
+        else:
+            # For larger datasets, use balanced approach
+            self.semantic_similarity_threshold = 0.80  # Lowered from 0.88
+            if debug_mode:
+                print(f"📊 Large dataset: using balanced filtering with semantic threshold {self.semantic_similarity_threshold}")
         
         # Build visual models
         self.build_visual_knn(dataset)
@@ -736,7 +740,7 @@ class HardNegativeMiner:
             'no_candidates_found': 0
         }
         
-        # Add comprehensive rejection tracking
+        # Add comprehensive rejection tracking - FIXED
         rejection_stats = {
             'same_goal': 0,
             'bad_answer_length': 0,
@@ -848,12 +852,17 @@ class HardNegativeMiner:
         print(f"  No candidates found: {validation_stats['no_candidates_found']}")
         print(f"  Success rate: {len(negatives)}/{validation_stats['total_attempts']} ({len(negatives)/validation_stats['total_attempts']*100:.1f}%)")
         
-        # Print rejection breakdown
+        # Print rejection breakdown - FIXED calculation
         print(f"\n🚫 Rejection Breakdown:")
         total_rejections = sum(rejection_stats.values())
-        for reason, count in rejection_stats.items():
-            percentage = (count / total_rejections * 100) if total_rejections > 0 else 0
-            print(f"  {reason.replace('_', ' ').title()}: {count} ({percentage:.1f}%)")
+        if total_rejections > 0:
+            for reason, count in rejection_stats.items():
+                if count > 0:  # Only show categories with actual rejections
+                    percentage = (count / total_rejections * 100)
+                    print(f"  {reason.replace('_', ' ').title()}: {count} ({percentage:.1f}%)")
+            print(f"  Total rejections analyzed: {total_rejections}")
+        else:
+            print("  No rejections tracked")
         
         hard_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'hard')
         diverse_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'diverse')

@@ -45,27 +45,48 @@ def test_semantic_filtering():
     miner.debug_mode = False  # Disable debug for clean output
     miner._initialize_blacklist_embeddings()
     
-    # Test filtering with various phrases
+    # Enable debug for semantic testing
+    miner.debug_mode = True
+    miner.semantic_similarity_threshold = 0.75  # Lower threshold for testing
+    
+    print(f"✅ Semantic Filtering: {len(miner.blacklist_embeddings)} embeddings loaded")
+    print(f"🎯 Testing with threshold: {miner.semantic_similarity_threshold}")
+    
+    # Test phrases that should trigger semantic similarity
     test_phrases = [
-        ("yes", "direct blacklist"),
-        ("exactly", "direct blacklist"), 
-        ("You should turn left at the intersection and continue for about 100 meters", "should pass"),
-        ("Navigate to the building and follow the path around it", "should pass"),
-        ("The destination is located behind the large building with the red roof", "should pass"),
+        "yes, that's correct",
+        "exactly right", 
+        "absolutely correct",
+        "that is exactly right",
+        "you are correct",
+        "Turn left at the intersection and continue straight for 100 meters",
+        "Navigate to the building and follow the path around it", 
+        "The destination is located behind the large building with the red roof",
     ]
     
-    filtered_count = 0
+    print("\n🔍 Testing semantic similarity for each phrase:")
     passed_count = 0
+    filtered_count = 0
     
-    for phrase, expected_reason in test_phrases:
+    for phrase in test_phrases:
+        print(f"\n📝 Testing: '{phrase}'")
+        miner.debug_mode = True  # Enable debug for this test
         is_good = miner.is_good_answer(phrase)
+        miner.debug_mode = False  # Disable for clean output
+        
+        status = "✅ PASSED" if is_good else "❌ FILTERED"
+        print(f"   Result: {status}")
+        
         if is_good:
             passed_count += 1
         else:
             filtered_count += 1
     
-    print(f"✅ Semantic Filtering: {len(miner.blacklist_embeddings)} embeddings loaded")
-    print(f"📊 Filter Test: {passed_count} passed, {filtered_count} filtered from {len(test_phrases)} samples")
+    print(f"\n📊 Semantic Filter Test Results:")
+    print(f"   Passed: {passed_count}/{len(test_phrases)}")
+    print(f"   Filtered: {filtered_count}/{len(test_phrases)}")
+    print(f"   Threshold used: {miner.semantic_similarity_threshold}")
+    
     return True
 
 def test_mining_functionality():
