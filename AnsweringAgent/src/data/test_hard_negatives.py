@@ -17,11 +17,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from config import Config
-    from data.add_hard_negatives import HardNegativeMiner, MultiGPUMiner, load_dataset, save_dataset
+    from data.add_hard_negatives import HardNegativeMiner, load_dataset, save_dataset
 except ImportError:
     # Fallback for direct execution
     from config import Config
-    from add_hard_negatives import HardNegativeMiner, MultiGPUMiner, load_dataset, save_dataset
+    from add_hard_negatives import HardNegativeMiner, load_dataset, save_dataset
 
 def test_semantic_filtering():
     """Test the semantic filtering functionality."""
@@ -96,39 +96,7 @@ def test_semantic_filtering():
     
     return True
 
-def test_multi_gpu_detection():
-    """Test the multi-GPU detection functionality."""
-    
-    print("\n🧪 Testing Multi-GPU Detection...")
-    
-    # Test with different GPU configurations
-    test_configs = [
-        (None, True),   # Auto-detect
-        (4, True),      # Use 4 GPUs
-        (8, True),      # Use 8 GPUs
-        (2, False),     # Force 2 GPUs
-    ]
-    
-    for num_gpus, auto_detect in test_configs:
-        print(f"\n🔍 Testing: num_gpus={num_gpus}, auto_detect={auto_detect}")
-        
-        try:
-            multi_gpu_miner = MultiGPUMiner(num_gpus=num_gpus, auto_detect=auto_detect)
-            
-            print(f"   Available GPUs: {multi_gpu_miner.available_gpus}")
-            print(f"   GPU count: {len(multi_gpu_miner.available_gpus)}")
-            
-            if multi_gpu_miner.available_gpus:
-                print(f"   ✅ Multi-GPU detection working")
-            else:
-                print(f"   ⚠️ No GPUs detected (expected if no CUDA)")
-                
-        except Exception as e:
-            print(f"   ❌ Error in multi-GPU detection: {e}")
-            return False
-    
-    print("✅ Multi-GPU detection test completed!")
-    return True
+
 
 def test_mining_functionality():
     """Test the mining functionality with the new configuration."""
@@ -411,27 +379,22 @@ if __name__ == '__main__':
     # Test 1: Semantic filtering
     success1 = test_semantic_filtering()
     
-    # Test 2: Multi-GPU detection
-    success2 = test_multi_gpu_detection()
+    # Test 2: New parameters
+    success2 = test_new_parameters()
     
-    # Test 3: New parameters
-    success3 = test_new_parameters()
+    # Test 3: Mining functionality with new config
+    success3 = test_mining_functionality()
     
-    # Test 4: Mining functionality with new config
-    success4 = test_mining_functionality()
-    
-    # Test 5: Multi-GPU setup
-    success5 = test_multi_gpu_setup()
+    # Test 4: Multi-GPU setup
+    success4 = test_multi_gpu_setup()
     
     print("\n" + "="*60)
-    if success1 and success2 and success3 and success4 and success5:
+    if success1 and success2 and success3 and success4:
         print("🎉 All tests passed!")
         print("✅ Semantic filtering is working correctly")
-        print("✅ Multi-GPU detection is functional")
         print("✅ New parameters are properly configured")
         print("✅ Mining strategies are functional with new config")
         print("✅ Visual similarity filtering is working correctly")
-        print("✅ Multi-GPU setup works correctly")
         print("✅ Enhanced metrics reporting is operational")
     else:
         print("❌ Some tests failed!")

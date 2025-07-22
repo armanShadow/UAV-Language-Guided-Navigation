@@ -1,8 +1,8 @@
-# Multi-GPU Hard Negative Mining Guide
+# Hard Negative Mining Guide
 
 ## Overview
 
-The enhanced `add_hard_negatives.py` now supports automatic multi-GPU processing for faster hard negative mining across large datasets.
+The enhanced `add_hard_negatives.py` now supports optimized single-GPU processing with comprehensive metrics reporting for hard negative mining across large datasets.
 
 ## Usage Modes
 
@@ -18,43 +18,39 @@ python add_hard_negatives.py \
     --diverse-ratio 0.0
 ```
 
-### 2. Multi-GPU Mode (Recommended for Large Datasets)
+### 2. Optimized Single-GPU Mode (Recommended)
 ```bash
 python add_hard_negatives.py \
     --image-dir /path/to/images \
     --split train \
-    --auto-gpu-distribution \
-    --num-gpus 8 \
+    --gpu-id 0 \
     --k-nn 100 \
     --cosine-threshold 0.2 \
     --min-visual-similarity 0.15 \
-    --diverse-ratio 0.0
+    --diverse-ratio 0.0 \
+    --batch-size 64
 ```
 
 ## Key Features
 
-### Automatic GPU Detection
-- Automatically detects available GPUs and their memory
-- Sorts GPUs by memory capacity for optimal distribution
-- Falls back to CPU if no GPUs available
+### Optimized Single-GPU Processing
+- Efficient batch processing for maximum GPU utilization
+- Memory-optimized operations for RTX 2080/2080 Ti
+- Automatic fallback to CPU if no GPU available
 
-### Smart Dataset Sharding
-- Automatically divides dataset across available GPUs
-- Handles remainder samples gracefully
-- No overlap between GPU workloads
-
-### Comprehensive Metrics Reporting
-- Success rate per shard and overall
+### Enhanced Metrics Reporting
+- Success rate and processing statistics
 - Hard vs diverse negative distribution
 - Visual and text similarity statistics
 - Phrase diversity analysis
 - Performance timing breakdown
+- Comprehensive quality assessment
 
 ## Command Line Arguments
 
-### Multi-GPU Specific
-- `--auto-gpu-distribution`: Enable multi-GPU mode
-- `--num-gpus`: Number of GPUs to use (auto-detect if None)
+### Performance Optimization
+- `--batch-size`: Batch size for GPU processing (default: 64)
+- `--num-workers`: Number of workers for data loading (default: 4)
 
 ### Mining Parameters
 - `--k-nn`: Number of K-NN neighbors (default: 30)
@@ -70,44 +66,44 @@ python add_hard_negatives.py \
 
 ## Example Commands for Different Splits
 
-### Training Split (Multi-GPU)
+### Training Split (Optimized)
 ```bash
 python add_hard_negatives.py \
     --image-dir /path/to/train_images \
     --split train \
-    --auto-gpu-distribution \
-    --num-gpus 8 \
+    --gpu-id 0 \
     --k-nn 100 \
     --cosine-threshold 0.2 \
     --min-visual-similarity 0.15 \
     --diverse-ratio 0.0 \
-    --min-answer-length 20
+    --min-answer-length 20 \
+    --batch-size 64
 ```
 
-### Validation Seen (Multi-GPU)
+### Validation Seen (Optimized)
 ```bash
 python add_hard_negatives.py \
     --image-dir /path/to/val_seen_images \
     --split val_seen \
-    --auto-gpu-distribution \
-    --num-gpus 4 \
+    --gpu-id 0 \
     --k-nn 50 \
     --cosine-threshold 0.25 \
     --min-visual-similarity 0.20 \
-    --diverse-ratio 0.0
+    --diverse-ratio 0.0 \
+    --batch-size 32
 ```
 
-### Validation Unseen (Multi-GPU)
+### Validation Unseen (Optimized)
 ```bash
 python add_hard_negatives.py \
     --image-dir /path/to/val_unseen_images \
     --split val_unseen \
-    --auto-gpu-distribution \
-    --num-gpus 4 \
+    --gpu-id 0 \
     --k-nn 50 \
     --cosine-threshold 0.25 \
     --min-visual-similarity 0.20 \
-    --diverse-ratio 0.0
+    --diverse-ratio 0.0 \
+    --batch-size 32
 ```
 
 ## Expected Output

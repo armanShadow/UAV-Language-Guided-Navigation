@@ -22,9 +22,6 @@ import torch
 import torch.nn.functional as F
 import datetime
 import re
-import multiprocessing as mp
-import subprocess
-import signal
 import time
 from typing import Dict, List, Tuple, Any, Optional
 from sklearn.neighbors import NearestNeighbors
@@ -53,247 +50,7 @@ except ImportError:
 
 from transformers import T5Tokenizer
 
-class MultiGPUMiner:
-    """Manages multi-GPU hard negative mining with automatic distribution."""
-    
-    def __init__(self, num_gpus: int = None, auto_detect: bool = True):
-        """
-        Initialize multi-GPU miner.
-        
-        Args:
-            num_gpus: Number of GPUs to use (if None, auto-detect)
-            auto_detect: Whether to automatically detect available GPUs
-        """
-        self.num_gpus = num_gpus
-        self.auto_detect = auto_detect
-        self.available_gpus = self._detect_available_gpus()
-        
-    def _detect_available_gpus(self) -> List[int]:
-        """Detect available GPUs and their memory."""
-        if not torch.cuda.is_available():
-            print("⚠️ CUDA not available, falling back to CPU")
-            return []
-        
-        gpu_info = []
-        for i in range(torch.cuda.device_count()):
-            try:
-                memory = torch.cuda.get_device_properties(i).total_memory / 1024**3  # GB
-                gpu_info.append((i, memory))
-            except Exception as e:
-                print(f"⚠️ Could not get info for GPU {i}: {e}")
-        
-        # Sort by memory (descending) for optimal distribution
-        gpu_info.sort(key=lambda x: x[1], reverse=True)
-        gpu_ids = [gpu_id for gpu_id, _ in gpu_info]
-        
-        if self.num_gpus is not None:
-            gpu_ids = gpu_ids[:self.num_gpus]
-        
-        print(f"🔍 Detected {len(gpu_ids)} GPU(s): {gpu_ids}")
-        for gpu_id, memory in gpu_info[:len(gpu_ids)]:
-            print(f"   GPU {gpu_id}: {memory:.1f} GB")
-        
-        return gpu_ids
-    
-    def run_multi_gpu_mining(self, args, dataset_size: int) -> Dict[str, Any]:
-        """Run mining across multiple GPUs with automatic sharding."""
-        if not self.available_gpus:
-            print("⚠️ No GPUs available, running single-process mining")
-            return self._run_single_gpu_mining(args)
-        
-        print(f"🚀 Starting multi-GPU mining with {len(self.available_gpus)} GPUs")
-        
-        # Calculate optimal sharding
-        shard_size = dataset_size // len(self.available_gpus)
-        remainder = dataset_size % len(self.available_gpus)
-        
-        print(f"📊 Dataset sharding: {len(self.available_gpus)} shards of ~{shard_size} samples each")
-        
-        # Start processes
-        processes = []
-        start_time = time.time()
-        
-        try:
-            for i, gpu_id in enumerate(self.available_gpus):
-                # Adjust shard size for last GPU to handle remainder
-                if i == len(self.available_gpus) - 1:
-                    actual_shard_size = shard_size + remainder
-                else:
-                    actual_shard_size = shard_size
-                
-                process = self._start_gpu_process(gpu_id, args, i, actual_shard_size)
-                processes.append((gpu_id, process, i))
-            
-            # Monitor processes
-            results = self._monitor_processes(processes, start_time)
-            
-            return results
-            
-        except KeyboardInterrupt:
-            print("\n🛑 Interrupted by user. Stopping all processes...")
-            self._terminate_processes(processes)
-            raise
-    
-    def _start_gpu_process(self, gpu_id: int, args, shard_id: int, shard_size: int) -> subprocess.Popen:
-        """Start mining process on specific GPU."""
-        cmd = [
-            sys.executable, __file__,
-            "--image-dir", args.image_dir,
-            "--split", args.split,
-            "--gpu-id", str(gpu_id),
-            "--num-shards", str(len(self.available_gpus)),
-            "--shard-id", str(shard_id),
-            "--k-nn", str(args.k_nn),
-            "--cosine-threshold", str(args.cosine_threshold),
-            "--diverse-ratio", str(args.diverse_ratio),
-            "--min-answer-length", str(args.min_answer_length),
-            "--min-visual-similarity", str(args.min_visual_similarity),
-            "--batch-size", str(args.batch_size),
-            "--max-samples", str(shard_size),
-            "--use-diverse-negatives" if args.use_diverse_negatives else "--no-use-diverse-negatives"
-        ]
-        
-        print(f"🚀 Starting GPU {gpu_id} (shard {shard_id}) with {shard_size} samples")
-        
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            universal_newlines=True
-        )
-        
-        return process
-    
-    def _monitor_processes(self, processes: List[Tuple], start_time: float) -> Dict[str, Any]:
-        """Monitor mining processes and collect results."""
-        completed = []
-        failed = []
-        
-        print(f"\n⏱️  Monitoring {len(processes)} mining processes...")
-        
-        while processes:
-            for i, (gpu_id, process, shard_id) in enumerate(processes):
-                if process.poll() is not None:
-                    # Process completed
-                    stdout, stderr = process.communicate()
-                    
-                    if process.returncode == 0:
-                        print(f"✅ GPU {gpu_id} (shard {shard_id}) completed successfully")
-                        
-                        # Parse metrics from output
-                        metrics = self._parse_metrics_from_output(stdout)
-                        completed.append((gpu_id, shard_id, metrics, stdout))
-                        
-                        # Show key metrics
-                        if metrics:
-                            print(f"   📊 Shard {shard_id} results:")
-                            print(f"      Success rate: {metrics.get('success_rate', 'N/A')}")
-                            print(f"      Hard negatives: {metrics.get('hard_count', 'N/A')}")
-                            print(f"      Diverse negatives: {metrics.get('diverse_count', 'N/A')}")
-                            print(f"      Avg hard text sim: {metrics.get('avg_hard_text_sim', 'N/A')}")
-                            print(f"      Avg hard visual sim: {metrics.get('avg_hard_visual_sim', 'N/A')}")
-                    else:
-                        print(f"❌ GPU {gpu_id} (shard {shard_id}) failed with return code {process.returncode}")
-                        if stderr:
-                            error_lines = stderr.strip().split('\n')
-                            print(f"   Error: {error_lines[-1] if error_lines else 'Unknown error'}")
-                        failed.append((gpu_id, shard_id, stderr))
-                    
-                    # Remove completed process
-                    processes.pop(i)
-                    break
-            
-            if processes:
-                elapsed = time.time() - start_time
-                print(f"⏳ Still running: {len(processes)} GPUs, Completed: {len(completed)}, Failed: {len(failed)} (Elapsed: {elapsed:.1f}s)")
-                time.sleep(10)  # Check every 10 seconds
-        
-        # Aggregate results
-        total_time = time.time() - start_time
-        results = {
-            'total_time': total_time,
-            'completed': completed,
-            'failed': failed,
-            'total_samples_processed': sum(m.get('samples_processed', 0) for _, _, m, _ in completed),
-            'total_hard_negatives': sum(m.get('hard_count', 0) for _, _, m, _ in completed),
-            'total_diverse_negatives': sum(m.get('diverse_count', 0) for _, _, m, _ in completed),
-            'success_rate': np.mean([m.get('success_rate', 0) for _, _, m, _ in completed]) if completed else 0,
-            'avg_hard_text_sim': np.mean([m.get('avg_hard_text_sim', 0) for _, _, m, _ in completed]) if completed else 0,
-            'avg_hard_visual_sim': np.mean([m.get('avg_hard_visual_sim', 0) for _, _, m, _ in completed]) if completed else 0,
-        }
-        
-        return results
-    
-    def _parse_metrics_from_output(self, stdout: str) -> Dict[str, Any]:
-        """Parse key metrics from process output."""
-        metrics = {}
-        lines = stdout.strip().split('\n')
-        
-        for line in lines:
-            if "Success Rate:" in line:
-                # Extract success rate percentage
-                try:
-                    rate_str = line.split('(')[1].split('%')[0]
-                    metrics['success_rate'] = float(rate_str)
-                except:
-                    pass
-            elif "Hard negatives:" in line:
-                try:
-                    hard_count = int(line.split(':')[1].split(',')[0].strip())
-                    metrics['hard_count'] = hard_count
-                except:
-                    pass
-            elif "Diverse negatives:" in line:
-                try:
-                    diverse_count = int(line.split(':')[1].strip())
-                    metrics['diverse_count'] = diverse_count
-                except:
-                    pass
-            elif "Hard Text Similarity:" in line:
-                try:
-                    sim_str = line.split(':')[1].split('±')[0].strip()
-                    metrics['avg_hard_text_sim'] = float(sim_str)
-                except:
-                    pass
-            elif "Hard Visual Similarity:" in line:
-                try:
-                    sim_str = line.split(':')[1].split('±')[0].strip()
-                    metrics['avg_hard_visual_sim'] = float(sim_str)
-                except:
-                    pass
-            elif "samples processed" in line:
-                try:
-                    count_str = line.split('processed')[1].split('samples')[0].strip()
-                    metrics['samples_processed'] = int(count_str)
-                except:
-                    pass
-        
-        return metrics
-    
-    def _terminate_processes(self, processes: List[Tuple]):
-        """Terminate all running processes gracefully."""
-        for gpu_id, process, shard_id in processes:
-            if process.poll() is None:  # Still running
-                print(f"🛑 Terminating GPU {gpu_id} (shard {shard_id})...")
-                process.terminate()
-        
-        # Wait for graceful termination
-        time.sleep(3)
-        
-        # Force kill any remaining processes
-        for gpu_id, process, shard_id in processes:
-            if process.poll() is None:
-                print(f"💀 Force killing GPU {gpu_id} (shard {shard_id})...")
-                process.kill()
-    
-    def _run_single_gpu_mining(self, args) -> Dict[str, Any]:
-        """Fallback to single-GPU mining."""
-        print("🔄 Running single-GPU mining...")
-        
-        # This will be handled by the main function
-        return {'mode': 'single_gpu'}
+
 
 class HardNegativeMiner:
     """Mines hard negative samples using visual K-NN and least-similar instruction selection."""
@@ -1549,10 +1306,6 @@ def main():
                        help='Total number of dataset shards')
     parser.add_argument('--shard-id', type=int, default=0,
                        help='Shard index for this process')
-    parser.add_argument('--num-gpus', type=int, default=None,
-                       help='Number of GPUs to use for multi-GPU mining (if None, auto-detect)')
-    parser.add_argument('--auto-gpu-distribution', action='store_true', default=False,
-                       help='Automatically distribute mining across available GPUs')
     parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=3,
                        help='Maximum phrase reuse when diversity is relaxed in fallback mode')
     
@@ -1577,47 +1330,33 @@ def main():
         dataset = {k: v for k, v in dataset.items() if (k % args.num_shards) == args.shard_id}
         print(f"🔀 Sharded dataset: keeping {len(dataset)} / {original_size} samples for shard {args.shard_id} of {args.num_shards}")
     
-    if args.auto_gpu_distribution:
-        # Multi-GPU mode
-        multi_gpu_miner = MultiGPUMiner(num_gpus=args.num_gpus)
-        results = multi_gpu_miner.run_multi_gpu_mining(args, len(dataset))
-        
-        print(f"\n🎉 Multi-GPU mining completed!")
-        print(f"⏱️  Total time: {results['total_time']:.2f}s")
-        print(f"📊 Total samples processed: {results['total_samples_processed']}")
-        print(f"🎯 Total hard negatives: {results['total_hard_negatives']}")
-        print(f"🌈 Total diverse negatives: {results['total_diverse_negatives']}")
-        print(f"📈 Average success rate: {results['success_rate']:.1f}%")
-        print(f"🔤 Average hard text similarity: {results['avg_hard_text_sim']:.3f}")
-        print(f"👁️ Average hard visual similarity: {results['avg_hard_visual_sim']:.3f}")
-        
-        if results['failed']:
-            print(f"⚠️ {len(results['failed'])} GPU(s) failed. Check individual logs.")
-    else:
-        # Single-GPU mode
-        miner = HardNegativeMiner(
-            config=config,
-            tokenizer=tokenizer,
-            image_dir=args.image_dir,
-            k_nn=args.k_nn,
-            cosine_threshold=args.cosine_threshold,
-            use_diverse_negatives=args.use_diverse_negatives,
-            diverse_ratio=args.diverse_ratio,
-            min_answer_length=args.min_answer_length,
-            min_visual_similarity=args.min_visual_similarity,
-            fallback_phrase_reuse_limit=args.fallback_phrase_reuse_limit if hasattr(args, 'fallback_phrase_reuse_limit') else 3
-        )
-        
-        miner.batch_size = args.batch_size
-        miner.num_workers = args.num_workers
-        if torch.cuda.is_available():
-            miner.device = torch.device(f'cuda:{args.gpu_id}')
-        
-        hard_negatives = miner.mine_hard_negatives(dataset, max_samples=args.max_samples)
-        updated_dataset = miner.add_hard_negatives_to_dataset(dataset, hard_negatives)
-        save_dataset(updated_dataset, config, args.split)
-        
-        print(f"🎉 Successfully added {len(hard_negatives)} negatives to {args.split} dataset!")
+    # Single-GPU mode (simplified and optimized)
+    miner = HardNegativeMiner(
+        config=config,
+        tokenizer=tokenizer,
+        image_dir=args.image_dir,
+        k_nn=args.k_nn,
+        cosine_threshold=args.cosine_threshold,
+        use_diverse_negatives=args.use_diverse_negatives,
+        diverse_ratio=args.diverse_ratio,
+        min_answer_length=args.min_answer_length,
+        min_visual_similarity=args.min_visual_similarity,
+        fallback_phrase_reuse_limit=args.fallback_phrase_reuse_limit if hasattr(args, 'fallback_phrase_reuse_limit') else 3
+    )
+    
+    miner.batch_size = args.batch_size
+    miner.num_workers = args.num_workers
+    if torch.cuda.is_available():
+        miner.device = torch.device(f'cuda:{args.gpu_id}')
+    
+    print(f"🚀 Starting mining on GPU {args.gpu_id}")
+    print(f"📊 Processing {len(dataset)} samples")
+    
+    hard_negatives = miner.mine_hard_negatives(dataset, max_samples=args.max_samples)
+    updated_dataset = miner.add_hard_negatives_to_dataset(dataset, hard_negatives)
+    save_dataset(updated_dataset, config, args.split)
+    
+    print(f"🎉 Successfully added {len(hard_negatives)} negatives to {args.split} dataset!")
 
 if __name__ == '__main__':
     main() 
