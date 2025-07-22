@@ -509,8 +509,8 @@ class HardNegativeMiner:
         # --- STRICT PASS WITH ESCALATING TEXT-SIMILARITY THRESHOLDS ---
         strict_thresholds = [
             self.cosine_threshold,
-            self.cosine_threshold + 0.05,
-            self.cosine_threshold + 0.10,
+            self.cosine_threshold + 0.07,
+            self.cosine_threshold + 0.14,
         ]
 
         for thr in strict_thresholds:
@@ -659,12 +659,12 @@ class HardNegativeMiner:
             return True
         
         # Much more aggressive reuse limits for better diversity
-        if len(normalized_answer) < 60:
+        if len(normalized_answer) < 50:
             max_reuse = 1  # Short/medium answers: ONLY ONCE
         elif len(normalized_answer) < 100:
-            max_reuse = 2  # Longer answers: max twice
+            max_reuse = 3  # Longer answers: max twice
         else:
-            max_reuse = 3  # Very long answers: max 3 times
+            max_reuse = self.fallback_phrase_reuse_limit  # Very long answers: max 3 times
         
         # Check current usage - if already at limit, reject immediately
         current_usage = self.used_phrases[normalized_answer]
