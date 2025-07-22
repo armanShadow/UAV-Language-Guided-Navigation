@@ -105,6 +105,9 @@ class HardNegativeMiner:
         self.blacklist_embeddings = {}
         self.semantic_similarity_threshold = 0.88
         
+        # Answer embedding cache for performance optimization
+        self.answer_embedding_cache = {}
+        
         # Phrase diversity tracking
         self.used_phrases = {}
         self.max_phrase_reuse = 3
@@ -166,43 +169,47 @@ class HardNegativeMiner:
         if not self.blacklist_embeddings or not hasattr(self, 'normalizer'):
             return False
         
-        try:
-            answer_embedding = self.normalizer.generate_mpnet_embedding(answer)
+        # Check cache first
+        if answer in self.answer_embedding_cache:
+            answer_embedding = self.answer_embedding_cache[answer]
+        else:
+            try:
+                answer_embedding = self.normalizer.generate_mpnet_embedding(answer)
+                self.answer_embedding_cache[answer] = answer_embedding
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"⚠️ Error generating embedding for '{answer}': {e}")
+                return False
+        
+        max_similarity = 0.0
+        most_similar_phrase = ""
+        
+        for blacklisted_phrase, blacklist_embedding in self.blacklist_embeddings.items():
+            similarity = np.dot(answer_embedding, blacklist_embedding)
             
-            max_similarity = 0.0
-            most_similar_phrase = ""
+            if similarity > max_similarity:
+                max_similarity = similarity
+                most_similar_phrase = blacklisted_phrase
             
-            for blacklisted_phrase, blacklist_embedding in self.blacklist_embeddings.items():
-                similarity = np.dot(answer_embedding, blacklist_embedding)
-                
-                if similarity > max_similarity:
-                    max_similarity = similarity
-                    most_similar_phrase = blacklisted_phrase
-                
-                # Debug mode: show similarity scores >= 0.70
-                if similarity >= 0.7 and self.debug_mode:
-                    print(f"    ↪ sim({similarity:.2f}) to blacklist phrase '{blacklisted_phrase}'")
-                
-                if similarity > self.semantic_similarity_threshold:
-                    if self.debug_mode:
-                        print(f"    🚫 Semantic filter triggered: sim({similarity:.2f}) > {self.semantic_similarity_threshold} for '{blacklisted_phrase}'")
-                    return True
+            # Debug mode: show similarity scores >= 0.70
+            if similarity >= 0.7 and self.debug_mode:
+                print(f"    ↪ sim({similarity:.2f}) to blacklist phrase '{blacklisted_phrase}'")
             
-            # Show the highest similarity even if below threshold (for debugging)
-            if self.debug_mode and max_similarity > 0.5:
-                print(f"    📊 Highest semantic similarity: {max_similarity:.2f} to '{most_similar_phrase}' (threshold: {self.semantic_similarity_threshold})")
-            
-            return False
-            
-        except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ Error in semantic similarity check: {e}")
-            return False
+            if similarity > self.semantic_similarity_threshold:
+                if self.debug_mode:
+                    print(f"    🚫 Semantic filter triggered: sim({similarity:.2f}) > {self.semantic_similarity_threshold} for '{blacklisted_phrase}'")
+                return True
+        
+        # Show the highest similarity even if below threshold (for debugging)
+        if self.debug_mode and max_similarity > 0.5:
+            print(f"    📊 Highest semantic similarity: {max_similarity:.2f} to '{most_similar_phrase}' (threshold: {self.semantic_similarity_threshold})")
+        
+        return False
     
     def is_good_answer(self, answer: str, track_rejections: bool = False) -> bool:
         """
         Check if an answer is good enough for negative mining.
-        Uses both direct string matching and semantic similarity.
+        Uses hybrid approach: fast direct matching first, then semantic similarity for edge cases.
         
         Args:
             answer: The answer text to check
@@ -219,21 +226,23 @@ class HardNegativeMiner:
                 print(f"    ❌ Filtered: too short ({len(answer_clean)} chars)")
             return (False, 'too_short') if track_rejections else False
         
-        # Check for direct blacklisted phrases (word boundaries)
+        # Fast direct blacklist check for obvious cases
         answer_lower = answer.lower()
         for category, phrases in self.answer_blacklist.items():
             for phrase in phrases:
                 pattern = rf"\b{re.escape(phrase)}\b"
                 if re.search(pattern, answer_lower):
                     if self.debug_mode:
-                        print(f"    ❌ Filtered: contains blacklisted phrase '{phrase}' (word-bound)")
+                        print(f"    ❌ Filtered: contains blacklisted phrase '{phrase}' (direct)")
                     return (False, 'blacklist_direct') if track_rejections else False
         
-        # Check for semantic similarity to blacklisted phrases
-        if self._check_semantic_similarity_to_blacklist(answer):
-            if self.debug_mode:
-                print(f"    ❌ Filtered: semantically similar to blacklisted phrase -> '{answer[:60]}{'...' if len(answer) > 60 else ''}'")
-            return (False, 'blacklist_semantic') if track_rejections else False
+        # Only use expensive semantic similarity for longer answers that passed direct check
+        # This is where we need to catch semantically similar but differently worded answers
+        if len(answer_clean) > 30:  # Only check semantic similarity for longer answers
+            if self._check_semantic_similarity_to_blacklist(answer):
+                if self.debug_mode:
+                    print(f"    ❌ Filtered: semantically similar to blacklisted phrase")
+                return (False, 'blacklist_semantic') if track_rejections else False
         
         return (True, 'passed') if track_rejections else True
     
@@ -678,6 +687,35 @@ class HardNegativeMiner:
         normalized_answer = answer.lower().strip()
         self.used_phrases[normalized_answer] = self.used_phrases.get(normalized_answer, 0) + 1
     
+    def precompute_answer_embeddings(self, dataset: Dict[int, Dict[str, Any]]):
+        """Pre-compute embeddings for all answers in the dataset to improve performance."""
+        print("🔄 Pre-computing answer embeddings for performance...")
+        
+        unique_answers = set()
+        for item in dataset.values():
+            answer = item.get('answer', '')
+            if answer and len(answer.strip()) > 30:  # Only pre-compute for answers that will need semantic checking
+                unique_answers.add(answer.strip())
+        
+        if not unique_answers:
+            print("  No answers need semantic checking")
+            return
+            
+        print(f"  Computing embeddings for {len(unique_answers)} unique answers...")
+        
+        # Batch process embeddings
+        from tqdm import tqdm
+        for answer in tqdm(unique_answers, desc="Computing embeddings", disable=not self.debug_mode):
+            if answer not in self.answer_embedding_cache:
+                try:
+                    embedding = self.normalizer.generate_mpnet_embedding(answer)
+                    self.answer_embedding_cache[answer] = embedding
+                except Exception as e:
+                    if self.debug_mode:
+                        print(f"⚠️ Error computing embedding for '{answer[:50]}...': {e}")
+        
+        print(f"✅ Pre-computed {len(self.answer_embedding_cache)} answer embeddings")
+
     def mine_hard_negatives(self, dataset: Dict[int, Dict[str, Any]], 
                            max_samples: Optional[int] = None, debug_mode: bool = False) -> Dict[int, Dict[str, Any]]:
         """Mine hard negatives for the entire dataset."""
@@ -720,6 +758,9 @@ class HardNegativeMiner:
             self.semantic_similarity_threshold = 0.80  # Lowered from 0.88
             if debug_mode:
                 print(f"📊 Large dataset: using balanced filtering with semantic threshold {self.semantic_similarity_threshold}")
+        
+        # Pre-compute answer embeddings for performance
+        self.precompute_answer_embeddings(dataset)
         
         # Build visual models
         self.build_visual_knn(dataset)
