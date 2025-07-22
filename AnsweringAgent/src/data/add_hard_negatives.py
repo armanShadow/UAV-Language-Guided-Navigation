@@ -1313,9 +1313,9 @@ def main():
                        help='Shard index for this process')
     parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=6,
                        help='Maximum phrase reuse when diversity is relaxed in fallback mode')
-    parser.add_argument('--skip-existing-negatives', action='store_true', default=True,
+    parser.add_argument('--skip-existing-negatives', action='store_true', default=False,
                        help='Skip samples that already have a mined negative in the dataset')
-    parser.add_argument('--seed-existing-phrases', action='store_true', default=True,
+    parser.add_argument('--seed-existing-phrases', action='store_true', default=False,
                        help='Seed phrase-diversity tracker with phrases from existing negatives to keep global diversity')
     
     args = parser.parse_args()
