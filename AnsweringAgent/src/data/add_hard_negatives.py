@@ -535,6 +535,23 @@ class HardNegativeMiner:
                 best_negative_idx = sample_idx
                 best_visual_similarity = visual_similarity
         
+        # --- NEW: SECOND PASS WITHOUT PHRASE DIVERSITY IF NO CANDIDATE FOUND ---
+        if best_negative_idx is None:
+            for (i, sample_idx, neighbor_answer), visual_similarity in valid_indices_with_sims:
+                # Break if visual similarity below threshold
+                if visual_similarity < self.min_visual_similarity:
+                    break
+                text_similarity = text_similarities[i]
+                if text_similarity >= self.cosine_threshold:
+                    continue
+                # Select first candidate that meets similarity constraints (no diversity check)
+                best_negative_idx = sample_idx
+                lowest_text_similarity = text_similarity
+                best_visual_similarity = visual_similarity
+                # Mark that diversity was relaxed
+                rejection_stats['diversity_relaxed'] = rejection_stats.get('diversity_relaxed', 0) + 1
+                break
+        
         # Debug statistics for small datasets only
         if show_debug:
             if best_negative_idx is not None:

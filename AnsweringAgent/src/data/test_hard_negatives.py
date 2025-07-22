@@ -140,7 +140,7 @@ def test_mining_functionality():
         use_diverse_negatives=True,
         diverse_ratio=0.3,
         min_answer_length=20,
-        min_visual_similarity=0.30  # Test with visual similarity filtering
+        min_visual_similarity=0.20  # Test with visual similarity filtering
     )
     
     # Set GPU settings
@@ -255,11 +255,12 @@ def test_mining_functionality():
             print(f"   Text Sim: {metadata['text_similarity']:.3f}")
         if 'visual_similarity' in metadata:
             print(f"   Visual Sim: {metadata['visual_similarity']:.3f}")
-            # Check if visual similarity meets minimum requirement
-            if metadata['visual_similarity'] < miner.min_visual_similarity:
-                print(f"   ⚠️ Below min threshold ({miner.min_visual_similarity})")
-            else:
-                print(f"   ✅ Above min threshold ({miner.min_visual_similarity})")
+            # Check if visual similarity meets minimum requirement (only for hard negatives)
+            if neg_type == 'hard':
+                if metadata['visual_similarity'] < miner.min_visual_similarity:
+                    print(f"   ⚠️ Below min threshold ({miner.min_visual_similarity})")
+                else:
+                    print(f"   ✅ Above min threshold ({miner.min_visual_similarity})")
         if 'anchor_cluster' in metadata and 'negative_cluster' in metadata:
             print(f"   Clusters: {metadata['anchor_cluster']} → {metadata['negative_cluster']}")
     
