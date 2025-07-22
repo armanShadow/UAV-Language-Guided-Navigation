@@ -509,8 +509,8 @@ class HardNegativeMiner:
         # --- STRICT PASS WITH ESCALATING TEXT-SIMILARITY THRESHOLDS ---
         strict_thresholds = [
             self.cosine_threshold,
-            self.cosine_threshold + 0.08,
-            self.cosine_threshold + 0.16,
+            self.cosine_threshold + 0.09,
+            self.cosine_threshold + 0.18,
         ]
 
         for thr in strict_thresholds:
