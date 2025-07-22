@@ -511,7 +511,6 @@ class HardNegativeMiner:
             self.cosine_threshold,
             self.cosine_threshold + 0.05,
             self.cosine_threshold + 0.10,
-            self.cosine_threshold + 0.15,
         ]
 
         for thr in strict_thresholds:
