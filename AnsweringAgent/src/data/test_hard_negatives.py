@@ -141,7 +141,7 @@ def test_mining_functionality():
         diverse_ratio=0.3,
         min_answer_length=20,
         min_visual_similarity=0.1,  # Test with visual similarity filtering
-        fallback_phrase_reuse_limit=3
+        fallback_phrase_reuse_limit=5
     )
     
     # Set GPU settings
