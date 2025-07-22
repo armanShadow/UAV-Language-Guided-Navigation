@@ -37,8 +37,20 @@ from collections import defaultdict
 import sys
 
 # Import local modules
-from data.Normalizer import AnsweringAgentNormalizer
-from config import Config
+import sys
+import os
+
+# Add the parent directory to the path to access modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    from data.Normalizer import AnsweringAgentNormalizer
+    from config import Config
+except ImportError:
+    # Fallback for direct execution
+    from Normalizer import AnsweringAgentNormalizer
+    from config import Config
+
 from transformers import T5Tokenizer
 
 class MultiGPUMiner:
@@ -1456,7 +1468,11 @@ def load_dataset(config: Config, split: str) -> Dict[int, Dict[str, Any]]:
     print(f"📊 Loading {split} dataset...")
     
     if split == 'train':
-        from dataset import AnsweringDataset
+        try:
+            from dataset import AnsweringDataset
+        except ImportError:
+            # Fallback for direct execution
+            from data.dataset import AnsweringDataset
         dataset = AnsweringDataset.load_train_chunks(config.data.train_processed_path_dir)
     else:
         if split == 'val_seen':
@@ -1475,7 +1491,11 @@ def save_dataset(dataset: Dict[int, Dict[str, Any]], config: Config, split: str)
     print(f"💾 Saving updated {split} dataset...")
     
     if split == 'train':
-        from dataset import AnsweringDataset
+        try:
+            from dataset import AnsweringDataset
+        except ImportError:
+            # Fallback for direct execution
+            from data.dataset import AnsweringDataset
         output_dir = config.data.train_processed_path_dir
         os.makedirs(output_dir, exist_ok=True)
         

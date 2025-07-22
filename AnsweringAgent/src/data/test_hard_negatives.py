@@ -15,8 +15,13 @@ from transformers import T5Tokenizer
 # Add the parent directory to the path to access config and other modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import Config
-from data.add_hard_negatives import HardNegativeMiner, MultiGPUMiner, load_dataset, save_dataset
+try:
+    from config import Config
+    from data.add_hard_negatives import HardNegativeMiner, MultiGPUMiner, load_dataset, save_dataset
+except ImportError:
+    # Fallback for direct execution
+    from config import Config
+    from add_hard_negatives import HardNegativeMiner, MultiGPUMiner, load_dataset, save_dataset
 
 def test_semantic_filtering():
     """Test the semantic filtering functionality."""
@@ -148,7 +153,10 @@ def test_mining_functionality():
     print("📊 Loading train dataset...")
     
     try:
-        from data.dataset import AnsweringDataset
+        try:
+            from data.dataset import AnsweringDataset
+        except ImportError:
+            from dataset import AnsweringDataset
         dataset = AnsweringDataset.load_train_chunks(config.data.train_processed_path_dir)
         
         # Take first 2000 samples, shard to 500 for testing
