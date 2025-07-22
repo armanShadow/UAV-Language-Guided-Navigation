@@ -722,8 +722,8 @@ class HardNegativeMiner:
         overlap = len(words1.intersection(words2))
         min_length = min(len(words1), len(words2))
         
-        # If >70% of words overlap, consider too similar
-        return overlap / min_length > 0.75
+        # If >85% of words overlap, consider too similar
+        return overlap / min_length > 0.85
     
     def _track_phrase_usage(self, answer: str):
         """Track phrase usage for diversity."""
