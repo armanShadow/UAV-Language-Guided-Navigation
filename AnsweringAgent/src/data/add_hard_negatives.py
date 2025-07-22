@@ -416,10 +416,14 @@ class HardNegativeMiner:
             print("❌ No visual features extracted for clustering!")
     
     def find_hard_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]], 
-                          rejection_stats: Dict[str, int] = None) -> Optional[tuple]:
+                          rejection_stats: Dict[str, int] = None, timing_stats: Dict[str, float] = None) -> Optional[tuple]:
         """Find a hard negative for the given anchor using visual K-NN and answer text dissimilarity."""
+        import time
+        
         if rejection_stats is None:
             rejection_stats = {}
+        if timing_stats is None:
+            timing_stats = {}
             
         if anchor_idx not in self.visual_features or self.visual_knn is None:
             rejection_stats['no_visual_neighbors'] = rejection_stats.get('no_visual_neighbors', 0) + 1
@@ -430,9 +434,12 @@ class HardNegativeMiner:
         anchor_answer = anchor_item.get('answer', '')  # Use answer instead of context
         anchor_first_instruction = anchor_item.get('first_instruction', '')
         
+        # Time the K-NN lookup
+        knn_start = time.time()
         distances, indices = self.visual_knn.kneighbors([anchor_features])
         neighbor_indices = indices[0][1:]  # Skip self
         neighbor_distances = distances[0][1:]
+        timing_stats['visual_knn_time'] = timing_stats.get('visual_knn_time', 0) + (time.time() - knn_start)
         
         best_negative_idx = None
         lowest_text_similarity = float('inf')
@@ -472,20 +479,24 @@ class HardNegativeMiner:
                     continue
                 
                 # Skip if answer is not good enough (fast pre-computed check)
-                neighbor_item = dataset[sample_idx]
                 if not self.is_good_answer_fast(neighbor_answer, neighbor_item):
                     rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
                     continue
                 
                 # Check phrase diversity
+                diversity_start = time.time()
                 if not self._is_phrase_diverse(neighbor_answer):
+                    timing_stats['phrase_diversity_time'] = timing_stats.get('phrase_diversity_time', 0) + (time.time() - diversity_start)
                     rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + 1
                     continue
+                timing_stats['phrase_diversity_time'] = timing_stats.get('phrase_diversity_time', 0) + (time.time() - diversity_start)
                 
                 # Calculate ANSWER-level text similarity (key fix)
+                text_sim_start = time.time()
                 anchor_text_features = self.extract_text_features(anchor_answer)
                 neighbor_text_features = self.extract_text_features(neighbor_answer)
                 text_similarity = np.dot(anchor_text_features, neighbor_text_features)
+                timing_stats['text_similarity_time'] = timing_stats.get('text_similarity_time', 0) + (time.time() - text_sim_start)
                 
                 # Convert cosine distance to similarity (1 - distance = similarity)
                 visual_distance = neighbor_distances[i]
@@ -541,9 +552,11 @@ class HardNegativeMiner:
                 self._is_phrase_diverse(neighbor_answer)):
                 
                 # Use answer-level similarity
+                text_sim_start = time.time()
                 anchor_text_features = self.extract_text_features(anchor_answer)
                 neighbor_text_features = self.extract_text_features(neighbor_answer)
                 text_sim = np.dot(anchor_text_features, neighbor_text_features)
+                timing_stats['text_similarity_time'] = timing_stats.get('text_similarity_time', 0) + (time.time() - text_sim_start)
                 
                 visual_distance = neighbor_distances[i]
                 visual_sim = 1.0 - visual_distance
@@ -810,24 +823,25 @@ class HardNegativeMiner:
         if len(dataset) < 150:  # Increased threshold to apply lenient filtering more often
             if debug_mode:
                 print("📊 Small dataset detected, using semantic-first filtering...")
-            self.min_answer_length = 12  # More lenient for small datasets
-            # Use minimal blacklist for direct string matching - rely mainly on semantic filtering
+            self.min_answer_length = 8  # Much more lenient for small datasets
+            # Use extremely minimal blacklist - only absolute worst cases
             self.answer_blacklist = {
-                'short_affirmative': ['yes'],  # Only the most problematic phrase
+                'short_affirmative': ['yes'],  # Only the most problematic single-word phrase
             }
             # Lower semantic threshold to make it more effective
-            self.semantic_similarity_threshold = 0.75  # Lowered from 0.88 to 0.75
+            self.semantic_similarity_threshold = 0.70  # Lowered further to 0.70
             # Increase phrase reuse for small datasets
-            self.max_phrase_reuse = 10  # Increased further
+            self.max_phrase_reuse = 15  # Increased much further
             if debug_mode:
                 print(f"  Adjusted min_answer_length to {self.min_answer_length}")
                 print(f"  Lowered semantic_similarity_threshold to {self.semantic_similarity_threshold}")
                 print(f"  Increased max_phrase_reuse to {self.max_phrase_reuse}")
-                print(f"  Using minimal direct blacklist with {sum(len(phrases) for phrases in self.answer_blacklist.values())} phrases")
+                print(f"  Using ultra-minimal direct blacklist with {sum(len(phrases) for phrases in self.answer_blacklist.values())} phrases")
                 print(f"  Primary filtering: MPNet semantic similarity with {len(self.blacklist_embeddings)} phrases")
         else:
             # For larger datasets, use balanced approach
-            self.semantic_similarity_threshold = 0.80  # Lowered from 0.88
+            self.semantic_similarity_threshold = 0.75  # Lowered from 0.88
+            self.min_answer_length = 12
             if debug_mode:
                 print(f"📊 Large dataset: using balanced filtering with semantic threshold {self.semantic_similarity_threshold}")
         
@@ -871,8 +885,18 @@ class HardNegativeMiner:
         # Only show detailed debug for very small datasets
         show_detailed_debug = debug_mode and len(samples_to_process) <= 10
         
+        # Add timing debug for performance analysis
+        import time
+        timing_stats = {
+            'visual_knn_time': 0,
+            'text_similarity_time': 0,
+            'phrase_diversity_time': 0,
+            'other_time': 0
+        }
+        
         progress_bar = tqdm(samples_to_process, desc="Mining negatives", disable=False)
         for anchor_idx in progress_bar:
+            sample_start_time = time.time()
             validation_stats['total_attempts'] += 1
 
             # Decide mining strategy
@@ -894,7 +918,7 @@ class HardNegativeMiner:
             for strategy in strategy_order:
                 if strategy == "hard":
                     validation_stats['hard_attempts'] += 1
-                    negative_result = self.find_hard_negative(anchor_idx, dataset, rejection_stats)
+                    negative_result = self.find_hard_negative(anchor_idx, dataset, rejection_stats, timing_stats)
                 else:
                     validation_stats['diverse_attempts'] += 1
                     negative_result = self.find_diverse_negative(anchor_idx, dataset, rejection_stats)
@@ -907,6 +931,7 @@ class HardNegativeMiner:
 
             if negative_result is None:
                 validation_stats['no_candidates_found'] += 1
+                timing_stats['other_time'] += time.time() - sample_start_time
                 continue
             
             # Track success
@@ -967,6 +992,15 @@ class HardNegativeMiner:
         print(f"  Fallback used: {validation_stats['fallback_used']}")
         print(f"  No candidates found: {validation_stats['no_candidates_found']}")
         print(f"  Success rate: {len(negatives)}/{validation_stats['total_attempts']} ({len(negatives)/validation_stats['total_attempts']*100:.1f}%)")
+        
+        # Print timing breakdown
+        print(f"\n⏱️ Performance Breakdown:")
+        total_time = sum(timing_stats.values())
+        if total_time > 0:
+            for operation, time_spent in timing_stats.items():
+                percentage = (time_spent / total_time) * 100
+                print(f"  {operation.replace('_', ' ').title()}: {time_spent:.2f}s ({percentage:.1f}%)")
+            print(f"  Total measured time: {total_time:.2f}s")
         
         # Print rejection breakdown - FIXED calculation
         print(f"\n🚫 Rejection Breakdown:")
