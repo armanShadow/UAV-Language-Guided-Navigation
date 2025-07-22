@@ -186,13 +186,17 @@ class HardNegativeMiner:
                 print(f"⚠️ Error in semantic similarity check: {e}")
             return False
     
-    def is_good_answer(self, answer: str) -> bool:
+    def is_good_answer(self, answer: str, track_rejections: bool = False) -> bool:
         """
         Check if an answer is good enough for negative mining.
         Uses both direct string matching and semantic similarity.
+        
+        Args:
+            answer: The answer text to check
+            track_rejections: If True, returns (bool, rejection_reason)
         """
         if not answer or not isinstance(answer, str):
-            return False
+            return (False, 'empty_answer') if track_rejections else False
         
         answer_clean = answer.strip()
         
@@ -200,7 +204,7 @@ class HardNegativeMiner:
         if len(answer_clean) < self.min_answer_length:
             if self.debug_mode:
                 print(f"    ❌ Filtered: too short ({len(answer_clean)} chars)")
-            return False
+            return (False, 'too_short') if track_rejections else False
         
         # Check for direct blacklisted phrases (word boundaries)
         answer_lower = answer.lower()
@@ -210,15 +214,15 @@ class HardNegativeMiner:
                 if re.search(pattern, answer_lower):
                     if self.debug_mode:
                         print(f"    ❌ Filtered: contains blacklisted phrase '{phrase}' (word-bound)")
-                    return False
+                    return (False, 'blacklist_direct') if track_rejections else False
         
         # Check for semantic similarity to blacklisted phrases
         if self._check_semantic_similarity_to_blacklist(answer):
             if self.debug_mode:
                 print(f"    ❌ Filtered: semantically similar to blacklisted phrase -> '{answer[:60]}{'...' if len(answer) > 60 else ''}'")
-            return False
+            return (False, 'blacklist_semantic') if track_rejections else False
         
-        return True
+        return (True, 'passed') if track_rejections else True
     
     def extract_visual_features(self, current_view: torch.Tensor) -> np.ndarray:
         """Extract visual features from current view using a more robust CNN approach."""
@@ -386,9 +390,14 @@ class HardNegativeMiner:
         else:
             print("❌ No visual features extracted for clustering!")
     
-    def find_hard_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]]) -> Optional[tuple]:
+    def find_hard_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]], 
+                          rejection_stats: Dict[str, int] = None) -> Optional[tuple]:
         """Find a hard negative for the given anchor using visual K-NN and answer text dissimilarity."""
+        if rejection_stats is None:
+            rejection_stats = {}
+            
         if anchor_idx not in self.visual_features or self.visual_knn is None:
+            rejection_stats['no_visual_neighbors'] = rejection_stats.get('no_visual_neighbors', 0) + 1
             return None
         
         anchor_item = dataset[anchor_idx]
@@ -407,9 +416,10 @@ class HardNegativeMiner:
         
         # Count filtering for debugging
         total_neighbors = len(neighbor_indices)
-        same_goal_count = 0
-        bad_answer_count = 0
-        phrase_diversity_fails = 0
+        local_same_goal = 0
+        local_bad_answer = 0
+        local_phrase_diversity_fails = 0
+        local_no_text_match = 0
         
         thresholds_to_try = [0.2, 0.35, 0.5, 0.65, 0.8]  # More aggressive thresholds
         
@@ -434,17 +444,24 @@ class HardNegativeMiner:
                 
                 # Skip if same goal
                 if anchor_first_instruction == neighbor_first_instruction:
-                    same_goal_count += 1
+                    local_same_goal += 1
                     continue
                 
                 # Skip if answer is not good enough
-                if not self.is_good_answer(neighbor_answer):
-                    bad_answer_count += 1
+                is_good, rejection_reason = self.is_good_answer(neighbor_answer, track_rejections=True)
+                if not is_good:
+                    if rejection_reason == 'too_short':
+                        rejection_stats['bad_answer_length'] = rejection_stats.get('bad_answer_length', 0) + 1
+                    elif rejection_reason == 'blacklist_direct':
+                        rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
+                    elif rejection_reason == 'blacklist_semantic':
+                        rejection_stats['bad_answer_semantic'] = rejection_stats.get('bad_answer_semantic', 0) + 1
+                    local_bad_answer += 1
                     continue
                 
                 # Check phrase diversity
                 if not self._is_phrase_diverse(neighbor_answer):
-                    phrase_diversity_fails += 1
+                    local_phrase_diversity_fails += 1
                     continue
                 
                 # Calculate ANSWER-level text similarity (key fix)
@@ -472,9 +489,17 @@ class HardNegativeMiner:
             # Continue to try higher thresholds even if we found something
             # This gives us the globally best candidate across all thresholds
         
+        # Update rejection stats
+        rejection_stats['same_goal'] = rejection_stats.get('same_goal', 0) + local_same_goal
+        rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + local_phrase_diversity_fails
+        
+        if best_negative_idx is None:
+            local_no_text_match = total_neighbors - local_same_goal - local_bad_answer - local_phrase_diversity_fails
+            rejection_stats['no_text_similarity_match'] = rejection_stats.get('no_text_similarity_match', 0) + local_no_text_match
+        
         # Debug statistics for small datasets only
         if show_debug:
-            print(f"    📊 Filtering stats: {total_neighbors} neighbors → same_goal:{same_goal_count}, bad_answer:{bad_answer_count}, diversity_fail:{phrase_diversity_fails}")
+            print(f"    📊 Filtering stats: {total_neighbors} neighbors → same_goal:{local_same_goal}, bad_answer:{local_bad_answer}, diversity_fail:{local_phrase_diversity_fails}")
             if best_negative_idx is not None:
                 print(f"    ✅ Found negative with text_sim={lowest_text_similarity:.3f}, visual_sim={best_visual_similarity:.3f} at threshold={best_threshold_used}")
         
@@ -522,9 +547,14 @@ class HardNegativeMiner:
         
         return None
     
-    def find_diverse_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]]) -> Optional[tuple]:
+    def find_diverse_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]], 
+                             rejection_stats: Dict[str, int] = None) -> Optional[tuple]:
         """Find a diverse negative from outside the anchor's visual cluster."""
+        if rejection_stats is None:
+            rejection_stats = {}
+            
         if anchor_idx not in self.visual_features or self.cluster_labels is None:
+            rejection_stats['no_valid_clusters'] = rejection_stats.get('no_valid_clusters', 0) + 1
             return None
         
         anchor_item = dataset[anchor_idx]
@@ -539,6 +569,10 @@ class HardNegativeMiner:
         different_cluster_candidates = []
         same_cluster_candidates = []
         
+        local_same_goal = 0
+        local_bad_answer = 0
+        local_phrase_diversity_fails = 0
+        
         for i, cluster_label in enumerate(self.cluster_labels):
             sample_idx = self.visual_indices[i]
             if sample_idx in dataset and sample_idx != anchor_idx:
@@ -546,19 +580,40 @@ class HardNegativeMiner:
                 neighbor_first_instruction = neighbor_item.get('first_instruction', '')
                 neighbor_answer = neighbor_item.get('answer', '')
                 
-                # Must have different goal and good answer
-                if (anchor_first_instruction != neighbor_first_instruction and
-                    self.is_good_answer(neighbor_answer) and
-                    self._is_phrase_diverse(neighbor_answer)):
+                # Track rejections for same goal
+                if anchor_first_instruction == neighbor_first_instruction:
+                    local_same_goal += 1
+                    continue
                     
-                    neighbor_features = self.visual_features[sample_idx]
-                    visual_similarity = np.dot(anchor_features, neighbor_features)
+                # Track rejections for bad answers
+                is_good, rejection_reason = self.is_good_answer(neighbor_answer, track_rejections=True)
+                if not is_good:
+                    if rejection_reason == 'too_short':
+                        rejection_stats['bad_answer_length'] = rejection_stats.get('bad_answer_length', 0) + 1
+                    elif rejection_reason == 'blacklist_direct':
+                        rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
+                    elif rejection_reason == 'blacklist_semantic':
+                        rejection_stats['bad_answer_semantic'] = rejection_stats.get('bad_answer_semantic', 0) + 1
+                    local_bad_answer += 1
+                    continue
                     
-                    # Prioritize different clusters
-                    if cluster_label != anchor_cluster:
-                        different_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
-                    else:
-                        same_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
+                # Track rejections for phrase diversity
+                if not self._is_phrase_diverse(neighbor_answer):
+                    local_phrase_diversity_fails += 1
+                    continue
+                
+                neighbor_features = self.visual_features[sample_idx]
+                visual_similarity = np.dot(anchor_features, neighbor_features)
+                
+                # Prioritize different clusters
+                if cluster_label != anchor_cluster:
+                    different_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
+                else:
+                    same_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
+        
+        # Update rejection stats
+        rejection_stats['same_goal'] = rejection_stats.get('same_goal', 0) + local_same_goal
+        rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + local_phrase_diversity_fails
         
         # Try different clusters first, then same cluster as fallback
         if different_cluster_candidates:
@@ -572,6 +627,8 @@ class HardNegativeMiner:
             selected_idx, selected_cluster, visual_similarity = same_cluster_candidates[0]
             return (selected_idx, anchor_cluster, selected_cluster, visual_similarity)
         
+        # No valid candidates found
+        rejection_stats['no_valid_clusters'] = rejection_stats.get('no_valid_clusters', 0) + 1
         return None
     
     def _is_phrase_diverse(self, answer: str) -> bool:
@@ -679,6 +736,18 @@ class HardNegativeMiner:
             'no_candidates_found': 0
         }
         
+        # Add comprehensive rejection tracking
+        rejection_stats = {
+            'same_goal': 0,
+            'bad_answer_length': 0,
+            'bad_answer_blacklist': 0,
+            'bad_answer_semantic': 0,
+            'phrase_diversity_fail': 0,
+            'no_text_similarity_match': 0,
+            'no_visual_neighbors': 0,
+            'no_valid_clusters': 0
+        }
+        
         # Only show detailed debug for very small datasets
         show_detailed_debug = debug_mode and len(samples_to_process) <= 10
         
@@ -705,10 +774,10 @@ class HardNegativeMiner:
             for strategy in strategy_order:
                 if strategy == "hard":
                     validation_stats['hard_attempts'] += 1
-                    negative_result = self.find_hard_negative(anchor_idx, dataset)
+                    negative_result = self.find_hard_negative(anchor_idx, dataset, rejection_stats)
                 else:
                     validation_stats['diverse_attempts'] += 1
-                    negative_result = self.find_diverse_negative(anchor_idx, dataset)
+                    negative_result = self.find_diverse_negative(anchor_idx, dataset, rejection_stats)
 
                 if negative_result is not None:
                     negative_type = strategy
@@ -770,7 +839,7 @@ class HardNegativeMiner:
 
             negatives[anchor_idx] = negative_data
         
-        # Print statistics
+        # Print comprehensive statistics
         print(f"📊 Validation Statistics:")
         print(f"  Total attempts: {validation_stats['total_attempts']}")
         print(f"  Hard attempts: {validation_stats['hard_attempts']} (success: {validation_stats['hard_success']})")
@@ -779,10 +848,17 @@ class HardNegativeMiner:
         print(f"  No candidates found: {validation_stats['no_candidates_found']}")
         print(f"  Success rate: {len(negatives)}/{validation_stats['total_attempts']} ({len(negatives)/validation_stats['total_attempts']*100:.1f}%)")
         
+        # Print rejection breakdown
+        print(f"\n🚫 Rejection Breakdown:")
+        total_rejections = sum(rejection_stats.values())
+        for reason, count in rejection_stats.items():
+            percentage = (count / total_rejections * 100) if total_rejections > 0 else 0
+            print(f"  {reason.replace('_', ' ').title()}: {count} ({percentage:.1f}%)")
+        
         hard_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'hard')
         diverse_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'diverse')
         
-        print(f"✅ Mined {len(negatives)} negatives total")
+        print(f"\n✅ Mined {len(negatives)} negatives total")
         print(f"📊 Hard negatives: {hard_count}, Diverse negatives: {diverse_count}")
         
         if negatives:
@@ -801,7 +877,7 @@ class HardNegativeMiner:
                 avg_hard_sim = sum(hard_sims) / len(hard_sims)
                 print(f"🎯 Hard negative quality: avg text similarity {avg_hard_sim:.3f}")
             
-            # Report visual similarity statistics
+            # Report visual similarity statistics with better analysis
             hard_visual_sims = [data['validation_metadata_2']['visual_similarity'] 
                                for data in negatives.values() 
                                if data.get('negative_type_2') == 'hard' and 'visual_similarity' in data['validation_metadata_2']]
@@ -811,11 +887,15 @@ class HardNegativeMiner:
             
             if hard_visual_sims:
                 avg_hard_visual_sim = sum(hard_visual_sims) / len(hard_visual_sims)
-                print(f"👁️ Hard visual similarity: avg {avg_hard_visual_sim:.3f}")
+                min_hard_vis = min(hard_visual_sims)
+                max_hard_vis = max(hard_visual_sims)
+                print(f"👁️ Hard visual similarity: avg {avg_hard_visual_sim:.3f} (range: {min_hard_vis:.3f} to {max_hard_vis:.3f})")
             
             if diverse_visual_sims:
                 avg_diverse_visual_sim = sum(diverse_visual_sims) / len(diverse_visual_sims)
-                print(f"🌈 Diverse visual similarity: avg {avg_diverse_visual_sim:.3f}")
+                min_diverse_vis = min(diverse_visual_sims)
+                max_diverse_vis = max(diverse_visual_sims)
+                print(f"🌈 Diverse visual similarity: avg {avg_diverse_visual_sim:.3f} (range: {min_diverse_vis:.3f} to {max_diverse_vis:.3f})")
             
             if not debug_mode:
                 print(f"🔍 Semantic filtering: {len(self.blacklist_embeddings)} blacklist embeddings")
