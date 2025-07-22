@@ -114,6 +114,9 @@ class HardNegativeMiner:
         
         # Debug mode
         self.debug_mode = False
+        
+        # Answer quality cache for fast checks
+        self.answer_quality_cache = {}
     
     def _initialize_blacklist_embeddings(self):
         """Initialize embeddings for blacklisted phrases for semantic similarity checking."""
@@ -468,15 +471,10 @@ class HardNegativeMiner:
                     rejection_stats['same_goal'] = rejection_stats.get('same_goal', 0) + 1
                     continue
                 
-                # Skip if answer is not good enough
-                is_good, rejection_reason = self.is_good_answer(neighbor_answer, track_rejections=True)
-                if not is_good:
-                    if rejection_reason == 'too_short':
-                        rejection_stats['bad_answer_length'] = rejection_stats.get('bad_answer_length', 0) + 1
-                    elif rejection_reason == 'blacklist_direct':
-                        rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
-                    elif rejection_reason == 'blacklist_semantic':
-                        rejection_stats['bad_answer_semantic'] = rejection_stats.get('bad_answer_semantic', 0) + 1
+                # Skip if answer is not good enough (fast pre-computed check)
+                neighbor_item = dataset[sample_idx]
+                if not self.is_good_answer_fast(neighbor_answer, neighbor_item):
+                    rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
                     continue
                 
                 # Check phrase diversity
@@ -539,7 +537,7 @@ class HardNegativeMiner:
             neighbor_answer = neighbor_item.get('answer', '')
 
             if (anchor_first_instruction != neighbor_first_instruction and 
-                self.is_good_answer(neighbor_answer) and 
+                self.is_good_answer_fast(neighbor_answer, dataset[sample_idx]) and 
                 self._is_phrase_diverse(neighbor_answer)):
                 
                 # Use answer-level similarity
@@ -596,15 +594,10 @@ class HardNegativeMiner:
                     rejection_stats['same_goal'] = rejection_stats.get('same_goal', 0) + 1
                     continue
                     
-                # Track rejections for bad answers
-                is_good, rejection_reason = self.is_good_answer(neighbor_answer, track_rejections=True)
-                if not is_good:
-                    if rejection_reason == 'too_short':
-                        rejection_stats['bad_answer_length'] = rejection_stats.get('bad_answer_length', 0) + 1
-                    elif rejection_reason == 'blacklist_direct':
-                        rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
-                    elif rejection_reason == 'blacklist_semantic':
-                        rejection_stats['bad_answer_semantic'] = rejection_stats.get('bad_answer_semantic', 0) + 1
+                # Track rejections for bad answers (fast pre-computed check)
+                neighbor_item = dataset[sample_idx]
+                if not self.is_good_answer_fast(neighbor_answer, neighbor_item):
+                    rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
                     continue
                     
                 # Track rejections for phrase diversity
@@ -716,6 +709,85 @@ class HardNegativeMiner:
         
         print(f"✅ Pre-computed {len(self.answer_embedding_cache)} answer embeddings")
 
+    def precompute_answer_quality(self, dataset: Dict[int, Dict[str, Any]]):
+        """Pre-compute answer quality for all answers to eliminate checks during mining."""
+        print("🔄 Pre-computing answer quality for all samples...")
+        
+        # Pre-compute quality for all answers in dataset
+        answer_quality_cache = {}
+        unique_answers = set()
+        
+        for item in dataset.values():
+            answer = item.get('answer', '')
+            if answer:
+                unique_answers.add(answer.strip())
+        
+        print(f"  Evaluating {len(unique_answers)} unique answers...")
+        
+        from tqdm import tqdm
+        good_count = 0
+        bad_count = 0
+        
+        for answer in tqdm(unique_answers, desc="Evaluating answers", disable=not self.debug_mode):
+            is_good = self._evaluate_answer_quality(answer)
+            answer_quality_cache[answer.strip()] = is_good
+            if is_good:
+                good_count += 1
+            else:
+                bad_count += 1
+        
+        # Store quality cache and add to dataset items
+        self.answer_quality_cache = answer_quality_cache
+        
+        # Add pre-computed quality to each dataset item
+        for item in dataset.values():
+            answer = item.get('answer', '')
+            if answer:
+                item['_precomputed_quality'] = self.answer_quality_cache.get(answer.strip(), False)
+        
+        print(f"✅ Pre-computed quality: {good_count} good, {bad_count} bad answers")
+        return good_count, bad_count
+
+    def _evaluate_answer_quality(self, answer: str) -> bool:
+        """Internal method to evaluate answer quality without tracking rejections."""
+        if not answer or not isinstance(answer, str):
+            return False
+        
+        answer_clean = answer.strip()
+        
+        # Check minimum length
+        if len(answer_clean) < self.min_answer_length:
+            return False
+        
+        # Fast direct blacklist check
+        answer_lower = answer.lower()
+        for category, phrases in self.answer_blacklist.items():
+            for phrase in phrases:
+                pattern = rf"\b{re.escape(phrase)}\b"
+                if re.search(pattern, answer_lower):
+                    return False
+        
+        # Semantic similarity check for longer answers
+        if len(answer_clean) > 30:
+            if self._check_semantic_similarity_to_blacklist(answer):
+                return False
+        
+        return True
+
+    def is_good_answer_fast(self, answer: str, dataset_item: Dict = None) -> bool:
+        """Fast answer quality check using pre-computed results."""
+        # Use pre-computed quality if available
+        if dataset_item and '_precomputed_quality' in dataset_item:
+            return dataset_item['_precomputed_quality']
+        
+        # Fallback to cache lookup
+        if hasattr(self, 'answer_quality_cache'):
+            answer_clean = answer.strip() if answer else ''
+            return self.answer_quality_cache.get(answer_clean, False)
+        
+        # Final fallback to full evaluation
+        return self._evaluate_answer_quality(answer)
+    
     def mine_hard_negatives(self, dataset: Dict[int, Dict[str, Any]], 
                            max_samples: Optional[int] = None, debug_mode: bool = False) -> Dict[int, Dict[str, Any]]:
         """Mine hard negatives for the entire dataset."""
@@ -761,6 +833,9 @@ class HardNegativeMiner:
         
         # Pre-compute answer embeddings for performance
         self.precompute_answer_embeddings(dataset)
+        
+        # Pre-compute answer quality for faster mining
+        self.precompute_answer_quality(dataset)
         
         # Build visual models
         self.build_visual_knn(dataset)
