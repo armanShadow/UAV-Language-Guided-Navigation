@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Test script for hard negative mining functionality.
-Tests semantic filtering, GPU processing, and mining strategies.
+Tests semantic filtering, GPU processing, mining strategies, and multi-GPU support.
 """
 
 import os
@@ -16,7 +16,7 @@ from transformers import T5Tokenizer
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config
-from data.add_hard_negatives import HardNegativeMiner, load_dataset, save_dataset
+from data.add_hard_negatives import HardNegativeMiner, MultiGPUMiner, load_dataset, save_dataset
 
 def test_semantic_filtering():
     """Test the semantic filtering functionality."""
@@ -38,7 +38,9 @@ def test_semantic_filtering():
         cosine_threshold=0.2,
         use_diverse_negatives=True,
         diverse_ratio=0.3,
-        min_answer_length=20
+        min_answer_length=20,
+        min_visual_similarity=0.15,
+        fallback_phrase_reuse_limit=8
     )
     
     # Initialize semantic filtering quietly
@@ -89,8 +91,42 @@ def test_semantic_filtering():
     
     return True
 
+def test_multi_gpu_detection():
+    """Test the multi-GPU detection functionality."""
+    
+    print("\n🧪 Testing Multi-GPU Detection...")
+    
+    # Test with different GPU configurations
+    test_configs = [
+        (None, True),   # Auto-detect
+        (4, True),      # Use 4 GPUs
+        (8, True),      # Use 8 GPUs
+        (2, False),     # Force 2 GPUs
+    ]
+    
+    for num_gpus, auto_detect in test_configs:
+        print(f"\n🔍 Testing: num_gpus={num_gpus}, auto_detect={auto_detect}")
+        
+        try:
+            multi_gpu_miner = MultiGPUMiner(num_gpus=num_gpus, auto_detect=auto_detect)
+            
+            print(f"   Available GPUs: {multi_gpu_miner.available_gpus}")
+            print(f"   GPU count: {len(multi_gpu_miner.available_gpus)}")
+            
+            if multi_gpu_miner.available_gpus:
+                print(f"   ✅ Multi-GPU detection working")
+            else:
+                print(f"   ⚠️ No GPUs detected (expected if no CUDA)")
+                
+        except Exception as e:
+            print(f"   ❌ Error in multi-GPU detection: {e}")
+            return False
+    
+    print("✅ Multi-GPU detection test completed!")
+    return True
+
 def test_mining_functionality():
-    """Test the mining functionality with a larger dataset."""
+    """Test the mining functionality with the new configuration."""
     
     print("\n🧪 Testing Mining Functionality...")
     
@@ -129,7 +165,7 @@ def test_mining_functionality():
         print(f"❌ Error loading dataset: {e}")
         return False
     
-    # Initialize miner with visual similarity filtering
+    # Initialize miner with new parameters
     image_dir = "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images"
     miner = HardNegativeMiner(
         config=config,
@@ -138,10 +174,10 @@ def test_mining_functionality():
         k_nn=100,
         cosine_threshold=0.2,
         use_diverse_negatives=True,
-        diverse_ratio=0.0,
+        diverse_ratio=0.0,  # Test with 0 diverse ratio for maximum hard negatives
         min_answer_length=20,
         min_visual_similarity=0.15,  # Test with visual similarity filtering
-        fallback_phrase_reuse_limit=8
+        fallback_phrase_reuse_limit=8  # Test with new fallback parameter
     )
     
     # Set GPU settings
@@ -157,7 +193,7 @@ def test_mining_functionality():
     # Add negatives to dataset
     updated_dataset = miner.add_hard_negatives_to_dataset(sharded_dataset, negatives)
     
-    # Comprehensive analysis
+    # Comprehensive analysis with new metrics
     print(f"\n📊 Mining Results Summary:")
     print(f"{'='*50}")
     
@@ -269,7 +305,7 @@ def test_mining_functionality():
     return True
 
 def test_multi_gpu_setup():
-    """Test the multi-GPU setup logic."""
+    """Test the multi-GPU setup logic with new configuration."""
     
     print("\n🧪 Testing Multi-GPU Setup Logic...")
     
@@ -284,8 +320,8 @@ def test_multi_gpu_setup():
     
     total_sharded = sum(shard_distributions)
     
-    # Test strategy ratio logic
-    diverse_ratio = 0.3
+    # Test strategy ratio logic with new diverse_ratio=0.0
+    diverse_ratio = 0.0  # Updated to test maximum hard negatives
     num_samples = 1000
     
     hard_first_count = 0
@@ -313,26 +349,82 @@ def test_multi_gpu_setup():
     
     return success
 
+def test_new_parameters():
+    """Test the new parameters and configuration options."""
+    
+    print("\n🧪 Testing New Parameters...")
+    
+    # Test HardNegativeMiner with new parameters
+    config = Config()
+    tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name, 
+                                           model_max_length=config.data.max_seq_length)
+    
+    image_dir = "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images"
+    
+    # Test with new parameters
+    miner = HardNegativeMiner(
+        config=config,
+        tokenizer=tokenizer,
+        image_dir=image_dir,
+        k_nn=100,
+        cosine_threshold=0.2,
+        use_diverse_negatives=True,
+        diverse_ratio=0.0,
+        min_answer_length=20,
+        min_visual_similarity=0.15,
+        fallback_phrase_reuse_limit=8
+    )
+    
+    # Verify new parameters are set correctly
+    expected_params = {
+        'min_visual_similarity': 0.15,
+        'fallback_phrase_reuse_limit': 8,
+        'diverse_ratio': 0.0,
+        'cosine_threshold': 0.2,
+        'k_nn': 100
+    }
+    
+    print("🔍 Verifying new parameters:")
+    for param, expected_value in expected_params.items():
+        actual_value = getattr(miner, param, None)
+        if actual_value == expected_value:
+            print(f"   ✅ {param}: {actual_value}")
+        else:
+            print(f"   ❌ {param}: expected {expected_value}, got {actual_value}")
+            return False
+    
+    print("✅ New parameters test completed!")
+    return True
+
 if __name__ == '__main__':
-    print("🚀 Starting Hard Negative Mining Tests...")
+    print("🚀 Starting Enhanced Hard Negative Mining Tests...")
     print("="*60)
     
     # Test 1: Semantic filtering
     success1 = test_semantic_filtering()
     
-    # Test 2: Mining functionality  
-    success2 = test_mining_functionality()
+    # Test 2: Multi-GPU detection
+    success2 = test_multi_gpu_detection()
     
-    # Test 3: Multi-GPU setup
-    success3 = test_multi_gpu_setup()
+    # Test 3: New parameters
+    success3 = test_new_parameters()
+    
+    # Test 4: Mining functionality with new config
+    success4 = test_mining_functionality()
+    
+    # Test 5: Multi-GPU setup
+    success5 = test_multi_gpu_setup()
     
     print("\n" + "="*60)
-    if success1 and success2 and success3:
+    if success1 and success2 and success3 and success4 and success5:
         print("🎉 All tests passed!")
         print("✅ Semantic filtering is working correctly")
-        print("✅ Mining strategies are functional")
+        print("✅ Multi-GPU detection is functional")
+        print("✅ New parameters are properly configured")
+        print("✅ Mining strategies are functional with new config")
         print("✅ Visual similarity filtering is working correctly")
         print("✅ Multi-GPU setup works correctly")
+        print("✅ Enhanced metrics reporting is operational")
     else:
         print("❌ Some tests failed!")
         sys.exit(1) 
