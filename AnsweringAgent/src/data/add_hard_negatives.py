@@ -212,7 +212,7 @@ class HardNegativeMiner:
     def is_good_answer(self, answer: str, track_rejections: bool = False) -> bool:
         """
         Check if an answer is good enough for negative mining.
-        Uses hybrid approach: fast direct matching first, then semantic similarity for edge cases.
+        Uses semantic-only approach: MPNet embeddings for context-aware filtering.
         
         Args:
             answer: The answer text to check
@@ -229,23 +229,11 @@ class HardNegativeMiner:
                 print(f"    ❌ Filtered: too short ({len(answer_clean)} chars)")
             return (False, 'too_short') if track_rejections else False
         
-        # Fast direct blacklist check for obvious cases
-        answer_lower = answer.lower()
-        for category, phrases in self.answer_blacklist.items():
-            for phrase in phrases:
-                pattern = rf"\b{re.escape(phrase)}\b"
-                if re.search(pattern, answer_lower):
-                    if self.debug_mode:
-                        print(f"    ❌ Filtered: contains blacklisted phrase '{phrase}' (direct)")
-                    return (False, 'blacklist_direct') if track_rejections else False
-        
-        # Only use expensive semantic similarity for longer answers that passed direct check
-        # This is where we need to catch semantically similar but differently worded answers
-        if len(answer_clean) > 30:  # Only check semantic similarity for longer answers
-            if self._check_semantic_similarity_to_blacklist(answer):
-                if self.debug_mode:
-                    print(f"    ❌ Filtered: semantically similar to blacklisted phrase")
-                return (False, 'blacklist_semantic') if track_rejections else False
+        # Use ONLY semantic similarity for filtering - more context-aware
+        if self._check_semantic_similarity_to_blacklist(answer):
+            if self.debug_mode:
+                print(f"    ❌ Filtered: semantically similar to blacklisted phrase")
+            return (False, 'blacklist_semantic') if track_rejections else False
         
         return (True, 'passed') if track_rejections else True
     
@@ -450,7 +438,7 @@ class HardNegativeMiner:
         total_neighbors = len(neighbor_indices)
         processed_neighbors = 0
         
-        thresholds_to_try = [0.2, 0.35, 0.5, 0.65, 0.8]  # More aggressive thresholds
+        thresholds_to_try = [0.1, 0.25, 0.4, 0.55, 0.7, 0.85]  # More lenient thresholds
         
         # Only show debug info for very small datasets
         show_debug = self.debug_mode and total_neighbors <= 3
@@ -479,8 +467,9 @@ class HardNegativeMiner:
                     continue
                 
                 # Skip if answer is not good enough (fast pre-computed check)
+                neighbor_item = dataset[sample_idx]
                 if not self.is_good_answer_fast(neighbor_answer, neighbor_item):
-                    rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
+                    rejection_stats['bad_answer_semantic'] = rejection_stats.get('bad_answer_semantic', 0) + 1
                     continue
                 
                 # Check phrase diversity
@@ -493,8 +482,8 @@ class HardNegativeMiner:
                 
                 # Calculate ANSWER-level text similarity (key fix)
                 text_sim_start = time.time()
-                anchor_text_features = self.extract_text_features(anchor_answer)
-                neighbor_text_features = self.extract_text_features(neighbor_answer)
+                anchor_text_features = self.get_text_features_fast(anchor_answer)
+                neighbor_text_features = self.get_text_features_fast(neighbor_answer)
                 text_similarity = np.dot(anchor_text_features, neighbor_text_features)
                 timing_stats['text_similarity_time'] = timing_stats.get('text_similarity_time', 0) + (time.time() - text_sim_start)
                 
@@ -553,8 +542,8 @@ class HardNegativeMiner:
                 
                 # Use answer-level similarity
                 text_sim_start = time.time()
-                anchor_text_features = self.extract_text_features(anchor_answer)
-                neighbor_text_features = self.extract_text_features(neighbor_answer)
+                anchor_text_features = self.get_text_features_fast(anchor_answer)
+                neighbor_text_features = self.get_text_features_fast(neighbor_answer)
                 text_sim = np.dot(anchor_text_features, neighbor_text_features)
                 timing_stats['text_similarity_time'] = timing_stats.get('text_similarity_time', 0) + (time.time() - text_sim_start)
                 
@@ -610,7 +599,7 @@ class HardNegativeMiner:
                 # Track rejections for bad answers (fast pre-computed check)
                 neighbor_item = dataset[sample_idx]
                 if not self.is_good_answer_fast(neighbor_answer, neighbor_item):
-                    rejection_stats['bad_answer_blacklist'] = rejection_stats.get('bad_answer_blacklist', 0) + 1
+                    rejection_stats['bad_answer_semantic'] = rejection_stats.get('bad_answer_semantic', 0) + 1
                     continue
                     
                 # Track rejections for phrase diversity
@@ -651,20 +640,22 @@ class HardNegativeMiner:
         # Normalize answer for comparison
         normalized_answer = answer.lower().strip()
         
-        # For very short answers, be extra strict
-        if len(normalized_answer) < 30:
+        # Use more restrictive reuse limits based on answer length and uniqueness
+        if len(normalized_answer) < 40:
             max_reuse = 1  # Very short answers can only be used once
         elif len(normalized_answer) < 60:
             max_reuse = 2  # Short answers can be used twice
+        elif len(normalized_answer) < 80:
+            max_reuse = max(3, self.max_phrase_reuse // 3)  # Medium answers: more restrictive
         else:
-            max_reuse = self.max_phrase_reuse  # Longer answers can be reused more
+            max_reuse = max(4, self.max_phrase_reuse // 2)  # Longer answers: less restrictive
         
         # Check if this phrase has been used too many times
-        if normalized_answer in self.used_phrases:
-            if self.used_phrases[normalized_answer] >= max_reuse:
-                if self.debug_mode:
-                    print(f"    ❌ Phrase overused ({self.used_phrases[normalized_answer]} times): '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
-                return False
+        current_usage = self.used_phrases.get(normalized_answer, 0)
+        if current_usage >= max_reuse:
+            if self.debug_mode:
+                print(f"    ❌ Phrase overused ({current_usage}/{max_reuse}): '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
+            return False
         
         # Additional quality check: avoid very generic short phrases
         generic_short_phrases = {
@@ -673,12 +664,14 @@ class HardNegativeMiner:
             'turn left at the intersection',
             'the destination is ahead',
             'go straight ahead',
-            'turn right at the corner'
+            'turn right at the corner',
+            'destiny is on your left, very close to you',
+            'you should turn now'
         }
         
         if normalized_answer in generic_short_phrases:
             # Allow these only once each
-            if normalized_answer in self.used_phrases and self.used_phrases[normalized_answer] >= 1:
+            if current_usage >= 1:
                 if self.debug_mode:
                     print(f"    ❌ Generic phrase already used: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
                 return False
@@ -695,7 +688,7 @@ class HardNegativeMiner:
     
     def precompute_answer_embeddings(self, dataset: Dict[int, Dict[str, Any]]):
         """Pre-compute embeddings for all answers in the dataset to improve performance."""
-        print("🔄 Pre-computing answer embeddings for performance...")
+        print("🔄 Pre-computing answer embeddings and text features...")
         
         unique_answers = set()
         for item in dataset.values():
@@ -703,25 +696,51 @@ class HardNegativeMiner:
             if answer and len(answer.strip()) > 30:  # Only pre-compute for answers that will need semantic checking
                 unique_answers.add(answer.strip())
         
+        # Also add all answers for text feature caching
+        for item in dataset.values():
+            answer = item.get('answer', '')
+            if answer:
+                unique_answers.add(answer.strip())
+        
         if not unique_answers:
-            print("  No answers need semantic checking")
+            print("  No answers need pre-computation")
             return
             
-        print(f"  Computing embeddings for {len(unique_answers)} unique answers...")
+        print(f"  Computing embeddings and text features for {len(unique_answers)} unique answers...")
         
-        # Batch process embeddings
+        # Batch process embeddings and text features
         from tqdm import tqdm
-        for answer in tqdm(unique_answers, desc="Computing embeddings", disable=not self.debug_mode):
-            if answer not in self.answer_embedding_cache:
+        for answer in tqdm(unique_answers, desc="Computing features", disable=not self.debug_mode):
+            # Cache MPNet embeddings
+            if answer not in self.answer_embedding_cache and len(answer) > 30:
                 try:
                     embedding = self.normalizer.generate_mpnet_embedding(answer)
                     self.answer_embedding_cache[answer] = embedding
                 except Exception as e:
                     if self.debug_mode:
                         print(f"⚠️ Error computing embedding for '{answer[:50]}...': {e}")
+            
+            # Cache text features for all answers
+            if answer not in self.text_features:
+                try:
+                    text_features = self.extract_text_features(answer)
+                    self.text_features[answer] = text_features
+                except Exception as e:
+                    if self.debug_mode:
+                        print(f"⚠️ Error computing text features for '{answer[:50]}...': {e}")
         
-        print(f"✅ Pre-computed {len(self.answer_embedding_cache)} answer embeddings")
+        print(f"✅ Pre-computed {len(self.answer_embedding_cache)} embeddings, {len(self.text_features)} text features")
 
+    def get_text_features_fast(self, answer: str) -> np.ndarray:
+        """Get text features with caching for performance."""
+        if answer in self.text_features:
+            return self.text_features[answer]
+        
+        # Fallback to direct computation if not cached
+        features = self.extract_text_features(answer)
+        self.text_features[answer] = features  # Cache for future use
+        return features
+    
     def precompute_answer_quality(self, dataset: Dict[int, Dict[str, Any]]):
         """Pre-compute answer quality for all answers to eliminate checks during mining."""
         print("🔄 Pre-computing answer quality for all samples...")
@@ -772,18 +791,12 @@ class HardNegativeMiner:
         if len(answer_clean) < self.min_answer_length:
             return False
         
-        # Fast direct blacklist check
-        answer_lower = answer.lower()
-        for category, phrases in self.answer_blacklist.items():
-            for phrase in phrases:
-                pattern = rf"\b{re.escape(phrase)}\b"
-                if re.search(pattern, answer_lower):
-                    return False
+        # REMOVED: Direct blacklist check - let semantic similarity handle everything
+        # This allows more nuanced, context-aware filtering
         
-        # Semantic similarity check for longer answers
-        if len(answer_clean) > 30:
-            if self._check_semantic_similarity_to_blacklist(answer):
-                return False
+        # Semantic similarity check for all answers (not just longer ones)
+        if self._check_semantic_similarity_to_blacklist(answer):
+            return False
         
         return True
 
@@ -874,7 +887,6 @@ class HardNegativeMiner:
         rejection_stats = {
             'same_goal': 0,
             'bad_answer_length': 0,
-            'bad_answer_blacklist': 0,
             'bad_answer_semantic': 0,
             'phrase_diversity_fail': 0,
             'no_text_similarity_match': 0,
