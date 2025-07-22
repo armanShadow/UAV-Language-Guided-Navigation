@@ -510,13 +510,18 @@ class HardNegativeMiner:
                 
                 candidates_at_threshold += 1
                 
-                # Find the least similar text (lowest cosine similarity)
-                if text_similarity < lowest_text_similarity and text_similarity < threshold:
-                    lowest_text_similarity = text_similarity
-                    best_negative_idx = sample_idx
-                    best_visual_similarity = visual_similarity
-                    best_threshold_used = threshold
-                    found_at_threshold = True
+                # For hard negatives: prioritize HIGH visual similarity + LOW text similarity
+                # This creates the ideal hard negative: similar scene, different semantics
+                if text_similarity < threshold:
+                    # Among valid candidates, prefer higher visual similarity
+                    if (best_negative_idx is None or 
+                        text_similarity < lowest_text_similarity or 
+                        (text_similarity == lowest_text_similarity and visual_similarity > best_visual_similarity)):
+                        lowest_text_similarity = text_similarity
+                        best_negative_idx = sample_idx
+                        best_visual_similarity = visual_similarity
+                        best_threshold_used = threshold
+                        found_at_threshold = True
                 else:
                     # Count as no text similarity match if not accepted
                     rejection_stats['no_text_similarity_match'] = rejection_stats.get('no_text_similarity_match', 0) + 1
@@ -567,7 +572,10 @@ class HardNegativeMiner:
                 visual_distance = neighbor_distances[i]
                 visual_sim = 1.0 - visual_distance
 
-                if text_sim < fallback_best_sim:
+                # Prioritize: lowest text similarity, then highest visual similarity  
+                if (fallback_best_idx is None or 
+                    text_sim < fallback_best_sim or
+                    (text_sim == fallback_best_sim and visual_sim > fallback_best_vis)):
                     fallback_best_sim = text_sim
                     fallback_best_idx = sample_idx
                     fallback_best_vis = visual_sim
@@ -650,12 +658,16 @@ class HardNegativeMiner:
         return None
     
     def _is_phrase_diverse(self, answer: str) -> bool:
-        """Check if answer phrase is diverse enough (not overused) - AGGRESSIVE diversity enforcement."""
+        """Check if answer phrase is diverse enough (not overused) - OPTIMIZED for performance."""
         if not answer:
             return False
         
         # Normalize answer for comparison
         normalized_answer = answer.lower().strip()
+        
+        # Quick check: if we've never seen this phrase, it's diverse
+        if normalized_answer not in self.used_phrases:
+            return True
         
         # Much more aggressive reuse limits for better diversity
         if len(normalized_answer) < 60:
@@ -666,44 +678,33 @@ class HardNegativeMiner:
             max_reuse = 3  # Very long answers: max 3 times
         
         # Check current usage
-        current_usage = self.used_phrases.get(normalized_answer, 0)
+        current_usage = self.used_phrases[normalized_answer]
         if current_usage >= max_reuse:
             if self.debug_mode:
                 print(f"    ❌ Phrase overused ({current_usage}/{max_reuse}): '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
             return False
         
-        # Expanded list of generic phrases to avoid overuse
-        generic_phrases = {
-            'your goal is the big building right in front of you',
-            'go south to black lot',
-            'turn left at the intersection',
-            'the destination is ahead',
-            'go straight ahead',
-            'turn right at the corner',
-            'destiny is on your left, very close to you',
-            'you should turn now',
-            'go to your eight o\'clock',
-            'you should go to your seven o\'clock',
-            'head north',
-            'turn left',
-            'turn right',
-            'go straight',
-            'move forward',
-            'continue ahead'
+        # Quick check for very common generic phrases (most frequent offenders)
+        very_common_phrases = {
+            'go straight ahead', 'turn left', 'turn right', 'head north', 'move forward'
         }
         
-        # Check for generic phrases - allow only ONCE each
-        if normalized_answer in generic_phrases and current_usage >= 1:
+        if normalized_answer in very_common_phrases and current_usage >= 1:
             if self.debug_mode:
-                print(f"    ❌ Generic phrase already used: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
+                print(f"    ❌ Common phrase already used: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
             return False
         
-        # Additional check: reject very similar phrases (edit distance)
-        for used_phrase in self.used_phrases.keys():
-            if self._phrases_too_similar(normalized_answer, used_phrase):
-                if self.debug_mode:
-                    print(f"    ❌ Too similar to existing phrase: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
-                return False
+        # Skip expensive similarity check for short phrases (most filtering already done above)
+        if len(normalized_answer) < 40:
+            return True
+        
+        # Only do expensive similarity check for longer phrases and if we have many used phrases
+        if len(self.used_phrases) > 20:
+            for used_phrase in self.used_phrases.keys():
+                if self._phrases_too_similar(normalized_answer, used_phrase):
+                    if self.debug_mode:
+                        print(f"    ❌ Too similar to existing phrase: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
+                    return False
         
         return True
     
