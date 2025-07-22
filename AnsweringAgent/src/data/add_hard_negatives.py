@@ -39,7 +39,8 @@ class HardNegativeMiner:
     
     def __init__(self, config: Config, tokenizer, image_dir: str, k_nn: int = 100, cosine_threshold: float = 0.2,
                  use_diverse_negatives: bool = True, diverse_ratio: float = 0.3, min_answer_length: int = 20,
-                 min_visual_similarity: float = 0.30):
+                 min_visual_similarity: float = 0.20,
+                 fallback_phrase_reuse_limit: int = 3):
         """
         Initialize the hard negative miner.
         
@@ -63,6 +64,8 @@ class HardNegativeMiner:
         self.diverse_ratio = diverse_ratio
         self.min_answer_length = min_answer_length
         self.min_visual_similarity = min_visual_similarity
+        # How many times we allow a phrase to be reused when phrase diversity is relaxed
+        self.fallback_phrase_reuse_limit = max(1, fallback_phrase_reuse_limit)
         
         # GPU optimization settings
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -544,11 +547,15 @@ class HardNegativeMiner:
                 text_similarity = text_similarities[i]
                 if text_similarity >= self.cosine_threshold:
                     continue
-                # Select first candidate that meets similarity constraints (no diversity check)
+                # Enforce a lightweight phrase diversity check: limit total reuse
+                norm_ans = neighbor_answer.lower().strip()
+                if self.used_phrases.get(norm_ans, 0) >= self.fallback_phrase_reuse_limit:
+                    rejection_stats['phrase_diversity_relaxed_fail'] = rejection_stats.get('phrase_diversity_relaxed_fail', 0) + 1
+                    continue
+                # Accept this candidate
                 best_negative_idx = sample_idx
                 lowest_text_similarity = text_similarity
                 best_visual_similarity = visual_similarity
-                # Mark that diversity was relaxed
                 rejection_stats['diversity_relaxed'] = rejection_stats.get('diversity_relaxed', 0) + 1
                 break
         
