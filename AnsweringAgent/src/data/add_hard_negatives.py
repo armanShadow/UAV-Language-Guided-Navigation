@@ -457,7 +457,7 @@ class HardNegativeMiner:
         
         # Pre-compute text similarities for all neighbors
         anchor_text_features = self.get_text_features_fast(anchor_answer)
-        text_similarities = []
+        text_similarity_map = {}  # Map sample_idx to text_similarity
         valid_neighbor_indices = []
         
         for i, pos in enumerate(neighbor_indices):
@@ -485,7 +485,7 @@ class HardNegativeMiner:
             text_similarity = np.dot(anchor_text_features, neighbor_text_features)
             timing_stats['text_similarity_time'] = timing_stats.get('text_similarity_time', 0) + (time.time() - text_sim_start)
             
-            text_similarities.append(text_similarity)
+            text_similarity_map[sample_idx] = text_similarity
             valid_neighbor_indices.append((i, sample_idx, neighbor_answer))
         
         # Sort by visual similarity (descending) to prioritize visually similar neighbors
@@ -520,7 +520,7 @@ class HardNegativeMiner:
                 if visual_similarity < self.min_visual_similarity:
                     break
 
-                text_similarity = text_similarities[i]
+                text_similarity = text_similarity_map[sample_idx]
 
                 # Skip if text similarity is too high (above current threshold)
                 if text_similarity >= thr:
@@ -550,7 +550,7 @@ class HardNegativeMiner:
                 # Break if visual similarity below threshold
                 if visual_similarity < self.min_visual_similarity:
                     break
-                text_similarity = text_similarities[i]
+                text_similarity = text_similarity_map[sample_idx]
                 if text_similarity >= self.cosine_threshold:
                     continue
                 # Enforce a lightweight phrase diversity check: limit total reuse
