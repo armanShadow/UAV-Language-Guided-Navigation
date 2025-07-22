@@ -138,7 +138,7 @@ def test_mining_functionality():
         k_nn=100,
         cosine_threshold=0.2,
         use_diverse_negatives=True,
-        diverse_ratio=0.2,
+        diverse_ratio=0.0,
         min_answer_length=20,
         min_visual_similarity=0.15,  # Test with visual similarity filtering
         fallback_phrase_reuse_limit=5
