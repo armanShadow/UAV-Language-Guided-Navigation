@@ -209,6 +209,23 @@ class HardNegativeMiner:
         
         return False
     
+    def _evaluate_answer_quality(self, answer: str) -> bool:
+        """Internal method to evaluate answer quality without tracking rejections."""
+        if not answer or not isinstance(answer, str):
+            return False
+        
+        answer_clean = answer.strip()
+        
+        # Check minimum length
+        if len(answer_clean) < self.min_answer_length:
+            return False
+        
+        # Use consolidated semantic similarity check
+        if self._check_semantic_similarity_to_blacklist(answer):
+            return False
+        
+        return True
+
     def is_good_answer(self, answer: str, track_rejections: bool = False) -> bool:
         """
         Check if an answer is good enough for negative mining.
@@ -229,7 +246,7 @@ class HardNegativeMiner:
                 print(f"    ❌ Filtered: too short ({len(answer_clean)} chars)")
             return (False, 'too_short') if track_rejections else False
         
-        # Use ONLY semantic similarity for filtering - more context-aware
+        # Use consolidated semantic similarity check
         if self._check_semantic_similarity_to_blacklist(answer):
             if self.debug_mode:
                 print(f"    ❌ Filtered: semantically similar to blacklisted phrase")
@@ -438,7 +455,7 @@ class HardNegativeMiner:
         total_neighbors = len(neighbor_indices)
         processed_neighbors = 0
         
-        thresholds_to_try = [0.1, 0.25, 0.4, 0.55, 0.7, 0.85]  # More lenient thresholds
+        thresholds_to_try = [-0.2, 0.0, 0.15, 0.3, 0.45, 0.6, 0.75]  # Proper -1 to +1 range for cosine similarity
         
         # Only show debug info for very small datasets
         show_debug = self.debug_mode and total_neighbors <= 3
@@ -633,32 +650,30 @@ class HardNegativeMiner:
         return None
     
     def _is_phrase_diverse(self, answer: str) -> bool:
-        """Check if answer phrase is diverse enough (not overused)."""
+        """Check if answer phrase is diverse enough (not overused) - AGGRESSIVE diversity enforcement."""
         if not answer:
             return False
         
         # Normalize answer for comparison
         normalized_answer = answer.lower().strip()
         
-        # Use more restrictive reuse limits based on answer length and uniqueness
-        if len(normalized_answer) < 40:
-            max_reuse = 1  # Very short answers can only be used once
-        elif len(normalized_answer) < 60:
-            max_reuse = 2  # Short answers can be used twice
-        elif len(normalized_answer) < 80:
-            max_reuse = max(3, self.max_phrase_reuse // 3)  # Medium answers: more restrictive
+        # Much more aggressive reuse limits for better diversity
+        if len(normalized_answer) < 60:
+            max_reuse = 1  # Short/medium answers: ONLY ONCE
+        elif len(normalized_answer) < 100:
+            max_reuse = 2  # Longer answers: max twice
         else:
-            max_reuse = max(4, self.max_phrase_reuse // 2)  # Longer answers: less restrictive
+            max_reuse = 3  # Very long answers: max 3 times
         
-        # Check if this phrase has been used too many times
+        # Check current usage
         current_usage = self.used_phrases.get(normalized_answer, 0)
         if current_usage >= max_reuse:
             if self.debug_mode:
                 print(f"    ❌ Phrase overused ({current_usage}/{max_reuse}): '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
             return False
         
-        # Additional quality check: avoid very generic short phrases
-        generic_short_phrases = {
+        # Expanded list of generic phrases to avoid overuse
+        generic_phrases = {
             'your goal is the big building right in front of you',
             'go south to black lot',
             'turn left at the intersection',
@@ -666,17 +681,49 @@ class HardNegativeMiner:
             'go straight ahead',
             'turn right at the corner',
             'destiny is on your left, very close to you',
-            'you should turn now'
+            'you should turn now',
+            'go to your eight o\'clock',
+            'you should go to your seven o\'clock',
+            'head north',
+            'turn left',
+            'turn right',
+            'go straight',
+            'move forward',
+            'continue ahead'
         }
         
-        if normalized_answer in generic_short_phrases:
-            # Allow these only once each
-            if current_usage >= 1:
+        # Check for generic phrases - allow only ONCE each
+        if normalized_answer in generic_phrases and current_usage >= 1:
+            if self.debug_mode:
+                print(f"    ❌ Generic phrase already used: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
+            return False
+        
+        # Additional check: reject very similar phrases (edit distance)
+        for used_phrase in self.used_phrases.keys():
+            if self._phrases_too_similar(normalized_answer, used_phrase):
                 if self.debug_mode:
-                    print(f"    ❌ Generic phrase already used: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
+                    print(f"    ❌ Too similar to existing phrase: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
                 return False
         
         return True
+    
+    def _phrases_too_similar(self, phrase1: str, phrase2: str) -> bool:
+        """Check if two phrases are too similar using simple heuristics."""
+        if len(phrase1) < 30 or len(phrase2) < 30:
+            return False  # Only check longer phrases
+        
+        # Simple similarity check: if they share too many words
+        words1 = set(phrase1.split())
+        words2 = set(phrase2.split())
+        
+        if len(words1) == 0 or len(words2) == 0:
+            return False
+        
+        overlap = len(words1.intersection(words2))
+        min_length = min(len(words1), len(words2))
+        
+        # If >70% of words overlap, consider too similar
+        return overlap / min_length > 0.7
     
     def _track_phrase_usage(self, answer: str):
         """Track phrase usage for diversity."""
@@ -779,26 +826,6 @@ class HardNegativeMiner:
         
         print(f"✅ Pre-computed quality: {good_count} good, {bad_count} bad answers")
         return good_count, bad_count
-
-    def _evaluate_answer_quality(self, answer: str) -> bool:
-        """Internal method to evaluate answer quality without tracking rejections."""
-        if not answer or not isinstance(answer, str):
-            return False
-        
-        answer_clean = answer.strip()
-        
-        # Check minimum length
-        if len(answer_clean) < self.min_answer_length:
-            return False
-        
-        # REMOVED: Direct blacklist check - let semantic similarity handle everything
-        # This allows more nuanced, context-aware filtering
-        
-        # Semantic similarity check for all answers (not just longer ones)
-        if self._check_semantic_similarity_to_blacklist(answer):
-            return False
-        
-        return True
 
     def is_good_answer_fast(self, answer: str, dataset_item: Dict = None) -> bool:
         """Fast answer quality check using pre-computed results."""
