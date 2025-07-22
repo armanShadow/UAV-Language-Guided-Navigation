@@ -506,37 +506,43 @@ class HardNegativeMiner:
         if show_debug:
             print(f"    🔍 Searching through {len(valid_indices_with_sims)} valid neighbors...")
         
-        # Search through neighbors in visual similarity order
-        for (i, sample_idx, neighbor_answer), visual_similarity in valid_indices_with_sims:
-            # Stop if visual similarity is below minimum threshold
-            if visual_similarity < self.min_visual_similarity:
-                if show_debug:
-                    print(f"    🛑 Stopping: visual similarity {visual_similarity:.3f} < {self.min_visual_similarity}")
-                break
-            
-            # Get text similarity for this neighbor
-            text_similarity = text_similarities[i]
-            
-            # Skip if text similarity is too high (above threshold)
-            if text_similarity >= self.cosine_threshold:
-                rejection_stats['no_text_similarity_match'] = rejection_stats.get('no_text_similarity_match', 0) + 1
-                continue
-            
-            # Check phrase diversity (only for candidates that pass text similarity)
-            diversity_start = time.time()
-            if not self._is_phrase_diverse(neighbor_answer):
+        # --- STRICT PASS WITH ESCALATING TEXT-SIMILARITY THRESHOLDS ---
+        strict_thresholds = [
+            self.cosine_threshold,
+            self.cosine_threshold + 0.05,
+            self.cosine_threshold + 0.10,
+            self.cosine_threshold + 0.15,
+        ]
+
+        for thr in strict_thresholds:
+            for (i, sample_idx, neighbor_answer), visual_similarity in valid_indices_with_sims:
+                # Stop if visual similarity below minimum threshold
+                if visual_similarity < self.min_visual_similarity:
+                    break
+
+                text_similarity = text_similarities[i]
+
+                # Skip if text similarity is too high (above current threshold)
+                if text_similarity >= thr:
+                    continue
+
+                # Check phrase diversity (only for candidates that pass text similarity)
+                diversity_start = time.time()
+                if not self._is_phrase_diverse(neighbor_answer):
+                    timing_stats['phrase_diversity_time'] = timing_stats.get('phrase_diversity_time', 0) + (time.time() - diversity_start)
+                    rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + 1
+                    continue
                 timing_stats['phrase_diversity_time'] = timing_stats.get('phrase_diversity_time', 0) + (time.time() - diversity_start)
-                rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + 1
-                continue
-            timing_stats['phrase_diversity_time'] = timing_stats.get('phrase_diversity_time', 0) + (time.time() - diversity_start)
-            
-            # Found a valid candidate! Select the one with lowest text similarity
-            # (among visually similar candidates)
-            if (best_negative_idx is None or 
-                text_similarity < lowest_text_similarity):
-                lowest_text_similarity = text_similarity
+
+                # Found candidate
                 best_negative_idx = sample_idx
+                lowest_text_similarity = text_similarity
                 best_visual_similarity = visual_similarity
+                break  # break inner loop
+
+            if best_negative_idx is not None:
+                # We found a candidate at this threshold – stop escalating further
+                break
         
         # --- NEW: SECOND PASS WITHOUT PHRASE DIVERSITY IF NO CANDIDATE FOUND ---
         if best_negative_idx is None:
