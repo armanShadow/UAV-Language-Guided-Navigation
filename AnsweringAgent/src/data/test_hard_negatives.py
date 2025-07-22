@@ -115,10 +115,10 @@ def test_mining_functionality():
         from data.dataset import AnsweringDataset
         dataset = AnsweringDataset.load_train_chunks(config.data.train_processed_path_dir)
         
-        # Take first 400 samples, shard to 100 for testing
-        test_dataset = {k: v for k, v in list(dataset.items())[:400]}
+        # Take first 800 samples, shard to 200 for testing
+        test_dataset = {k: v for k, v in list(dataset.items())[:800]}
         
-        # Shard to simulate multi-GPU (keep 100 samples)
+        # Shard to simulate multi-GPU (keep 200 samples)
         num_shards = 4
         shard_id = 0
         original_size = len(test_dataset)
