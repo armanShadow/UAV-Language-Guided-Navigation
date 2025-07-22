@@ -678,9 +678,9 @@ class HardNegativeMiner:
         
         # Much more aggressive reuse limits for better diversity
         if len(normalized_answer) < 60:
-            max_reuse = 2  # Short/medium answers: ONLY ONCE
+            max_reuse = 1  # Short/medium answers: ONLY ONCE
         elif len(normalized_answer) < 100:
-            max_reuse = 4  # Longer answers: max twice
+            max_reuse = 2  # Longer answers: max twice
         else:
             max_reuse = self.fallback_phrase_reuse_limit  # Very long answers: max 3 times
         
@@ -1311,7 +1311,7 @@ def main():
                        help='Total number of dataset shards')
     parser.add_argument('--shard-id', type=int, default=0,
                        help='Shard index for this process')
-    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=6,
+    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=3,
                        help='Maximum phrase reuse when diversity is relaxed in fallback mode')
     parser.add_argument('--skip-existing-negatives', action='store_true', default=False,
                        help='Skip samples that already have a mined negative in the dataset')
