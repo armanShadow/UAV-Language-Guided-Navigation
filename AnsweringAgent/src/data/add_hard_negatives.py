@@ -38,7 +38,8 @@ class HardNegativeMiner:
     """Mines hard negative samples using visual K-NN and least-similar instruction selection."""
     
     def __init__(self, config: Config, tokenizer, image_dir: str, k_nn: int = 100, cosine_threshold: float = 0.2,
-                 use_diverse_negatives: bool = True, diverse_ratio: float = 0.3, min_answer_length: int = 20):
+                 use_diverse_negatives: bool = True, diverse_ratio: float = 0.3, min_answer_length: int = 20,
+                 min_visual_similarity: float = 0.30):
         """
         Initialize the hard negative miner.
         
@@ -51,6 +52,7 @@ class HardNegativeMiner:
             use_diverse_negatives: Whether to add diverse negatives from outside clusters
             diverse_ratio: Ratio of samples to use for diverse negative mining (default: 0.3 for 30/70 split)
             min_answer_length: Minimum answer length to consider (default: 20 characters)
+            min_visual_similarity: Minimum visual similarity for hard negatives (default: 0.30)
         """
         self.config = config
         self.tokenizer = tokenizer
@@ -60,6 +62,7 @@ class HardNegativeMiner:
         self.use_diverse_negatives = use_diverse_negatives
         self.diverse_ratio = diverse_ratio
         self.min_answer_length = min_answer_length
+        self.min_visual_similarity = min_visual_similarity
         
         # GPU optimization settings
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -446,144 +449,101 @@ class HardNegativeMiner:
         neighbor_distances = distances[0][1:]
         timing_stats['visual_knn_time'] = timing_stats.get('visual_knn_time', 0) + (time.time() - knn_start)
         
-        best_negative_idx = None
-        lowest_text_similarity = float('inf')
-        best_visual_similarity = None
-        best_threshold_used = None
+        # Pre-compute visual similarities and text similarities for all neighbors
+        visual_similarities = 1.0 - neighbor_distances  # Convert distance to similarity
         
-        # Count filtering for debugging
-        total_neighbors = len(neighbor_indices)
-        processed_neighbors = 0
+        # Pre-compute text similarities for all neighbors
+        anchor_text_features = self.get_text_features_fast(anchor_answer)
+        text_similarities = []
+        valid_neighbor_indices = []
         
-        thresholds_to_try = [-0.2, 0.0, 0.15, 0.3, 0.45, 0.6, 0.75]  # Proper -1 to +1 range for cosine similarity
-        
-        # Only show debug info for very small datasets
-        show_debug = self.debug_mode and total_neighbors <= 3
-        
-        if show_debug:
-            print(f"    🔍 Searching through {total_neighbors} visual neighbors...")
-        
-        for threshold in thresholds_to_try:
-            found_at_threshold = False
-            candidates_at_threshold = 0
-            
-            for i, pos in enumerate(neighbor_indices):
-                sample_idx = self.visual_indices[pos]
-                if sample_idx not in dataset:
-                    continue
-                    
-                neighbor_item = dataset[sample_idx]
-                neighbor_answer = neighbor_item.get('answer', '')  # Use answer instead of context
-                neighbor_first_instruction = neighbor_item.get('first_instruction', '')
-                
-                processed_neighbors += 1
-                
-                # Skip if same goal
-                if anchor_first_instruction == neighbor_first_instruction:
-                    rejection_stats['same_goal'] = rejection_stats.get('same_goal', 0) + 1
-                    continue
-                
-                # Skip if answer is not good enough (fast pre-computed check)
-                neighbor_item = dataset[sample_idx]
-                if not self.is_good_answer_fast(neighbor_answer, neighbor_item):
-                    rejection_stats['bad_answer_semantic'] = rejection_stats.get('bad_answer_semantic', 0) + 1
-                    continue
-                
-                # Check phrase diversity
-                diversity_start = time.time()
-                if not self._is_phrase_diverse(neighbor_answer):
-                    timing_stats['phrase_diversity_time'] = timing_stats.get('phrase_diversity_time', 0) + (time.time() - diversity_start)
-                    rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + 1
-                    continue
-                timing_stats['phrase_diversity_time'] = timing_stats.get('phrase_diversity_time', 0) + (time.time() - diversity_start)
-                
-                # Calculate ANSWER-level text similarity (key fix)
-                text_sim_start = time.time()
-                anchor_text_features = self.get_text_features_fast(anchor_answer)
-                neighbor_text_features = self.get_text_features_fast(neighbor_answer)
-                text_similarity = np.dot(anchor_text_features, neighbor_text_features)
-                timing_stats['text_similarity_time'] = timing_stats.get('text_similarity_time', 0) + (time.time() - text_sim_start)
-                
-                # Convert cosine distance to similarity (1 - distance = similarity)
-                visual_distance = neighbor_distances[i]
-                visual_similarity = 1.0 - visual_distance
-                
-                candidates_at_threshold += 1
-                
-                # For hard negatives: prioritize HIGH visual similarity + LOW text similarity
-                # This creates the ideal hard negative: similar scene, different semantics
-                if text_similarity < threshold:
-                    # Among valid candidates, prefer higher visual similarity
-                    if (best_negative_idx is None or 
-                        text_similarity < lowest_text_similarity or 
-                        (text_similarity == lowest_text_similarity and visual_similarity > best_visual_similarity)):
-                        lowest_text_similarity = text_similarity
-                        best_negative_idx = sample_idx
-                        best_visual_similarity = visual_similarity
-                        best_threshold_used = threshold
-                        found_at_threshold = True
-                else:
-                    # Count as no text similarity match if not accepted
-                    rejection_stats['no_text_similarity_match'] = rejection_stats.get('no_text_similarity_match', 0) + 1
-            
-            if show_debug:
-                print(f"    📊 Threshold {threshold}: {candidates_at_threshold} candidates, found: {found_at_threshold}")
-            
-            # Continue to try higher thresholds even if we found something
-            # This gives us the globally best candidate across all thresholds
-        
-        # Debug statistics for small datasets only
-        if show_debug:
-            print(f"    📊 Processed {processed_neighbors} neighbors")
-            if best_negative_idx is not None:
-                print(f"    ✅ Found negative with text_sim={lowest_text_similarity:.3f}, visual_sim={best_visual_similarity:.3f} at threshold={best_threshold_used}")
-        
-        if best_negative_idx is not None:
-            return (best_negative_idx, lowest_text_similarity, best_visual_similarity)
-
-        # Final fallback: take any valid neighbor with lowest similarity regardless of threshold
-        if show_debug:
-            print(f"    🔄 Fallback: trying any valid neighbor...")
-        
-        fallback_best_idx = None
-        fallback_best_sim = float('inf')
-        fallback_best_vis = None
-
         for i, pos in enumerate(neighbor_indices):
             sample_idx = self.visual_indices[pos]
             if sample_idx not in dataset:
                 continue
                 
             neighbor_item = dataset[sample_idx]
-            neighbor_first_instruction = neighbor_item.get('first_instruction', '')
             neighbor_answer = neighbor_item.get('answer', '')
-
-            if (anchor_first_instruction != neighbor_first_instruction and 
-                self.is_good_answer_fast(neighbor_answer, dataset[sample_idx]) and 
-                self._is_phrase_diverse(neighbor_answer)):
-                
-                # Use answer-level similarity
-                text_sim_start = time.time()
-                anchor_text_features = self.get_text_features_fast(anchor_answer)
-                neighbor_text_features = self.get_text_features_fast(neighbor_answer)
-                text_sim = np.dot(anchor_text_features, neighbor_text_features)
-                timing_stats['text_similarity_time'] = timing_stats.get('text_similarity_time', 0) + (time.time() - text_sim_start)
-                
-                visual_distance = neighbor_distances[i]
-                visual_sim = 1.0 - visual_distance
-
-                # Prioritize: lowest text similarity, then highest visual similarity  
-                if (fallback_best_idx is None or 
-                    text_sim < fallback_best_sim or
-                    (text_sim == fallback_best_sim and visual_sim > fallback_best_vis)):
-                    fallback_best_sim = text_sim
-                    fallback_best_idx = sample_idx
-                    fallback_best_vis = visual_sim
+            neighbor_first_instruction = neighbor_item.get('first_instruction', '')
+            
+            # Skip if same goal
+            if anchor_first_instruction == neighbor_first_instruction:
+                rejection_stats['same_goal'] = rejection_stats.get('same_goal', 0) + 1
+                continue
+            
+            # Skip if answer is not good enough (fast pre-computed check)
+            if not self.is_good_answer_fast(neighbor_answer, neighbor_item):
+                rejection_stats['bad_answer_semantic'] = rejection_stats.get('bad_answer_semantic', 0) + 1
+                continue
+            
+            # Calculate text similarity
+            text_sim_start = time.time()
+            neighbor_text_features = self.get_text_features_fast(neighbor_answer)
+            text_similarity = np.dot(anchor_text_features, neighbor_text_features)
+            timing_stats['text_similarity_time'] = timing_stats.get('text_similarity_time', 0) + (time.time() - text_sim_start)
+            
+            text_similarities.append(text_similarity)
+            valid_neighbor_indices.append((i, sample_idx, neighbor_answer))
         
-        if fallback_best_idx is not None:
-            if show_debug:
-                print(f"    ✅ Fallback found negative with text_sim={fallback_best_sim:.3f}, visual_sim={fallback_best_vis:.3f}")
-            return (fallback_best_idx, fallback_best_sim, fallback_best_vis)
+        # Sort by visual similarity (descending) to prioritize visually similar neighbors
+        # Only consider neighbors with visual similarity >= min_visual_similarity
+        valid_visual_sims = [visual_similarities[i] for i, _, _ in valid_neighbor_indices]
+        valid_indices_with_sims = list(zip(valid_neighbor_indices, valid_visual_sims))
+        
+        # Sort by visual similarity (descending)
+        valid_indices_with_sims.sort(key=lambda x: x[1], reverse=True)
+        
+        best_negative_idx = None
+        lowest_text_similarity = float('inf')
+        best_visual_similarity = None
+        
+        # Only show debug info for very small datasets
+        show_debug = self.debug_mode and len(valid_indices_with_sims) <= 3
+        
+        if show_debug:
+            print(f"    🔍 Searching through {len(valid_indices_with_sims)} valid neighbors...")
+        
+        # Search through neighbors in visual similarity order
+        for (i, sample_idx, neighbor_answer), visual_similarity in valid_indices_with_sims:
+            # Stop if visual similarity is below minimum threshold
+            if visual_similarity < self.min_visual_similarity:
+                if show_debug:
+                    print(f"    🛑 Stopping: visual similarity {visual_similarity:.3f} < {self.min_visual_similarity}")
+                break
+            
+            # Get text similarity for this neighbor
+            text_similarity = text_similarities[i]
+            
+            # Skip if text similarity is too high (above threshold)
+            if text_similarity >= self.cosine_threshold:
+                rejection_stats['no_text_similarity_match'] = rejection_stats.get('no_text_similarity_match', 0) + 1
+                continue
+            
+            # Check phrase diversity (only for candidates that pass text similarity)
+            diversity_start = time.time()
+            if not self._is_phrase_diverse(neighbor_answer):
+                timing_stats['phrase_diversity_time'] = timing_stats.get('phrase_diversity_time', 0) + (time.time() - diversity_start)
+                rejection_stats['phrase_diversity_fail'] = rejection_stats.get('phrase_diversity_fail', 0) + 1
+                continue
+            timing_stats['phrase_diversity_time'] = timing_stats.get('phrase_diversity_time', 0) + (time.time() - diversity_start)
+            
+            # Found a valid candidate! Select the one with lowest text similarity
+            # (among visually similar candidates)
+            if (best_negative_idx is None or 
+                text_similarity < lowest_text_similarity):
+                lowest_text_similarity = text_similarity
+                best_negative_idx = sample_idx
+                best_visual_similarity = visual_similarity
+        
+        # Debug statistics for small datasets only
+        if show_debug:
+            if best_negative_idx is not None:
+                print(f"    ✅ Found negative with text_sim={lowest_text_similarity:.3f}, visual_sim={best_visual_similarity:.3f}")
+            else:
+                print(f"    ❌ No valid negative found")
+        
+        if best_negative_idx is not None:
+            return (best_negative_idx, lowest_text_similarity, best_visual_similarity)
         
         return None
     
@@ -677,7 +637,7 @@ class HardNegativeMiner:
         else:
             max_reuse = 3  # Very long answers: max 3 times
         
-        # Check current usage
+        # Check current usage - if already at limit, reject immediately
         current_usage = self.used_phrases[normalized_answer]
         if current_usage >= max_reuse:
             if self.debug_mode:
@@ -699,6 +659,8 @@ class HardNegativeMiner:
             return True
         
         # Only do expensive similarity check for longer phrases and if we have many used phrases
+        # OPTIMIZATION: Only run similarity check if we're about to accept this candidate
+        # (This check is now called only after text similarity passes, so it's already a candidate)
         if len(self.used_phrases) > 20:
             for used_phrase in self.used_phrases.keys():
                 if self._phrases_too_similar(normalized_answer, used_phrase):
@@ -885,6 +847,11 @@ class HardNegativeMiner:
             self.min_answer_length = 12
             if debug_mode:
                 print(f"📊 Large dataset: using balanced filtering with semantic threshold {self.semantic_similarity_threshold}")
+        
+        # Show visual similarity filtering settings
+        if debug_mode:
+            print(f"🎯 Visual similarity filtering: min_visual_similarity = {self.min_visual_similarity}")
+            print(f"📝 Text similarity threshold: {self.cosine_threshold}")
         
         # Pre-compute answer embeddings for performance
         self.precompute_answer_embeddings(dataset)
@@ -1088,13 +1055,22 @@ class HardNegativeMiner:
                 avg_hard_visual_sim = sum(hard_visual_sims) / len(hard_visual_sims)
                 min_hard_vis = min(hard_visual_sims)
                 max_hard_vis = max(hard_visual_sims)
-                print(f"👁️ Hard visual similarity: avg {avg_hard_visual_sim:.3f} (range: {min_hard_vis:.3f} to {max_hard_vis:.3f})")
+                std_hard_vis = np.std(hard_visual_sims)
+                print(f"👁️ Hard visual similarity: avg {avg_hard_visual_sim:.3f} ± {std_hard_vis:.3f} (range: {min_hard_vis:.3f} to {max_hard_vis:.3f})")
+                
+                # Check if filtering is working
+                below_threshold = sum(1 for sim in hard_visual_sims if sim < self.min_visual_similarity)
+                if below_threshold > 0:
+                    print(f"⚠️ Warning: {below_threshold} hard negatives below min_visual_similarity ({self.min_visual_similarity})")
+                else:
+                    print(f"✅ All hard negatives meet minimum visual similarity requirement")
             
             if diverse_visual_sims:
                 avg_diverse_visual_sim = sum(diverse_visual_sims) / len(diverse_visual_sims)
                 min_diverse_vis = min(diverse_visual_sims)
                 max_diverse_vis = max(diverse_visual_sims)
-                print(f"🌈 Diverse visual similarity: avg {avg_diverse_visual_sim:.3f} (range: {min_diverse_vis:.3f} to {max_diverse_vis:.3f})")
+                std_diverse_vis = np.std(diverse_visual_sims)
+                print(f"🌈 Diverse visual similarity: avg {avg_diverse_visual_sim:.3f} ± {std_diverse_vis:.3f} (range: {min_diverse_vis:.3f} to {max_diverse_vis:.3f})")
             
             if not debug_mode:
                 print(f"🔍 Semantic filtering: {len(self.blacklist_embeddings)} blacklist embeddings")
@@ -1197,6 +1173,8 @@ def main():
                        help='Ratio of samples to use for diverse negative mining')
     parser.add_argument('--min-answer-length', type=int, default=20,
                        help='Minimum answer length to consider for negative mining')
+    parser.add_argument('--min-visual-similarity', type=float, default=0.30,
+                       help='Minimum visual similarity for hard negatives (default: 0.30)')
     parser.add_argument('--batch-size', type=int, default=64,
                        help='Batch size for GPU processing')
     parser.add_argument('--num-workers', type=int, default=4,
@@ -1235,7 +1213,8 @@ def main():
         cosine_threshold=args.cosine_threshold,
         use_diverse_negatives=args.use_diverse_negatives,
         diverse_ratio=args.diverse_ratio,
-        min_answer_length=args.min_answer_length
+        min_answer_length=args.min_answer_length,
+        min_visual_similarity=args.min_visual_similarity
     )
     
     miner.batch_size = args.batch_size

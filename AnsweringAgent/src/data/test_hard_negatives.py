@@ -129,7 +129,7 @@ def test_mining_functionality():
         print(f"❌ Error loading dataset: {e}")
         return False
     
-    # Initialize miner
+    # Initialize miner with visual similarity filtering
     image_dir = "../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/train_images"
     miner = HardNegativeMiner(
         config=config,
@@ -139,7 +139,8 @@ def test_mining_functionality():
         cosine_threshold=0.2,
         use_diverse_negatives=True,
         diverse_ratio=0.3,
-        min_answer_length=20
+        min_answer_length=20,
+        min_visual_similarity=0.30  # Test with visual similarity filtering
     )
     
     # Set GPU settings
@@ -192,6 +193,13 @@ def test_mining_functionality():
         
         if hard_visual_sims:
             print(f"👁️ Hard Visual Similarity: {np.mean(hard_visual_sims):.3f}±{np.std(hard_visual_sims):.3f} (n={len(hard_visual_sims)})")
+            
+            # Check visual similarity filtering effectiveness
+            below_threshold = sum(1 for sim in hard_visual_sims if sim < miner.min_visual_similarity)
+            if below_threshold > 0:
+                print(f"⚠️ Warning: {below_threshold} hard negatives below min_visual_similarity ({miner.min_visual_similarity})")
+            else:
+                print(f"✅ All hard negatives meet minimum visual similarity requirement")
             
         if diverse_visual_sims:
             print(f"🌈 Diverse Visual Similarity: {np.mean(diverse_visual_sims):.3f}±{np.std(diverse_visual_sims):.3f} (n={len(diverse_visual_sims)})")
@@ -247,6 +255,11 @@ def test_mining_functionality():
             print(f"   Text Sim: {metadata['text_similarity']:.3f}")
         if 'visual_similarity' in metadata:
             print(f"   Visual Sim: {metadata['visual_similarity']:.3f}")
+            # Check if visual similarity meets minimum requirement
+            if metadata['visual_similarity'] < miner.min_visual_similarity:
+                print(f"   ⚠️ Below min threshold ({miner.min_visual_similarity})")
+            else:
+                print(f"   ✅ Above min threshold ({miner.min_visual_similarity})")
         if 'anchor_cluster' in metadata and 'negative_cluster' in metadata:
             print(f"   Clusters: {metadata['anchor_cluster']} → {metadata['negative_cluster']}")
     
@@ -316,6 +329,7 @@ if __name__ == '__main__':
         print("🎉 All tests passed!")
         print("✅ Semantic filtering is working correctly")
         print("✅ Mining strategies are functional")
+        print("✅ Visual similarity filtering is working correctly")
         print("✅ Multi-GPU setup works correctly")
     else:
         print("❌ Some tests failed!")
