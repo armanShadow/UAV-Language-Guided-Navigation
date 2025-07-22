@@ -140,7 +140,7 @@ def test_mining_functionality():
         use_diverse_negatives=True,
         diverse_ratio=0.0,
         min_answer_length=20,
-        min_visual_similarity=0.15,  # Test with visual similarity filtering
+        min_visual_similarity=0.20,  # Test with visual similarity filtering
         fallback_phrase_reuse_limit=5
     )
     
