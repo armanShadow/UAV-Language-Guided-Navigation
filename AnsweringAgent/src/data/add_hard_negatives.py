@@ -674,6 +674,20 @@ class HardNegativeMiner:
         
         # Quick check: if we've never seen this phrase, it's diverse
         if normalized_answer not in self.used_phrases:
+             # Only do expensive similarity check for longer phrases and if we have many used phrases
+            # OPTIMISATION: compare only with phrases of similar length and cap comparisons to 25
+            if len(self.used_phrases) > 20:
+                cand_len = len(normalized_answer)
+                # phrases whose length differs by ≤10 characters
+                candidates = [p for p in self.used_phrases.keys()
+                            if abs(len(p) - cand_len) <= 10]
+                if candidates:
+                    sample_size = min(25, len(candidates))
+                    for used_phrase in random.sample(candidates, sample_size):
+                        if self._phrases_too_similar(normalized_answer, used_phrase):
+                            if self.debug_mode:
+                                print(f"    ❌ Too similar to existing phrase: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
+                            return False
             return True
         
         # Much more aggressive reuse limits for better diversity
@@ -690,35 +704,6 @@ class HardNegativeMiner:
             if self.debug_mode:
                 print(f"    ❌ Phrase overused ({current_usage}/{max_reuse}): '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
             return False
-        
-        # Quick check for very common generic phrases (most frequent offenders)
-        very_common_phrases = {
-            'go straight ahead', 'turn left', 'turn right', 'head north', 'move forward'
-        }
-        
-        if normalized_answer in very_common_phrases and current_usage >= 1:
-            if self.debug_mode:
-                print(f"    ❌ Common phrase already used: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
-            return False
-        
-        # Skip expensive similarity check for short phrases (most filtering already done above)
-        if len(normalized_answer) < 40:
-            return True
-        
-        # Only do expensive similarity check for longer phrases and if we have many used phrases
-        # OPTIMISATION: compare only with phrases of similar length and cap comparisons to 25
-        if len(self.used_phrases) > 20:
-            cand_len = len(normalized_answer)
-            # phrases whose length differs by ≤10 characters
-            candidates = [p for p in self.used_phrases.keys()
-                          if abs(len(p) - cand_len) <= 10]
-            if candidates:
-                sample_size = min(25, len(candidates))
-                for used_phrase in random.sample(candidates, sample_size):
-                    if self._phrases_too_similar(normalized_answer, used_phrase):
-                        if self.debug_mode:
-                            print(f"    ❌ Too similar to existing phrase: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
-                        return False
         
         return True
     
@@ -738,7 +723,7 @@ class HardNegativeMiner:
         min_length = min(len(words1), len(words2))
         
         # If >70% of words overlap, consider too similar
-        return overlap / min_length > 0.7
+        return overlap / min_length > 0.75
     
     def _track_phrase_usage(self, answer: str):
         """Track phrase usage for diversity."""
