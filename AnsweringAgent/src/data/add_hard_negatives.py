@@ -803,9 +803,9 @@ class HardNegativeMiner:
     def _get_semantic_reuse_limit(self, phrase_length: int) -> int:
         """Get reuse limits for semantic-based diversity (more lenient than word-based)."""
         if phrase_length < 60:
-            return 2   
+            return 1
         elif phrase_length < 100:
-            return 4  
+            return 2
         else:
             return self.fallback_phrase_reuse_limit   
     
@@ -818,6 +818,11 @@ class HardNegativeMiner:
         # Use consistent normalization
         normalized_answer = self._normalize_answer_for_cache(answer)
         self.used_phrases[normalized_answer] = self.used_phrases.get(normalized_answer, 0) + 1
+
+        # Sliding-window diversity: keep only the most-recent 1000 phrases
+        if len(self.used_phrases) > 1000:
+            # pop the oldest inserted key (dicts preserve insertion order in Py≥3.7)
+            self.used_phrases.pop(next(iter(self.used_phrases)))
     
     def precompute_answer_embeddings(self, dataset: Dict[int, Dict[str, Any]]):
         """Pre-compute embeddings for all answers in the dataset to improve performance."""
@@ -1391,7 +1396,7 @@ def main():
                        help='Total number of dataset shards')
     parser.add_argument('--shard-id', type=int, default=0,
                        help='Shard index for this process')
-    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=6,
+    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=5,
                        help='Maximum phrase reuse when diversity is relaxed in fallback mode')
     parser.add_argument('--skip-existing-negatives', action='store_true', default=False,
                        help='Skip samples that already have a mined negative in the dataset')
