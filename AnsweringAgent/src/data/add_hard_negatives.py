@@ -665,47 +665,34 @@ class HardNegativeMiner:
         return None
     
     def _is_phrase_diverse(self, answer: str) -> bool:
-        """Check if answer phrase is diverse enough (not overused) - OPTIMIZED for performance."""
+        """Return True if phrase can still be used under diversity policy."""
         if not answer:
             return False
-        
-        # Normalize answer for comparison
-        normalized_answer = answer.lower().strip()
-        
-        # Quick check: if we've never seen this phrase, it's diverse
-        if normalized_answer not in self.used_phrases:
-             # Only do expensive similarity check for longer phrases and if we have many used phrases
-            # OPTIMISATION: compare only with phrases of similar length and cap comparisons to 25
-            if len(self.used_phrases) > 20:
-                cand_len = len(normalized_answer)
-                # phrases whose length differs by ≤10 characters
-                candidates = [p for p in self.used_phrases.keys()
-                            if abs(len(p) - cand_len) <= 10]
-                if candidates:
-                    sample_size = min(25, len(candidates))
-                    for used_phrase in random.sample(candidates, sample_size):
-                        if self._phrases_too_similar(normalized_answer, used_phrase):
-                            if self.debug_mode:
-                                print(f"    ❌ Too similar to existing phrase: '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
-                            return False
-            return True
-        
-        # Much more aggressive reuse limits for better diversity
-        if len(normalized_answer) < 60:
-            max_reuse = 1  # Short/medium answers: ONLY ONCE
-        elif len(normalized_answer) < 100:
-            max_reuse = 2  # Longer answers: max twice
+
+        norm = answer.lower().strip()
+
+        # --- fast similarity check ---------------------------------------------------
+        # We want to block near-duplicate variants even if this exact string
+        # has never appeared before.  Compare with a small, length-matched
+        # subset of previously used phrases.
+        if len(self.used_phrases) > 20:
+            cand_len = len(norm)
+            similar_pool = [p for p in self.used_phrases.keys()
+                             if abs(len(p) - cand_len) <= 10]
+            if similar_pool:
+                for p in random.sample(similar_pool, k=min(50, len(similar_pool))):
+                    if self._phrases_too_similar(norm, p):
+                        return False  # too close to an existing phrase
+
+        # --- reuse-counter check ------------------------------------------------------
+        current = self.used_phrases.get(norm, 0)
+        if len(norm) < 60:
+            limit = 1
+        elif len(norm) < 100:
+            limit = 2
         else:
-            max_reuse = self.fallback_phrase_reuse_limit  # Very long answers: max 3 times
-        
-        # Check current usage - if already at limit, reject immediately
-        current_usage = self.used_phrases[normalized_answer]
-        if current_usage >= max_reuse:
-            if self.debug_mode:
-                print(f"    ❌ Phrase overused ({current_usage}/{max_reuse}): '{answer[:40]}{'...' if len(answer) > 40 else ''}'")
-            return False
-        
-        return True
+            limit = self.fallback_phrase_reuse_limit  # typically 3
+        return current < limit
     
     def _phrases_too_similar(self, phrase1: str, phrase2: str) -> bool:
         """Check if two phrases are too similar using simple heuristics."""
