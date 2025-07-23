@@ -855,7 +855,7 @@ def main():
                        help='Minimum answer length to consider')
     parser.add_argument('--min-visual-similarity', type=float, default=0.15,
                        help='Minimum visual similarity for hard negatives')
-    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=5,
+    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=4,
                        help='Maximum phrase reuse in fallback mode')
     parser.add_argument('--sliding-window-size', type=int, default=1000,
                        help='Number of recent phrases to track for diversity')
