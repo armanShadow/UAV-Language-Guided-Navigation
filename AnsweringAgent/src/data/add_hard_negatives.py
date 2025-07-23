@@ -58,7 +58,7 @@ class HardNegativeMiner:
     def __init__(self, config: Config, tokenizer, image_dir: str, k_nn: int = 100, cosine_threshold: float = 0.2,
                  use_diverse_negatives: bool = True, diverse_ratio: float = 0.3, min_answer_length: int = 20,
                  min_visual_similarity: float = 0.20,
-                 fallback_phrase_reuse_limit: int = 3):
+                 fallback_phrase_reuse_limit: int = 3, phrase_semantic_threshold: float = 0.75):
         """
         Initialize the hard negative miner.
         
@@ -72,6 +72,8 @@ class HardNegativeMiner:
             diverse_ratio: Ratio of samples to use for diverse negative mining (default: 0.3 for 30/70 split)
             min_answer_length: Minimum answer length to consider (default: 20 characters)
             min_visual_similarity: Minimum visual similarity for hard negatives (default: 0.30)
+            fallback_phrase_reuse_limit: Maximum reuse when diversity is relaxed (default: 3)
+            phrase_semantic_threshold: Semantic similarity threshold for phrase diversity (default: 0.75)
         """
         self.config = config
         self.tokenizer = tokenizer
@@ -141,6 +143,9 @@ class HardNegativeMiner:
         
         # Answer quality cache for fast checks
         self.answer_quality_cache = {}
+
+        # Semantic phrase diversity threshold (configurable)
+        self.phrase_semantic_threshold = phrase_semantic_threshold
     
     def _initialize_blacklist_embeddings(self):
         """Initialize embeddings for blacklisted phrases for semantic similarity checking."""
@@ -196,16 +201,19 @@ class HardNegativeMiner:
         if not self.blacklist_embeddings or not hasattr(self, 'normalizer'):
             return False
         
+        # Use consistent normalization
+        normalized_answer = self._normalize_answer_for_cache(answer)
+        
         # Check cache first
-        if answer in self.answer_embedding_cache:
-            answer_embedding = self.answer_embedding_cache[answer]
+        if normalized_answer in self.answer_embedding_cache:
+            answer_embedding = self.answer_embedding_cache[normalized_answer]
         else:
             try:
-                answer_embedding = self.normalizer.generate_mpnet_embedding(answer)
-                self.answer_embedding_cache[answer] = answer_embedding
+                answer_embedding = self.normalizer.generate_mpnet_embedding(normalized_answer)
+                self.answer_embedding_cache[normalized_answer] = answer_embedding
             except Exception as e:
                 if self.debug_mode:
-                    print(f"⚠️ Error generating embedding for '{answer}': {e}")
+                    print(f"⚠️ Error generating embedding for '{normalized_answer}': {e}")
                 return False
         
         max_similarity = 0.0
@@ -664,42 +672,108 @@ class HardNegativeMiner:
         rejection_stats['no_valid_clusters'] = rejection_stats.get('no_valid_clusters', 0) + 1
         return None
     
+    def _normalize_answer_for_cache(self, answer: str) -> str:
+        """Consistent normalization for all caches."""
+        return answer.lower().strip() if answer else ""
+    
+    def _get_or_compute_embedding(self, answer: str) -> Optional[np.ndarray]:
+        """Get embedding from cache or compute if needed, with consistent normalization."""
+        if not answer:
+            return None
+            
+        # Use consistent normalization
+        normalized = self._normalize_answer_for_cache(answer)
+        
+        # Check cache with normalized key
+        if normalized in self.answer_embedding_cache:
+            return self.answer_embedding_cache[normalized]
+            
+        # Compute and cache if needed (for longer answers)
+        if len(normalized) > 30:
+            try:
+                embedding = self.normalizer.generate_mpnet_embedding(normalized)
+                self.answer_embedding_cache[normalized] = embedding
+                return embedding
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"⚠️ Error computing embedding for '{normalized[:50]}...': {e}")
+        
+        return None
+    
     def _is_phrase_diverse(self, answer: str) -> bool:
-        """Return True if phrase can still be used under diversity policy."""
+        """Return True if phrase is semantically diverse from existing phrases."""
         if not answer:
             return False
 
-        norm = answer.lower().strip()
-
-        # --- fast similarity check ---------------------------------------------------
-        # We want to block near-duplicate variants even if this exact string
-        # has never appeared before.  Compare with a small, length-matched
-        # subset of previously used phrases.
-        if len(self.used_phrases) > 20:
-            cand_len = len(norm)
-            similar_pool = [p for p in self.used_phrases.keys()
-                             if abs(len(p) - cand_len) <= 10]
-            if similar_pool:
-                for p in random.sample(similar_pool, k=min(50, len(similar_pool))):
-                    if self._phrases_too_similar(norm, p):
-                        return False  # too close to an existing phrase
-
-        # --- reuse-counter check ------------------------------------------------------
-        current = self.used_phrases.get(norm, 0)
-        if len(norm) < 60:
-            limit = 1
-        elif len(norm) < 100:
-            limit = 2
+        normalized = self._normalize_answer_for_cache(answer)
+        
+        # Check semantic similarity against existing phrases using pre-computed embeddings
+        candidate_embedding = self._get_or_compute_embedding(answer)
+        if candidate_embedding is not None and len(self.used_phrases) > 0:
+            # Check semantic similarity against a sample of existing phrases
+            existing_phrases = list(self.used_phrases.keys())
+            
+            # For performance, sample existing phrases if too many
+            if len(existing_phrases) > 100:
+                existing_phrases = random.sample(existing_phrases, 100)
+            
+            max_similarity = 0.0
+            for existing_phrase in existing_phrases:
+                existing_embedding = self._get_or_compute_embedding(existing_phrase)
+                if existing_embedding is not None:
+                    similarity = np.dot(candidate_embedding, existing_embedding)
+                    max_similarity = max(max_similarity, similarity)
+                    
+                    # If too semantically similar, reject
+                    if similarity > self.phrase_semantic_threshold:
+                        if self.debug_mode:
+                            print(f"    🚫 Phrase too similar: {similarity:.3f} > {self.phrase_semantic_threshold} to '{existing_phrase[:50]}...'")
+                        return False
+            
+            if self.debug_mode and max_similarity > 0.7:
+                print(f"    📊 Max semantic similarity: {max_similarity:.3f} (threshold: {self.phrase_semantic_threshold})")
+        
+        # For new phrases (not in used_phrases), only check semantic similarity, skip reuse count
+        is_new_phrase = normalized not in self.used_phrases
+        if is_new_phrase:
+            if self.debug_mode:
+                print(f"    ✅ New phrase accepted: '{normalized[:50]}...'")
+            return True  # New phrases are automatically diverse (passed semantic check above)
+        
+        # Check reuse limits with more lenient thresholds for semantic approach
+        current_uses = self.used_phrases.get(normalized, 0)
+        max_uses = self._get_semantic_reuse_limit(len(normalized))
+        
+        if current_uses >= max_uses:
+            if self.debug_mode:
+                print(f"    🚫 Phrase reuse limit exceeded: {current_uses} >= {max_uses}")
+            return False
+        
+        return True
+    
+    def _get_semantic_reuse_limit(self, phrase_length: int) -> int:
+        """Get reuse limits for semantic-based diversity (more lenient than word-based)."""
+        if phrase_length < 60:
+            return 1   
+        elif phrase_length < 100:
+            return 2  
         else:
-            limit = self.fallback_phrase_reuse_limit  # typically 3
-        return current < limit
+            return self.fallback_phrase_reuse_limit   # More lenient than current 3
     
     def _phrases_too_similar(self, phrase1: str, phrase2: str) -> bool:
-        """Check if two phrases are too similar using simple heuristics."""
-        if len(phrase1) < 30 or len(phrase2) < 30:
-            return False  # Only check longer phrases
+        """Check if two phrases are too similar using semantic embeddings."""
+        # Use semantic similarity instead of word overlap
+        embedding1 = self._get_or_compute_embedding(phrase1)
+        embedding2 = self._get_or_compute_embedding(phrase2)
         
-        # Simple similarity check: if they share too many words
+        if embedding1 is not None and embedding2 is not None:
+            similarity = np.dot(embedding1, embedding2)
+            return similarity > self.phrase_semantic_threshold
+        
+        # Fallback to word overlap if embeddings not available
+        if len(phrase1) < 30 or len(phrase2) < 30:
+            return False
+            
         words1 = set(phrase1.split())
         words2 = set(phrase2.split())
         
@@ -709,15 +783,15 @@ class HardNegativeMiner:
         overlap = len(words1.intersection(words2))
         min_length = min(len(words1), len(words2))
         
-        # If >85% of words overlap, consider too similar
         return overlap / min_length > 0.85
     
     def _track_phrase_usage(self, answer: str):
-        """Track phrase usage for diversity."""
+        """Track phrase usage for diversity with consistent normalization."""
         if not answer:
             return
         
-        normalized_answer = answer.lower().strip()
+        # Use consistent normalization
+        normalized_answer = self._normalize_answer_for_cache(answer)
         self.used_phrases[normalized_answer] = self.used_phrases.get(normalized_answer, 0) + 1
     
     def precompute_answer_embeddings(self, dataset: Dict[int, Dict[str, Any]]):
@@ -727,14 +801,17 @@ class HardNegativeMiner:
         unique_answers = set()
         for item in dataset.values():
             answer = item.get('answer', '')
-            if answer and len(answer.strip()) > 30:  # Only pre-compute for answers that will need semantic checking
-                unique_answers.add(answer.strip())
+            if answer:
+                normalized_answer = self._normalize_answer_for_cache(answer)
+                if len(normalized_answer) > 30:  # Only pre-compute for longer answers that will need semantic checking
+                    unique_answers.add(normalized_answer)
         
         # Also add all answers for text feature caching
         for item in dataset.values():
             answer = item.get('answer', '')
             if answer:
-                unique_answers.add(answer.strip())
+                normalized_answer = self._normalize_answer_for_cache(answer)
+                unique_answers.add(normalized_answer)
         
         if not unique_answers:
             print("  No answers need pre-computation")
@@ -744,35 +821,39 @@ class HardNegativeMiner:
         
         # Batch process embeddings and text features
         from tqdm import tqdm
-        for answer in tqdm(unique_answers, desc="Computing features", disable=not self.debug_mode):
-            # Cache MPNet embeddings
-            if answer not in self.answer_embedding_cache and len(answer) > 30:
-                try:
-                    embedding = self.normalizer.generate_mpnet_embedding(answer)
-                    self.answer_embedding_cache[answer] = embedding
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ Error computing embedding for '{answer[:50]}...': {e}")
+        for normalized_answer in tqdm(unique_answers, desc="Computing features", disable=not self.debug_mode):
+            # unique_answers already contains normalized answers
             
-            # Cache text features for all answers
-            if answer not in self.text_features:
+            # Cache MPNet embeddings
+            if normalized_answer not in self.answer_embedding_cache and len(normalized_answer) > 30:
                 try:
-                    text_features = self.extract_text_features(answer)
-                    self.text_features[answer] = text_features
+                    embedding = self.normalizer.generate_mpnet_embedding(normalized_answer)
+                    self.answer_embedding_cache[normalized_answer] = embedding
                 except Exception as e:
                     if self.debug_mode:
-                        print(f"⚠️ Error computing text features for '{answer[:50]}...': {e}")
+                        print(f"⚠️ Error computing embedding for '{normalized_answer[:50]}...': {e}")
+            
+            # Cache text features for all answers  
+            if normalized_answer not in self.text_features:
+                try:
+                    text_features = self.extract_text_features(normalized_answer)
+                    self.text_features[normalized_answer] = text_features
+                except Exception as e:
+                    if self.debug_mode:
+                        print(f"⚠️ Error computing text features for '{normalized_answer[:50]}...': {e}")
         
         print(f"✅ Pre-computed {len(self.answer_embedding_cache)} embeddings, {len(self.text_features)} text features")
 
     def get_text_features_fast(self, answer: str) -> np.ndarray:
         """Get text features with caching for performance."""
-        if answer in self.text_features:
-            return self.text_features[answer]
+        normalized_answer = self._normalize_answer_for_cache(answer)
+        
+        if normalized_answer in self.text_features:
+            return self.text_features[normalized_answer]
         
         # Fallback to direct computation if not cached
-        features = self.extract_text_features(answer)
-        self.text_features[answer] = features  # Cache for future use
+        features = self.extract_text_features(normalized_answer)
+        self.text_features[normalized_answer] = features  # Cache for future use
         return features
     
     def precompute_answer_quality(self, dataset: Dict[int, Dict[str, Any]]):
@@ -786,7 +867,8 @@ class HardNegativeMiner:
         for item in dataset.values():
             answer = item.get('answer', '')
             if answer:
-                unique_answers.add(answer.strip())
+                normalized_answer = self._normalize_answer_for_cache(answer)
+                unique_answers.add(normalized_answer)
         
         print(f"  Evaluating {len(unique_answers)} unique answers...")
         
@@ -794,9 +876,9 @@ class HardNegativeMiner:
         good_count = 0
         bad_count = 0
         
-        for answer in tqdm(unique_answers, desc="Evaluating answers", disable=not self.debug_mode):
-            is_good = self._evaluate_answer_quality(answer)
-            answer_quality_cache[answer.strip()] = is_good
+        for normalized_answer in tqdm(unique_answers, desc="Evaluating answers", disable=not self.debug_mode):
+            is_good = self._evaluate_answer_quality(normalized_answer)
+            answer_quality_cache[normalized_answer] = is_good
             if is_good:
                 good_count += 1
             else:
@@ -809,7 +891,8 @@ class HardNegativeMiner:
         for item in dataset.values():
             answer = item.get('answer', '')
             if answer:
-                item['_precomputed_quality'] = self.answer_quality_cache.get(answer.strip(), False)
+                normalized_answer = self._normalize_answer_for_cache(answer)
+                item['_precomputed_quality'] = self.answer_quality_cache.get(normalized_answer, False)
         
         print(f"✅ Pre-computed quality: {good_count} good, {bad_count} bad answers")
         return good_count, bad_count
@@ -822,8 +905,8 @@ class HardNegativeMiner:
         
         # Fallback to cache lookup
         if hasattr(self, 'answer_quality_cache'):
-            answer_clean = answer.strip() if answer else ''
-            return self.answer_quality_cache.get(answer_clean, False)
+            normalized_answer = self._normalize_answer_for_cache(answer)
+            return self.answer_quality_cache.get(normalized_answer, False)
         
         # Final fallback to full evaluation
         return self._evaluate_answer_quality(answer)
@@ -1289,6 +1372,8 @@ def main():
                        help='Skip samples that already have a mined negative in the dataset')
     parser.add_argument('--seed-existing-phrases', action='store_true', default=False,
                        help='Seed phrase-diversity tracker with phrases from existing negatives to keep global diversity')
+    parser.add_argument('--phrase-semantic-threshold', type=float, default=0.75,
+                       help='Semantic similarity threshold for phrase diversity (0.75 = 75% similar = too similar)')
     
     args = parser.parse_args()
     
@@ -1339,7 +1424,8 @@ def main():
         diverse_ratio=args.diverse_ratio,
         min_answer_length=args.min_answer_length,
         min_visual_similarity=args.min_visual_similarity,
-        fallback_phrase_reuse_limit=args.fallback_phrase_reuse_limit if hasattr(args, 'fallback_phrase_reuse_limit') else 3
+        fallback_phrase_reuse_limit=args.fallback_phrase_reuse_limit if hasattr(args, 'fallback_phrase_reuse_limit') else 3,
+        phrase_semantic_threshold=args.phrase_semantic_threshold
     )
     
     miner.batch_size = args.batch_size
