@@ -773,7 +773,7 @@ class HardNegativeMiner:
         is_new_phrase = normalized not in self.used_phrases
         if is_new_phrase:
             # Check semantic similarity against existing phrases using pre-computed embeddings
-            candidate_embedding = self._get_or_compute_embedding(answer)
+            '''candidate_embedding = self._get_or_compute_embedding(answer)
             if candidate_embedding is not None and len(self.used_phrases) > 0:
                 # OPTIMIZATION: Use fast vectorized similarity check
                 max_similarity = self._fast_semantic_similarity_check(candidate_embedding, normalized)
@@ -786,7 +786,7 @@ class HardNegativeMiner:
                     return False
                 
                 if self.debug_mode and max_similarity > 0.7:
-                    print(f"    📊 Max semantic similarity: {max_similarity:.3f} (threshold: {self.phrase_semantic_threshold})")
+                    print(f"    📊 Max semantic similarity: {max_similarity:.3f} (threshold: {self.phrase_semantic_threshold})")'''
             return True  # New phrases are automatically diverse (passed semantic check above)
         
         # Check reuse limits with more lenient thresholds for semantic approach
