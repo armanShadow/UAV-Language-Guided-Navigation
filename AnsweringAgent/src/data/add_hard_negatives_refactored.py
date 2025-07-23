@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-Clean Hard Negative Mining Script for AVDN Dataset
+Refactored Hard Negative Mining Script for AVDN Dataset
 
-Simplified version focusing on:
-- Visual K-NN for hard negatives
-- Visual clustering for diverse negatives  
-- Simple phrase reuse limits for diversity
-- Fast performance with minimal complexity
+Maintains the proven logic from the original script while removing bloat:
+- Visual K-NN for hard negatives (works well)
+- Visual clustering for diverse negatives (works well) 
+- Simple phrase reuse limits with sliding window (works well)
+- Semantic answer quality filtering (works well)
+- Clean, consistent code without dead paths
 
 Usage:
-    python add_hard_negatives_clean.py --image-dir /path/to/images --split train
+    python add_hard_negatives_refactored.py --image-dir /path/to/images --split train
 """
 
 import os
@@ -41,27 +42,14 @@ except ImportError:
 from transformers import T5Tokenizer
 
 
-class CleanHardNegativeMiner:
-    """Clean implementation of hard negative mining with essential features only."""
+class HardNegativeMiner:
+    """Refactored hard negative miner with proven logic, clean implementation."""
     
     def __init__(self, config: Config, tokenizer, k_nn: int = 100, cosine_threshold: float = 0.2,
                  diverse_ratio: float = 0.0, min_answer_length: int = 20,
-                 min_visual_similarity: float = 0.15, phrase_reuse_limit: int = 3,
+                 min_visual_similarity: float = 0.15, fallback_phrase_reuse_limit: int = 5,
                  sliding_window_size: int = 1000):
-        """
-        Initialize the clean hard negative miner.
-        
-        Args:
-            config: Configuration object
-            tokenizer: Tokenizer for text processing
-            k_nn: Number of nearest neighbors for visual similarity
-            cosine_threshold: Text similarity threshold for hard negatives
-            diverse_ratio: Ratio of samples to try diverse first (0.0 = always hard first)
-            min_answer_length: Minimum answer length to consider
-            min_visual_similarity: Minimum visual similarity for hard negatives
-            phrase_reuse_limit: Base reuse limit for phrase diversity
-            sliding_window_size: Number of recent phrases to track for diversity
-        """
+        """Initialize the hard negative miner."""
         self.config = config
         self.tokenizer = tokenizer
         self.k_nn = k_nn
@@ -69,14 +57,14 @@ class CleanHardNegativeMiner:
         self.diverse_ratio = diverse_ratio
         self.min_answer_length = min_answer_length
         self.min_visual_similarity = min_visual_similarity
-        self.phrase_reuse_limit = phrase_reuse_limit
+        self.fallback_phrase_reuse_limit = max(1, fallback_phrase_reuse_limit)
         self.sliding_window_size = sliding_window_size
         
         # GPU settings
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.batch_size = 64
         
-        # Initialize normalizer for answer quality checking
+        # Initialize normalizer
         self.normalizer = AnsweringAgentNormalizer(tokenizer, config, generate_mpnet_embeddings=True)
         
         # Visual features and models
@@ -89,16 +77,16 @@ class CleanHardNegativeMiner:
         # Text features cache
         self.text_features = {}
         
-        # Phrase diversity tracking (sliding window)
-        self.used_phrases = {}
-        
         # Answer quality components
         self.blacklist_embeddings = {}
         self.answer_embedding_cache = {}
         self.answer_quality_cache = {}
         self.semantic_similarity_threshold = 0.75
         
-        # Answer quality blacklist
+        # Phrase diversity tracking (sliding window)
+        self.used_phrases = {}
+        
+        # Answer quality blacklist (from original - this works well)
         self.answer_blacklist = {
             'short_affirmative': [
                 'yes', 'exactly', 'correct', 'right', 'true', 'sure', 'okay', 'ok',
@@ -156,10 +144,16 @@ class CleanHardNegativeMiner:
             try:
                 embedding = self.normalizer.generate_mpnet_embedding(normalized_answer)
                 self.answer_embedding_cache[normalized_answer] = embedding
-            except Exception as e:
-                print(f"⚠️ Failed to generate embedding for '{normalized_answer[:50]}...': {e}")
-                # Create zero embedding as fallback to maintain consistency
+            except Exception:
+                # Use zero embedding for failed cases
                 self.answer_embedding_cache[normalized_answer] = np.zeros(768, dtype=np.float32)
+            
+            # Compute text features (for text similarity)
+            try:
+                text_features = self._extract_text_features_direct(normalized_answer)
+                self.text_features[normalized_answer] = text_features
+            except Exception:
+                self.text_features[normalized_answer] = np.zeros(768, dtype=np.float32)
             
             # Compute quality
             is_good = self._evaluate_answer_quality(normalized_answer)
@@ -180,6 +174,13 @@ class CleanHardNegativeMiner:
         print(f"✅ Precomputed {len(self.answer_embedding_cache)} embeddings")
         print(f"✅ Quality: {good_count} good, {bad_count} bad answers")
     
+    def _extract_text_features_direct(self, normalized_answer: str) -> np.ndarray:
+        """Direct text feature extraction using MPNet."""
+        try:
+            return self.normalizer.generate_mpnet_embedding(normalized_answer)
+        except Exception:
+            return np.zeros(768, dtype=np.float32)
+    
     def _evaluate_answer_quality(self, normalized_answer: str) -> bool:
         """Internal method to evaluate answer quality."""
         if not normalized_answer or len(normalized_answer) < self.min_answer_length:
@@ -197,7 +198,7 @@ class CleanHardNegativeMiner:
         return True
     
     def _is_good_answer(self, answer: str, dataset_item: Dict = None) -> bool:
-        """Check if answer meets quality requirements."""
+        """Check if answer meets quality requirements using precomputed results."""
         # Use precomputed quality if available
         if dataset_item and '_precomputed_quality' in dataset_item:
             return dataset_item['_precomputed_quality']
@@ -219,16 +220,16 @@ class CleanHardNegativeMiner:
         return current_uses < max_uses
     
     def _get_reuse_limit(self, phrase_length: int) -> int:
-        """Get reuse limit based on phrase length."""
+        """Get reuse limit based on phrase length (from working original)."""
         if phrase_length < 60:
             return 1
         elif phrase_length < 100:
             return 2
         else:
-            return self.phrase_reuse_limit
+            return self.fallback_phrase_reuse_limit
     
     def _track_phrase_usage(self, answer: str):
-        """Track phrase usage with sliding window."""
+        """Track phrase usage with sliding window (from working original)."""
         if not answer:
             return
         
@@ -241,40 +242,17 @@ class CleanHardNegativeMiner:
             oldest_key = next(iter(self.used_phrases))
             del self.used_phrases[oldest_key]
     
-    def _extract_visual_features(self, current_view: torch.Tensor) -> np.ndarray:
-        """Extract visual features from current view."""
-        if current_view.device != self.device:
-            current_view = current_view.to(self.device)
+    def _extract_visual_features_batch(self, batch_tensor: torch.Tensor) -> torch.Tensor:
+        """Extract visual features from batch of images."""
+        if batch_tensor.device != self.device:
+            batch_tensor = batch_tensor.to(self.device)
         
-        # Simple adaptive pooling
-        features = F.adaptive_avg_pool2d(current_view.unsqueeze(0), (8, 8))
-        features = features.view(-1)
-        features = features / (torch.norm(features) + 1e-8)
+        # Use the same method as original that works well
+        features = F.adaptive_avg_pool2d(batch_tensor, (8, 8))
+        features = features.view(len(batch_tensor), -1)
+        features = features / (torch.norm(features, dim=1, keepdim=True) + 1e-8)
         
-        return features.cpu().numpy()
-    
-    def _extract_text_features(self, text: str) -> np.ndarray:
-        """Extract text features using cached MPNet embeddings."""
-        normalized = self._normalize_answer(text)
-        
-        # All embeddings should be precomputed and cached
-        if normalized in self.answer_embedding_cache:
-            return self.answer_embedding_cache[normalized]
-        
-        # This should never happen if precomputation worked correctly
-        print(f"⚠️ Missing cached embedding for: '{normalized[:50]}...'")
-        print(f"   This indicates a bug in precomputation!")
-        
-        # Emergency fallback - but this should never be reached
-        try:
-            embedding = self.normalizer.generate_mpnet_embedding(normalized)
-            self.answer_embedding_cache[normalized] = embedding  # Cache for future
-            return embedding
-        except Exception:
-            # Last resort zero embedding
-            zero_embedding = np.zeros(768, dtype=np.float32)
-            self.answer_embedding_cache[normalized] = zero_embedding
-            return zero_embedding
+        return features
     
     def _build_visual_knn(self, dataset: Dict[int, Dict[str, Any]]):
         """Build K-NN model for visual similarity."""
@@ -283,7 +261,7 @@ class CleanHardNegativeMiner:
         visual_features_list = []
         self.visual_indices = []
         
-        # Process in batches for better performance
+        # Process in batches
         items_list = list(dataset.items())
         batch_size = self.batch_size
         
@@ -306,27 +284,28 @@ class CleanHardNegativeMiner:
                 continue
             
             # Process batch
-            batch_tensor = torch.stack(batch_tensors).to(self.device)
+            batch_tensor = torch.stack(batch_tensors)
             
             try:
-                # Batch process visual features
-                features = F.adaptive_avg_pool2d(batch_tensor, (8, 8))
-                features = features.view(len(batch_tensors), -1)
-                features = features / (torch.norm(features, dim=1, keepdim=True) + 1e-8)
-                 
+                features = self._extract_visual_features_batch(batch_tensor)
+                
                 for i, idx in enumerate(batch_indices):
                     feature_np = features[i].cpu().numpy()
                     visual_features_list.append(feature_np)
                     self.visual_indices.append(idx)
                     self.visual_features[idx] = feature_np
             except Exception:
-                # Fallback to individual processing for this batch
+                # Fallback to individual processing
                 for idx, current_view in zip(batch_indices, batch_tensors):
                     try:
-                        features = self._extract_visual_features(current_view)
-                        visual_features_list.append(features)
+                        features = F.adaptive_avg_pool2d(current_view.unsqueeze(0).to(self.device), (8, 8))
+                        features = features.view(-1)
+                        features = features / (torch.norm(features) + 1e-8)
+                        feature_np = features.cpu().numpy()
+                        
+                        visual_features_list.append(feature_np)
                         self.visual_indices.append(idx)
-                        self.visual_features[idx] = features
+                        self.visual_features[idx] = feature_np
                     except Exception:
                         continue
         
@@ -344,7 +323,6 @@ class CleanHardNegativeMiner:
         print("🔍 Building visual clusters...")
         
         if not self.visual_features:
-            print("❌ No visual features available for clustering!")
             return
         
         visual_features_list = []
@@ -362,7 +340,7 @@ class CleanHardNegativeMiner:
             print(f"✅ Using random cluster assignment for small dataset")
     
     def _find_hard_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]]) -> Optional[tuple]:
-        """Find hard negative using visual K-NN and text dissimilarity."""
+        """Find hard negative using visual K-NN and text dissimilarity (from working original)."""
         if anchor_idx not in self.visual_features or self.visual_knn is None:
             return None
         
@@ -377,52 +355,98 @@ class CleanHardNegativeMiner:
         neighbor_distances = distances[0][1:]
         
         # Pre-compute anchor text features
-        anchor_text_features = self._extract_text_features(anchor_answer)
+        anchor_normalized = self._normalize_answer(anchor_answer)
+        anchor_text_features = self.text_features.get(anchor_normalized, np.zeros(768, dtype=np.float32))
         
         best_candidate = None
         lowest_text_similarity = float('inf')
         best_visual_similarity = None
         
-        for i, pos in enumerate(neighbor_indices):
-            sample_idx = self.visual_indices[pos]
-            if sample_idx not in dataset:
-                continue
-            
-            visual_similarity = 1.0 - neighbor_distances[i]
-            
-            # Skip if visual similarity too low
-            if visual_similarity < self.min_visual_similarity:
-                break
-            
-            neighbor_item = dataset[sample_idx]
-            neighbor_answer = neighbor_item.get('answer', '')
-            neighbor_instruction = neighbor_item.get('first_instruction', '')
-            
-            # Skip if same goal
-            if anchor_instruction == neighbor_instruction:
-                continue
-            
-            # Check answer quality
-            if not self._is_good_answer(neighbor_answer, neighbor_item):
-                continue
-            
-            # Check phrase diversity
-            if not self._is_phrase_diverse(neighbor_answer):
-                continue
-            
-            # Calculate text similarity
-            neighbor_text_features = self._extract_text_features(neighbor_answer)
-            text_similarity = np.dot(anchor_text_features, neighbor_text_features)
-            
-            # Check if text similarity is below threshold
-            if text_similarity >= self.cosine_threshold:
-                continue
-            
-            # Found a good candidate
-            if text_similarity < lowest_text_similarity:
+        # Use escalating thresholds like the working original
+        thresholds = [self.cosine_threshold, self.cosine_threshold + 0.09, self.cosine_threshold + 0.18]
+        
+        for threshold in thresholds:
+            for i, pos in enumerate(neighbor_indices):
+                sample_idx = self.visual_indices[pos]
+                if sample_idx not in dataset:
+                    continue
+                
+                visual_similarity = 1.0 - neighbor_distances[i]
+                
+                # Skip if visual similarity too low
+                if visual_similarity < self.min_visual_similarity:
+                    break
+                
+                neighbor_item = dataset[sample_idx]
+                neighbor_answer = neighbor_item.get('answer', '')
+                neighbor_instruction = neighbor_item.get('first_instruction', '')
+                
+                # Skip if same goal
+                if anchor_instruction == neighbor_instruction:
+                    continue
+                
+                # Check answer quality
+                if not self._is_good_answer(neighbor_answer, neighbor_item):
+                    continue
+                
+                # Check phrase diversity
+                if not self._is_phrase_diverse(neighbor_answer):
+                    continue
+                
+                # Calculate text similarity
+                neighbor_normalized = self._normalize_answer(neighbor_answer)
+                neighbor_text_features = self.text_features.get(neighbor_normalized, np.zeros(768, dtype=np.float32))
+                text_similarity = np.dot(anchor_text_features, neighbor_text_features)
+                
+                # Check if text similarity is below current threshold
+                if text_similarity >= threshold:
+                    continue
+                
+                # Found a good candidate
                 best_candidate = sample_idx
                 lowest_text_similarity = text_similarity
                 best_visual_similarity = visual_similarity
+                break
+            
+            if best_candidate is not None:
+                break
+        
+        # Fallback without phrase diversity if needed (like working original)
+        if best_candidate is None:
+            for i, pos in enumerate(neighbor_indices):
+                sample_idx = self.visual_indices[pos]
+                if sample_idx not in dataset:
+                    continue
+                
+                visual_similarity = 1.0 - neighbor_distances[i]
+                if visual_similarity < self.min_visual_similarity:
+                    break
+                
+                neighbor_item = dataset[sample_idx]
+                neighbor_answer = neighbor_item.get('answer', '')
+                neighbor_instruction = neighbor_item.get('first_instruction', '')
+                
+                if anchor_instruction == neighbor_instruction:
+                    continue
+                
+                if not self._is_good_answer(neighbor_answer, neighbor_item):
+                    continue
+                
+                # Relaxed phrase diversity check
+                normalized = self._normalize_answer(neighbor_answer)
+                if self.used_phrases.get(normalized, 0) >= self.fallback_phrase_reuse_limit:
+                    continue
+                
+                neighbor_text_features = self.text_features.get(self._normalize_answer(neighbor_answer), np.zeros(768, dtype=np.float32))
+                text_similarity = np.dot(anchor_text_features, neighbor_text_features)
+                
+                if text_similarity >= self.cosine_threshold:
+                    continue
+                
+                best_candidate = sample_idx
+                lowest_text_similarity = text_similarity
+                best_visual_similarity = visual_similarity
+                break
         
         if best_candidate is not None:
             return (best_candidate, lowest_text_similarity, best_visual_similarity)
@@ -430,7 +454,7 @@ class CleanHardNegativeMiner:
         return None
     
     def _find_diverse_negative(self, anchor_idx: int, dataset: Dict[int, Dict[str, Any]]) -> Optional[tuple]:
-        """Find diverse negative from different visual cluster."""
+        """Find diverse negative from different visual cluster (from working original)."""
         if anchor_idx not in self.visual_features or self.cluster_labels is None:
             return None
         
@@ -443,7 +467,8 @@ class CleanHardNegativeMiner:
         anchor_cluster = self.cluster_labels[anchor_idx_in_array]
         
         # Find candidates from different clusters
-        candidates = []
+        different_cluster_candidates = []
+        same_cluster_candidates = []
         
         for i, cluster_label in enumerate(self.cluster_labels):
             sample_idx = self.visual_indices[i]
@@ -469,31 +494,32 @@ class CleanHardNegativeMiner:
                 
                 # Prioritize different clusters
                 if cluster_label != anchor_cluster:
-                    candidates.append((sample_idx, cluster_label, visual_similarity, True))
+                    different_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
                 else:
-                    candidates.append((sample_idx, cluster_label, visual_similarity, False))
+                    same_cluster_candidates.append((sample_idx, cluster_label, visual_similarity))
         
-        if not candidates:
-            return None
+        # Try different clusters first, then same cluster as fallback
+        if different_cluster_candidates:
+            # Sort by visual similarity (ascending for more diverse)
+            different_cluster_candidates.sort(key=lambda x: x[2])
+            selected_idx, selected_cluster, visual_similarity = different_cluster_candidates[0]
+            return (selected_idx, anchor_cluster, selected_cluster, visual_similarity)
+        elif same_cluster_candidates:
+            # Fallback to same cluster but lowest visual similarity
+            same_cluster_candidates.sort(key=lambda x: x[2])
+            selected_idx, selected_cluster, visual_similarity = same_cluster_candidates[0]
+            return (selected_idx, anchor_cluster, selected_cluster, visual_similarity)
         
-        # Sort by cluster diversity first, then by visual similarity (ascending for diversity)
-        candidates.sort(key=lambda x: (not x[3], x[2]))
-        
-        selected_idx, selected_cluster, visual_similarity, is_different_cluster = candidates[0]
-        return (selected_idx, anchor_cluster, selected_cluster, visual_similarity)
+        return None
     
     def mine_hard_negatives(self, dataset: Dict[int, Dict[str, Any]], 
                            max_samples: Optional[int] = None) -> Dict[int, Dict[str, Any]]:
         """Mine hard negatives for the dataset."""
         print("⛏️ Mining hard negatives...")
         
-        # Initialize answer quality filter
+        # Initialize components
         self._initialize_answer_quality_filter()
-        
-        # Precompute embeddings and answer quality
         self._precompute_embeddings_and_quality(dataset)
-        
-        # Build visual models
         self._build_visual_knn(dataset)
         self._build_visual_clusters(dataset)
         
@@ -515,7 +541,7 @@ class CleanHardNegativeMiner:
         for anchor_idx in tqdm(samples_to_process, desc="Mining negatives"):
             stats['total_attempts'] += 1
             
-            # Decide strategy
+            # Decide strategy (same logic as working original)
             if random.random() < self.diverse_ratio:
                 strategy_order = ["diverse", "hard"]
             else:
@@ -547,7 +573,7 @@ class CleanHardNegativeMiner:
             else:
                 stats['diverse_success'] += 1
             
-            # Create negative data
+            # Create negative data (same format as original)
             if negative_type == "hard":
                 negative_idx, text_similarity, visual_similarity = negative_result
                 validation_info = {
@@ -596,23 +622,21 @@ class CleanHardNegativeMiner:
         success_rate = len(negatives) / stats['total_attempts'] * 100 if stats['total_attempts'] > 0 else 0
         
         print(f"\n📊 Mining Results:")
-        print(f"  Total attempts: {stats['total_attempts']}")
+        print(f"  Success rate: {len(negatives)}/{stats['total_attempts']} ({success_rate:.1f}%)")
         print(f"  Hard attempts: {stats['hard_attempts']} (success: {stats['hard_success']})")
         print(f"  Diverse attempts: {stats['diverse_attempts']} (success: {stats['diverse_success']})")
         print(f"  Fallback used: {stats['fallback_used']}")
-        print(f"  Success rate: {len(negatives)}/{stats['total_attempts']} ({success_rate:.1f}%)")
         print(f"  Total time: {total_time:.1f}s")
         
         hard_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'hard')
         diverse_count = sum(1 for data in negatives.values() if data.get('negative_type_2') == 'diverse')
         
         print(f"  Hard negatives: {hard_count}, Diverse negatives: {diverse_count}")
-        print(f"  Phrase diversity: {len(self.used_phrases)} unique phrases")
         
         if negatives:
             unique_phrases = set(data['negative_text_2'].lower().strip() for data in negatives.values())
             diversity_ratio = len(unique_phrases) / len(negatives)
-            print(f"  Unique phrase ratio: {diversity_ratio:.3f}")
+            print(f"  Phrase diversity: {diversity_ratio:.3f} ({len(unique_phrases)}/{len(negatives)})")
         
         return negatives
     
@@ -702,7 +726,7 @@ def save_dataset(dataset: Dict[int, Dict[str, Any]], config: Config, split: str)
 
 def main():
     """Main function to add hard negatives to dataset."""
-    parser = argparse.ArgumentParser(description='Clean hard negative mining for AVDN dataset')
+    parser = argparse.ArgumentParser(description='Refactored hard negative mining for AVDN dataset')
     parser.add_argument('--config', type=str, default='config.py', help='Path to config file')
     parser.add_argument('--split', type=str, default='train', choices=['train', 'val_seen', 'val_unseen'], 
                        help='Dataset split to process')
@@ -712,13 +736,13 @@ def main():
     parser.add_argument('--max-samples', type=int, default=None, 
                        help='Maximum number of samples to process (for testing)')
     parser.add_argument('--diverse-ratio', type=float, default=0.0,
-                       help='Ratio of samples to try diverse first (0.0 = always hard first)')
+                       help='Ratio of samples to try diverse first')
     parser.add_argument('--min-answer-length', type=int, default=20,
                        help='Minimum answer length to consider')
     parser.add_argument('--min-visual-similarity', type=float, default=0.15,
                        help='Minimum visual similarity for hard negatives')
-    parser.add_argument('--phrase-reuse-limit', type=int, default=3,
-                       help='Base phrase reuse limit for diversity')
+    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=5,
+                       help='Maximum phrase reuse in fallback mode')
     parser.add_argument('--sliding-window-size', type=int, default=1000,
                        help='Number of recent phrases to track for diversity')
     parser.add_argument('--batch-size', type=int, default=64,
@@ -742,11 +766,11 @@ def main():
     
     dataset = load_dataset(config, args.split)
     
-    print(f"🚀 Starting clean mining on GPU {args.gpu_id}")
+    print(f"🚀 Starting refactored mining on GPU {args.gpu_id}")
     print(f"📊 Processing {len(dataset)} samples")
     
     # Create miner
-    miner = CleanHardNegativeMiner(
+    miner = HardNegativeMiner(
         config=config,
         tokenizer=tokenizer,
         k_nn=args.k_nn,
@@ -754,7 +778,7 @@ def main():
         diverse_ratio=args.diverse_ratio,
         min_answer_length=args.min_answer_length,
         min_visual_similarity=args.min_visual_similarity,
-        phrase_reuse_limit=args.phrase_reuse_limit,
+        fallback_phrase_reuse_limit=args.fallback_phrase_reuse_limit,
         sliding_window_size=args.sliding_window_size
     )
     
