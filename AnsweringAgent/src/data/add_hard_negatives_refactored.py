@@ -723,19 +723,21 @@ class HardNegativeMiner:
                 unique_phrases.add(phrase)
                 phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
             
-            # Calculate diversity ratio against unique answers in original dataset
-            original_unique_answers = set()
+            # Calculate diversity ratio against good answers in original dataset
+            good_unique_answers = set()
             for item in dataset.values():
                 answer = item.get('answer', '')
                 if answer:
                     normalized = self._normalize_answer(answer)
-                    original_unique_answers.add(normalized)
+                    # Only count answers that pass quality filtering
+                    if self.answer_quality_cache.get(normalized, False):
+                        good_unique_answers.add(normalized)
             
-            diversity_ratio = len(unique_phrases) / len(original_unique_answers) if original_unique_answers else 0
+            diversity_ratio = len(unique_phrases) / len(good_unique_answers) if good_unique_answers else 0
             max_reuse = max(phrase_counts.values()) if phrase_counts else 0
             avg_reuse = np.mean(list(phrase_counts.values())) if phrase_counts else 0
             
-            print(f"🔄 Phrase Diversity: {diversity_ratio:.3f} ({len(unique_phrases)}/{len(original_unique_answers)}), max_reuse={max_reuse}, avg_reuse={avg_reuse:.2f}")
+            print(f"🔄 Phrase Diversity: {diversity_ratio:.3f} ({len(unique_phrases)}/{len(good_unique_answers)}), max_reuse={max_reuse}, avg_reuse={avg_reuse:.2f}")
             
             # Cluster analysis for diverse negatives
             cluster_transitions = []
