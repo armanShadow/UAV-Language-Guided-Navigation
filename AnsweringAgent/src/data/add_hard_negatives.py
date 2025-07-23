@@ -803,36 +803,12 @@ class HardNegativeMiner:
     def _get_semantic_reuse_limit(self, phrase_length: int) -> int:
         """Get reuse limits for semantic-based diversity (more lenient than word-based)."""
         if phrase_length < 60:
-            return 1   
+            return 2   
         elif phrase_length < 100:
-            return 2  
+            return 4  
         else:
             return self.fallback_phrase_reuse_limit   
     
-    def _phrases_too_similar(self, phrase1: str, phrase2: str) -> bool:
-        """Check if two phrases are too similar using semantic embeddings."""
-        # Use semantic similarity instead of word overlap
-        embedding1 = self._get_or_compute_embedding(phrase1)
-        embedding2 = self._get_or_compute_embedding(phrase2)
-        
-        if embedding1 is not None and embedding2 is not None:
-            similarity = np.dot(embedding1, embedding2)
-            return similarity > self.phrase_semantic_threshold
-        
-        # Fallback to word overlap if embeddings not available
-        if len(phrase1) < 30 or len(phrase2) < 30:
-            return False
-            
-        words1 = set(phrase1.split())
-        words2 = set(phrase2.split())
-        
-        if len(words1) == 0 or len(words2) == 0:
-            return False
-        
-        overlap = len(words1.intersection(words2))
-        min_length = min(len(words1), len(words2))
-        
-        return overlap / min_length > 0.85
     
     def _track_phrase_usage(self, answer: str):
         """Track phrase usage for diversity with consistent normalization."""
@@ -1415,7 +1391,7 @@ def main():
                        help='Total number of dataset shards')
     parser.add_argument('--shard-id', type=int, default=0,
                        help='Shard index for this process')
-    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=3,
+    parser.add_argument('--fallback-phrase-reuse-limit', type=int, default=6,
                        help='Maximum phrase reuse when diversity is relaxed in fallback mode')
     parser.add_argument('--skip-existing-negatives', action='store_true', default=False,
                        help='Skip samples that already have a mined negative in the dataset')
