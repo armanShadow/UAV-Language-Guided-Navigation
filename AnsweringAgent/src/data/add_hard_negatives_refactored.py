@@ -226,7 +226,7 @@ class HardNegativeMiner:
         elif phrase_length < 100:
             return 2
         else:
-            return self.fallback_phrase_reuse_limit
+            return 3
     
     def _track_phrase_usage(self, answer: str):
         """Track phrase usage with sliding window (from working original)."""
