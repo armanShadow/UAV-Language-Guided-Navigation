@@ -28,7 +28,7 @@ class ModelConfig:
 @dataclass
 class TrainingConfig:      
     num_epochs: int = 10000
-    learning_rate: float = 5e-5
+    learning_rate: float = 5e-6  # Reduced from 5e-5 for second-stage fine-tuning
     weight_decay: float = 0.02
     gradient_clip: float = 0.5
     warmup_steps: int = 1000
