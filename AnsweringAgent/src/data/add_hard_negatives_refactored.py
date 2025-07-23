@@ -617,7 +617,7 @@ class HardNegativeMiner:
             
             negatives[anchor_idx] = negative_data
         
-        # Print results
+        # Print comprehensive results with similarity statistics
         total_time = time.time() - start_time
         success_rate = len(negatives) / stats['total_attempts'] * 100 if stats['total_attempts'] > 0 else 0
         
@@ -634,9 +634,123 @@ class HardNegativeMiner:
         print(f"  Hard negatives: {hard_count}, Diverse negatives: {diverse_count}")
         
         if negatives:
+            # Calculate phrase diversity
             unique_phrases = set(data['negative_text_2'].lower().strip() for data in negatives.values())
             diversity_ratio = len(unique_phrases) / len(negatives)
             print(f"  Phrase diversity: {diversity_ratio:.3f} ({len(unique_phrases)}/{len(negatives)})")
+            
+            # Calculate answer length statistics
+            answer_lengths = [len(data['negative_text_2']) for data in negatives.values()]
+            avg_length = sum(answer_lengths) / len(answer_lengths)
+            print(f"  Answer quality: avg length {avg_length:.1f} chars")
+            
+            # Calculate text similarity statistics for hard negatives
+            hard_text_sims = [data['validation_metadata_2']['text_similarity'] 
+                             for data in negatives.values() 
+                             if data.get('negative_type_2') == 'hard' and 'text_similarity' in data['validation_metadata_2']]
+            if hard_text_sims:
+                avg_hard_text_sim = sum(hard_text_sims) / len(hard_text_sims)
+                min_hard_text = min(hard_text_sims)
+                max_hard_text = max(hard_text_sims)
+                std_hard_text = np.std(hard_text_sims)
+                print(f"  Hard text similarity: avg {avg_hard_text_sim:.3f} ± {std_hard_text:.3f} (range: {min_hard_text:.3f} to {max_hard_text:.3f})")
+            
+            # Calculate visual similarity statistics
+            hard_visual_sims = [data['validation_metadata_2']['visual_similarity'] 
+                               for data in negatives.values() 
+                               if data.get('negative_type_2') == 'hard' and 'visual_similarity' in data['validation_metadata_2']]
+            diverse_visual_sims = [data['validation_metadata_2']['visual_similarity'] 
+                                  for data in negatives.values() 
+                                  if data.get('negative_type_2') == 'diverse' and 'visual_similarity' in data['validation_metadata_2']]
+            
+            if hard_visual_sims:
+                avg_hard_visual_sim = sum(hard_visual_sims) / len(hard_visual_sims)
+                min_hard_vis = min(hard_visual_sims)
+                max_hard_vis = max(hard_visual_sims)
+                std_hard_vis = np.std(hard_visual_sims)
+                print(f"  Hard visual similarity: avg {avg_hard_visual_sim:.3f} ± {std_hard_vis:.3f} (range: {min_hard_vis:.3f} to {max_hard_vis:.3f})")
+                
+                # Check if filtering is working
+                below_threshold = sum(1 for sim in hard_visual_sims if sim < self.min_visual_similarity)
+                if below_threshold > 0:
+                    print(f"  ⚠️ Warning: {below_threshold} hard negatives below min_visual_similarity ({self.min_visual_similarity})")
+                else:
+                    print(f"  ✅ All hard negatives meet minimum visual similarity requirement")
+            
+            if diverse_visual_sims:
+                avg_diverse_visual_sim = sum(diverse_visual_sims) / len(diverse_visual_sims)
+                min_diverse_vis = min(diverse_visual_sims)
+                max_diverse_vis = max(diverse_visual_sims)
+                std_diverse_vis = np.std(diverse_visual_sims)
+                print(f"  Diverse visual similarity: avg {avg_diverse_visual_sim:.3f} ± {std_diverse_vis:.3f} (range: {min_diverse_vis:.3f} to {max_diverse_vis:.3f})")
+            
+            # Enhanced comprehensive metrics summary
+            print(f"\n📊 Mining Results Summary:")
+            print(f"{'='*50}")
+            
+            # Basic counts
+            print(f"📈 Success Rate: {len(negatives)}/{stats['total_attempts']} ({success_rate:.1f}%)")
+            print(f"🎯 Strategy Distribution: {hard_count} hard, {diverse_count} diverse")
+            
+            # Answer quality metrics
+            original_lengths = [len(item.get('answer', '')) for item in dataset.values()]
+            negative_lengths = [len(data['negative_text_2']) for data in negatives.values()]
+            
+            print(f"📏 Answer Length: orig={np.mean(original_lengths):.1f}±{np.std(original_lengths):.1f}, neg={np.mean(negative_lengths):.1f}±{np.std(negative_lengths):.1f} chars")
+            
+            # Similarity metrics
+            if hard_text_sims:
+                print(f"🔤 Hard Text Similarity: {np.mean(hard_text_sims):.3f}±{np.std(hard_text_sims):.3f} (n={len(hard_text_sims)})")
+            
+            if hard_visual_sims:
+                print(f"👁️ Hard Visual Similarity: {np.mean(hard_visual_sims):.3f}±{np.std(hard_visual_sims):.3f} (n={len(hard_visual_sims)})")
+                
+                # Check visual similarity filtering effectiveness
+                below_threshold = sum(1 for sim in hard_visual_sims if sim < self.min_visual_similarity)
+                if below_threshold > 0:
+                    print(f"⚠️ Warning: {below_threshold} hard negatives below min_visual_similarity ({self.min_visual_similarity})")
+                else:
+                    print(f"✅ All hard negatives meet minimum visual similarity requirement")
+                
+            if diverse_visual_sims:
+                print(f"🌈 Diverse Visual Similarity: {np.mean(diverse_visual_sims):.3f}±{np.std(diverse_visual_sims):.3f} (n={len(diverse_visual_sims)})")
+            
+            # Phrase diversity
+            unique_phrases = set()
+            phrase_counts = {}
+            for data in negatives.values():
+                phrase = data['negative_text_2'].lower().strip()
+                unique_phrases.add(phrase)
+                phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
+            
+            # Calculate diversity ratio against unique answers in original dataset
+            original_unique_answers = set()
+            for item in dataset.values():
+                answer = item.get('answer', '')
+                if answer:
+                    normalized = self._normalize_answer(answer)
+                    original_unique_answers.add(normalized)
+            
+            diversity_ratio = len(unique_phrases) / len(original_unique_answers) if original_unique_answers else 0
+            max_reuse = max(phrase_counts.values()) if phrase_counts else 0
+            avg_reuse = np.mean(list(phrase_counts.values())) if phrase_counts else 0
+            
+            print(f"🔄 Phrase Diversity: {diversity_ratio:.3f} ({len(unique_phrases)}/{len(original_unique_answers)}), max_reuse={max_reuse}, avg_reuse={avg_reuse:.2f}")
+            
+            # Cluster analysis for diverse negatives
+            cluster_transitions = []
+            for data in negatives.values():
+                if data.get('negative_type_2') == 'diverse':
+                    metadata = data['validation_metadata_2']
+                    if 'anchor_cluster' in metadata and 'negative_cluster' in metadata:
+                        if metadata['anchor_cluster'] != metadata['negative_cluster']:
+                            cluster_transitions.append(1)
+                        else:
+                            cluster_transitions.append(0)
+            
+            if cluster_transitions:
+                different_cluster_ratio = np.mean(cluster_transitions)
+                print(f"🎲 Cluster Diversity: {different_cluster_ratio:.3f} ({sum(cluster_transitions)}/{len(cluster_transitions)} different clusters)")
         
         return negatives
     
