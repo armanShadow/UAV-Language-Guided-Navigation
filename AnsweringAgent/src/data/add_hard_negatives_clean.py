@@ -153,12 +153,13 @@ class CleanHardNegativeMiner:
         
         for normalized_answer in tqdm(unique_answers, desc="Computing embeddings"):
             # Compute embedding
-            if len(normalized_answer) > 10:  # Only for reasonable length answers
-                try:
-                    embedding = self.normalizer.generate_mpnet_embedding(normalized_answer)
-                    self.answer_embedding_cache[normalized_answer] = embedding
-                except Exception:
-                    pass  # Skip if embedding fails
+            try:
+                embedding = self.normalizer.generate_mpnet_embedding(normalized_answer)
+                self.answer_embedding_cache[normalized_answer] = embedding
+            except Exception as e:
+                print(f"⚠️ Failed to generate embedding for '{normalized_answer[:50]}...': {e}")
+                # Create zero embedding as fallback to maintain consistency
+                self.answer_embedding_cache[normalized_answer] = np.zeros(768, dtype=np.float32)
             
             # Compute quality
             is_good = self._evaluate_answer_quality(normalized_answer)
@@ -256,30 +257,24 @@ class CleanHardNegativeMiner:
         """Extract text features using cached MPNet embeddings."""
         normalized = self._normalize_answer(text)
         
-        # Use cached embedding if available
+        # All embeddings should be precomputed and cached
         if normalized in self.answer_embedding_cache:
             return self.answer_embedding_cache[normalized]
         
-        # Fallback to simple features if not cached
-        words = normalized.split()
-        if not words:
-            return np.zeros(384, dtype=np.float32)  # MPNet dimension
+        # This should never happen if precomputation worked correctly
+        print(f"⚠️ Missing cached embedding for: '{normalized[:50]}...'")
+        print(f"   This indicates a bug in precomputation!")
         
-        # Simple TF-IDF like features
-        unique_words = list(set(words))[:100]
-        features = np.zeros(len(unique_words))
-        for i, word in enumerate(unique_words):
-            features[i] = words.count(word)
-        
-        # Pad to match MPNet dimension
-        padded_features = np.zeros(384, dtype=np.float32)
-        padded_features[:min(len(features), 384)] = features[:min(len(features), 384)]
-        
-        norm = np.linalg.norm(padded_features)
-        if norm > 0:
-            padded_features = padded_features / norm
-        
-        return padded_features
+        # Emergency fallback - but this should never be reached
+        try:
+            embedding = self.normalizer.generate_mpnet_embedding(normalized)
+            self.answer_embedding_cache[normalized] = embedding  # Cache for future
+            return embedding
+        except Exception:
+            # Last resort zero embedding
+            zero_embedding = np.zeros(768, dtype=np.float32)
+            self.answer_embedding_cache[normalized] = zero_embedding
+            return zero_embedding
     
     def _build_visual_knn(self, dataset: Dict[int, Dict[str, Any]]):
         """Build K-NN model for visual similarity."""
