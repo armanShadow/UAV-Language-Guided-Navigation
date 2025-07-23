@@ -95,6 +95,7 @@ class CleanHardNegativeMiner:
         # Answer quality components
         self.blacklist_embeddings = {}
         self.answer_embedding_cache = {}
+        self.answer_quality_cache = {}
         self.semantic_similarity_threshold = 0.75
         
         # Answer quality blacklist
@@ -132,32 +133,76 @@ class CleanHardNegativeMiner:
         
         print(f"✅ Loaded {len(self.blacklist_embeddings)} blacklist embeddings")
     
-    def _is_good_answer(self, answer: str) -> bool:
-        """Check if answer meets quality requirements."""
-        if not answer or len(answer.strip()) < self.min_answer_length:
+    def _precompute_embeddings_and_quality(self, dataset: Dict[int, Dict[str, Any]]):
+        """Precompute embeddings and answer quality for performance."""
+        print("🔄 Precomputing embeddings and answer quality...")
+        
+        # Collect unique answers
+        unique_answers = set()
+        for item in dataset.values():
+            answer = item.get('answer', '')
+            if answer:
+                normalized = self._normalize_answer(answer)
+                unique_answers.add(normalized)
+        
+        print(f"  Processing {len(unique_answers)} unique answers...")
+        
+        # Precompute embeddings and quality
+        good_count = 0
+        bad_count = 0
+        
+        for normalized_answer in tqdm(unique_answers, desc="Computing embeddings"):
+            # Compute embedding
+            if len(normalized_answer) > 10:  # Only for reasonable length answers
+                try:
+                    embedding = self.normalizer.generate_mpnet_embedding(normalized_answer)
+                    self.answer_embedding_cache[normalized_answer] = embedding
+                except Exception:
+                    pass  # Skip if embedding fails
+            
+            # Compute quality
+            is_good = self._evaluate_answer_quality(normalized_answer)
+            self.answer_quality_cache[normalized_answer] = is_good
+            
+            if is_good:
+                good_count += 1
+            else:
+                bad_count += 1
+        
+        # Add precomputed quality to dataset items
+        for item in dataset.values():
+            answer = item.get('answer', '')
+            if answer:
+                normalized = self._normalize_answer(answer)
+                item['_precomputed_quality'] = self.answer_quality_cache.get(normalized, False)
+        
+        print(f"✅ Precomputed {len(self.answer_embedding_cache)} embeddings")
+        print(f"✅ Quality: {good_count} good, {bad_count} bad answers")
+    
+    def _evaluate_answer_quality(self, normalized_answer: str) -> bool:
+        """Internal method to evaluate answer quality."""
+        if not normalized_answer or len(normalized_answer) < self.min_answer_length:
             return False
         
-        normalized = self._normalize_answer(answer)
-        
         # Check semantic similarity to blacklisted phrases
-        if self.blacklist_embeddings:
-            # Get or compute embedding
-            if normalized in self.answer_embedding_cache:
-                answer_embedding = self.answer_embedding_cache[normalized]
-            else:
-                try:
-                    answer_embedding = self.normalizer.generate_mpnet_embedding(normalized)
-                    self.answer_embedding_cache[normalized] = answer_embedding
-                except Exception:
-                    return True  # If embedding fails, allow the answer
+        if self.blacklist_embeddings and normalized_answer in self.answer_embedding_cache:
+            answer_embedding = self.answer_embedding_cache[normalized_answer]
             
-            # Check similarity to blacklisted phrases
             for blacklist_embedding in self.blacklist_embeddings.values():
                 similarity = np.dot(answer_embedding, blacklist_embedding)
                 if similarity > self.semantic_similarity_threshold:
                     return False
         
         return True
+    
+    def _is_good_answer(self, answer: str, dataset_item: Dict = None) -> bool:
+        """Check if answer meets quality requirements."""
+        # Use precomputed quality if available
+        if dataset_item and '_precomputed_quality' in dataset_item:
+            return dataset_item['_precomputed_quality']
+        
+        normalized = self._normalize_answer(answer)
+        return self.answer_quality_cache.get(normalized, False)
     
     def _is_phrase_diverse(self, answer: str) -> bool:
         """Check if phrase satisfies diversity requirements."""
@@ -208,26 +253,33 @@ class CleanHardNegativeMiner:
         return features.cpu().numpy()
     
     def _extract_text_features(self, text: str) -> np.ndarray:
-        """Extract text features using MPNet embeddings."""
-        try:
-            return self.normalizer.generate_mpnet_embedding(text)
-        except Exception:
-            # Fallback to simple features if MPNet fails
-            words = text.lower().split()
-            if not words:
-                return np.zeros(100, dtype=np.float32)
-            
-            # Simple word frequency features
-            unique_words = list(set(words))[:100]
-            features = np.zeros(len(unique_words))
-            for i, word in enumerate(unique_words):
-                features[i] = words.count(word)
-            
-            norm = np.linalg.norm(features)
-            if norm > 0:
-                features = features / norm
-            
-            return features
+        """Extract text features using cached MPNet embeddings."""
+        normalized = self._normalize_answer(text)
+        
+        # Use cached embedding if available
+        if normalized in self.answer_embedding_cache:
+            return self.answer_embedding_cache[normalized]
+        
+        # Fallback to simple features if not cached
+        words = normalized.split()
+        if not words:
+            return np.zeros(384, dtype=np.float32)  # MPNet dimension
+        
+        # Simple TF-IDF like features
+        unique_words = list(set(words))[:100]
+        features = np.zeros(len(unique_words))
+        for i, word in enumerate(unique_words):
+            features[i] = words.count(word)
+        
+        # Pad to match MPNet dimension
+        padded_features = np.zeros(384, dtype=np.float32)
+        padded_features[:min(len(features), 384)] = features[:min(len(features), 384)]
+        
+        norm = np.linalg.norm(padded_features)
+        if norm > 0:
+            padded_features = padded_features / norm
+        
+        return padded_features
     
     def _build_visual_knn(self, dataset: Dict[int, Dict[str, Any]]):
         """Build K-NN model for visual similarity."""
@@ -236,17 +288,52 @@ class CleanHardNegativeMiner:
         visual_features_list = []
         self.visual_indices = []
         
-        for idx, item in tqdm(dataset.items(), desc="Extracting visual features"):
-            try:
-                current_view = item['current_view_image']
-                features = self._extract_visual_features(current_view)
-                
-                visual_features_list.append(features)
-                self.visual_indices.append(idx)
-                self.visual_features[idx] = features
-            except Exception as e:
-                print(f"⚠️ Error processing item {idx}: {e}")
+        # Process in batches for better performance
+        items_list = list(dataset.items())
+        batch_size = self.batch_size
+        
+        for batch_start in tqdm(range(0, len(items_list), batch_size), desc="Extracting visual features"):
+            batch_end = min(batch_start + batch_size, len(items_list))
+            batch_items = items_list[batch_start:batch_end]
+            
+            batch_tensors = []
+            batch_indices = []
+            
+            for idx, item in batch_items:
+                try:
+                    current_view = item['current_view_image']
+                    batch_tensors.append(current_view)
+                    batch_indices.append(idx)
+                except Exception:
+                    continue
+            
+            if not batch_tensors:
                 continue
+            
+            # Process batch
+            batch_tensor = torch.stack(batch_tensors).to(self.device)
+            
+            try:
+                # Batch process visual features
+                features = F.adaptive_avg_pool2d(batch_tensor, (8, 8))
+                features = features.view(len(batch_tensors), -1)
+                features = features / (torch.norm(features, dim=1, keepdim=True) + 1e-8)
+                 
+                for i, idx in enumerate(batch_indices):
+                    feature_np = features[i].cpu().numpy()
+                    visual_features_list.append(feature_np)
+                    self.visual_indices.append(idx)
+                    self.visual_features[idx] = feature_np
+            except Exception:
+                # Fallback to individual processing for this batch
+                for idx, current_view in zip(batch_indices, batch_tensors):
+                    try:
+                        features = self._extract_visual_features(current_view)
+                        visual_features_list.append(features)
+                        self.visual_indices.append(idx)
+                        self.visual_features[idx] = features
+                    except Exception:
+                        continue
         
         if visual_features_list:
             visual_features_array = np.array(visual_features_list)
@@ -321,7 +408,7 @@ class CleanHardNegativeMiner:
                 continue
             
             # Check answer quality
-            if not self._is_good_answer(neighbor_answer):
+            if not self._is_good_answer(neighbor_answer, neighbor_item):
                 continue
             
             # Check phrase diversity
@@ -375,7 +462,7 @@ class CleanHardNegativeMiner:
                     continue
                 
                 # Check answer quality
-                if not self._is_good_answer(neighbor_answer):
+                if not self._is_good_answer(neighbor_answer, neighbor_item):
                     continue
                 
                 # Check phrase diversity
@@ -407,6 +494,9 @@ class CleanHardNegativeMiner:
         
         # Initialize answer quality filter
         self._initialize_answer_quality_filter()
+        
+        # Precompute embeddings and answer quality
+        self._precompute_embeddings_and_quality(dataset)
         
         # Build visual models
         self._build_visual_knn(dataset)
