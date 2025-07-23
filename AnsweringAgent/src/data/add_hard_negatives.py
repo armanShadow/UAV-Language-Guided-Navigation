@@ -146,6 +146,10 @@ class HardNegativeMiner:
 
         # Semantic phrase diversity threshold (configurable)
         self.phrase_semantic_threshold = phrase_semantic_threshold
+        
+        # Performance optimization: cache for recently rejected phrases
+        self.semantic_rejection_cache = {}
+        self.max_rejection_cache_size = 1000
     
     def _initialize_blacklist_embeddings(self):
         """Initialize embeddings for blacklisted phrases for semantic similarity checking."""
@@ -700,6 +704,57 @@ class HardNegativeMiner:
         
         return None
     
+    def _fast_semantic_similarity_check(self, candidate_embedding: np.ndarray, candidate_normalized: str) -> float:
+        """Fast vectorized semantic similarity check against existing phrases."""
+        if len(self.used_phrases) == 0:
+            return 0.0
+        
+        # OPTIMIZATION 1: Length-based filtering (only check similar-length phrases)
+        candidate_len = len(candidate_normalized)
+        length_filtered_phrases = [
+            phrase for phrase in self.used_phrases.keys() 
+            if abs(len(phrase) - candidate_len) <= 20  # Allow 20 char difference
+        ]
+        
+        if not length_filtered_phrases:
+            return 0.0
+        
+        # OPTIMIZATION 2: Smart sampling - limit to 25 most relevant phrases
+        if len(length_filtered_phrases) > 25:
+            # Prioritize recently used phrases (more likely to be problematic)
+            sorted_phrases = sorted(length_filtered_phrases, 
+                                  key=lambda p: self.used_phrases[p], reverse=True)
+            length_filtered_phrases = sorted_phrases[:25]
+        
+        # OPTIMIZATION 3: Batch embedding collection
+        existing_embeddings = []
+        valid_phrases = []
+        for phrase in length_filtered_phrases:
+            embedding = self._get_or_compute_embedding(phrase)
+            if embedding is not None:
+                existing_embeddings.append(embedding)
+                valid_phrases.append(phrase)
+        
+        if not existing_embeddings:
+            return 0.0
+        
+        # OPTIMIZATION 4: Vectorized similarity computation
+        existing_embeddings_matrix = np.stack(existing_embeddings)  # Shape: (n_phrases, embedding_dim)
+        similarities = np.dot(existing_embeddings_matrix, candidate_embedding)  # Shape: (n_phrases,)
+        
+        return float(np.max(similarities))
+    
+    def _cache_semantic_rejection(self, normalized_phrase: str):
+        """Cache a phrase that was rejected for semantic similarity."""
+        # Manage cache size to avoid memory bloat
+        if len(self.semantic_rejection_cache) >= self.max_rejection_cache_size:
+            # Remove oldest entries (simple FIFO)
+            oldest_keys = list(self.semantic_rejection_cache.keys())[:100]
+            for key in oldest_keys:
+                del self.semantic_rejection_cache[key]
+        
+        self.semantic_rejection_cache[normalized_phrase] = True
+    
     def _is_phrase_diverse(self, answer: str) -> bool:
         """Return True if phrase is semantically diverse from existing phrases."""
         if not answer:
@@ -707,28 +762,24 @@ class HardNegativeMiner:
 
         normalized = self._normalize_answer_for_cache(answer)
         
+        # OPTIMIZATION: Check rejection cache first
+        if normalized in self.semantic_rejection_cache:
+            if self.debug_mode:
+                print(f"    ⚡ Cache hit: phrase previously rejected")
+            return False
+        
         # Check semantic similarity against existing phrases using pre-computed embeddings
         candidate_embedding = self._get_or_compute_embedding(answer)
         if candidate_embedding is not None and len(self.used_phrases) > 0:
-            # Check semantic similarity against a sample of existing phrases
-            existing_phrases = list(self.used_phrases.keys())
+            # OPTIMIZATION: Use fast vectorized similarity check
+            max_similarity = self._fast_semantic_similarity_check(candidate_embedding, normalized)
             
-            # For performance, sample existing phrases if too many
-            if len(existing_phrases) > 100:
-                existing_phrases = random.sample(existing_phrases, 100)
-            
-            max_similarity = 0.0
-            for existing_phrase in existing_phrases:
-                existing_embedding = self._get_or_compute_embedding(existing_phrase)
-                if existing_embedding is not None:
-                    similarity = np.dot(candidate_embedding, existing_embedding)
-                    max_similarity = max(max_similarity, similarity)
-                    
-                    # If too semantically similar, reject
-                    if similarity > self.phrase_semantic_threshold:
-                        if self.debug_mode:
-                            print(f"    🚫 Phrase too similar: {similarity:.3f} > {self.phrase_semantic_threshold} to '{existing_phrase[:50]}...'")
-                        return False
+            if max_similarity > self.phrase_semantic_threshold:
+                # Cache this rejection for future performance  
+                self._cache_semantic_rejection(normalized)
+                if self.debug_mode:
+                    print(f"    🚫 Phrase too similar: {max_similarity:.3f} > {self.phrase_semantic_threshold}")
+                return False
             
             if self.debug_mode and max_similarity > 0.7:
                 print(f"    📊 Max semantic similarity: {max_similarity:.3f} (threshold: {self.phrase_semantic_threshold})")
@@ -758,7 +809,7 @@ class HardNegativeMiner:
         elif phrase_length < 100:
             return 2  
         else:
-            return self.fallback_phrase_reuse_limit   # More lenient than current 3
+            return self.fallback_phrase_reuse_limit   
     
     def _phrases_too_similar(self, phrase1: str, phrase2: str) -> bool:
         """Check if two phrases are too similar using semantic embeddings."""
