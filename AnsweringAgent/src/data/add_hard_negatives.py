@@ -768,27 +768,25 @@ class HardNegativeMiner:
                 print(f"    ⚡ Cache hit: phrase previously rejected")
             return False
         
-        # Check semantic similarity against existing phrases using pre-computed embeddings
-        candidate_embedding = self._get_or_compute_embedding(answer)
-        if candidate_embedding is not None and len(self.used_phrases) > 0:
-            # OPTIMIZATION: Use fast vectorized similarity check
-            max_similarity = self._fast_semantic_similarity_check(candidate_embedding, normalized)
-            
-            if max_similarity > self.phrase_semantic_threshold:
-                # Cache this rejection for future performance  
-                self._cache_semantic_rejection(normalized)
-                if self.debug_mode:
-                    print(f"    🚫 Phrase too similar: {max_similarity:.3f} > {self.phrase_semantic_threshold}")
-                return False
-            
-            if self.debug_mode and max_similarity > 0.7:
-                print(f"    📊 Max semantic similarity: {max_similarity:.3f} (threshold: {self.phrase_semantic_threshold})")
         
         # For new phrases (not in used_phrases), only check semantic similarity, skip reuse count
         is_new_phrase = normalized not in self.used_phrases
         if is_new_phrase:
-            if self.debug_mode:
-                print(f"    ✅ New phrase accepted: '{normalized[:50]}...'")
+            # Check semantic similarity against existing phrases using pre-computed embeddings
+            candidate_embedding = self._get_or_compute_embedding(answer)
+            if candidate_embedding is not None and len(self.used_phrases) > 0:
+                # OPTIMIZATION: Use fast vectorized similarity check
+                max_similarity = self._fast_semantic_similarity_check(candidate_embedding, normalized)
+                
+                if max_similarity > self.phrase_semantic_threshold:
+                    # Cache this rejection for future performance  
+                    self._cache_semantic_rejection(normalized)
+                    if self.debug_mode:
+                        print(f"    🚫 Phrase too similar: {max_similarity:.3f} > {self.phrase_semantic_threshold}")
+                    return False
+                
+                if self.debug_mode and max_similarity > 0.7:
+                    print(f"    📊 Max semantic similarity: {max_similarity:.3f} (threshold: {self.phrase_semantic_threshold})")
             return True  # New phrases are automatically diverse (passed semantic check above)
         
         # Check reuse limits with more lenient thresholds for semantic approach
