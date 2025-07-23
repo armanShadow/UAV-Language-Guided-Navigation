@@ -440,7 +440,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
                                 anchor_emb = outputs['adapted_features']
                                 positive_embs.append(outputs['positive_adapted_features'])
-                                negative_emb = outputs['negative_adapted_features']
+                                
+                                # Gather negatives
+                                negatives_embs = []
+                                if 'negative_adapted_features' in outputs:
+                                    negatives_embs.append(outputs['negative_adapted_features'])
+                                if 'negative_adapted_features_2' in outputs:
+                                    negatives_embs.append(outputs['negative_adapted_features_2'])
                                 
                                 # Add second positive if available
                                 if 'positive_adapted_features_2' in outputs:
@@ -452,8 +458,20 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 else:
                                     positive_combined = positive_embs[0]  # [batch, hidden]
                                 
-                                # Calculate contrastive loss
-                                contrastive_loss = contrastive_loss_fn(anchor_emb, positive_combined, negative_emb)
+                                # Compute contrastive loss for each negative and average
+                                contrastive_losses_list = []
+                                if not negatives_embs:
+                                    # Fall back to in-batch negatives if none provided
+                                    contrastive_losses_list.append(
+                                        contrastive_loss_fn(anchor_emb, positive_combined, None)
+                                    )
+                                else:
+                                    for neg_emb in negatives_embs:
+                                        contrastive_losses_list.append(
+                                            contrastive_loss_fn(anchor_emb, positive_combined, neg_emb)
+                                        )
+                                
+                                contrastive_loss = torch.stack(contrastive_losses_list).mean()
                                 
                                 
                                 # Add weighted contrastive loss to total loss
@@ -696,16 +714,19 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
                                         anchor_emb = outputs['adapted_features']
                                         positive_emb = outputs['positive_adapted_features']
-                                        negative_emb = outputs['negative_adapted_features']
+                                        negatives_val = [outputs['negative_adapted_features']]
+                                        if 'negative_adapted_features_2' in outputs:
+                                            negatives_val.append(outputs['negative_adapted_features_2'])
                                         
-                                        # Add shape validation
-                                        if anchor_emb.shape != positive_emb.shape or anchor_emb.shape != negative_emb.shape:
-                                            logger.error(f"❌ Shape mismatch in validation contrastive loss: anchor={anchor_emb.shape}, "
-                                                       f"positive={positive_emb.shape}, negative={negative_emb.shape}")
-                                            continue
-                                        
-                                        contrastive_loss_1 = contrastive_loss_fn(anchor_emb, positive_emb, negative_emb)
-                                        contrastive_losses.append(contrastive_loss_1)
+                                        # Add shape validation for each negative
+                                        for neg_emb in negatives_val:
+                                            if anchor_emb.shape != positive_emb.shape or anchor_emb.shape != neg_emb.shape:
+                                                logger.error(f"❌ Shape mismatch in validation contrastive loss: anchor={anchor_emb.shape}, "
+                                                           f"positive={positive_emb.shape}, negative={neg_emb.shape}")
+                                                continue
+                                            contrastive_losses.append(
+                                                contrastive_loss_fn(anchor_emb, positive_emb, neg_emb)
+                                            )
                                     
                                     # Second triplet: anchor, positive2, negative (if available)
                                     if 'positive_adapted_features_2' in outputs and 'negative_adapted_features' in outputs:
