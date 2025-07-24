@@ -149,6 +149,7 @@ class HardNegativeMiner:
                 self.answer_embedding_cache[normalized_answer] = np.zeros(768, dtype=np.float32)
             
             # Compute text features (for text similarity)
+            # TODO: This is not used in the current implementation (double computing the same thing)    
             try:
                 text_features = self._extract_text_features_direct(normalized_answer)
                 self.text_features[normalized_answer] = text_features

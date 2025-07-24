@@ -503,7 +503,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         total_kd_loss += kd_loss.item()
 
                     # Apply gradient accumulation: normalize loss
-                        loss = loss / config.training.gradient_accumulation_steps
+                    loss = loss / config.training.gradient_accumulation_steps
 
                     # Accumulate statistics
                     total_ce_loss += ce_loss.item()
