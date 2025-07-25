@@ -49,6 +49,18 @@ class EMA:
                 assert name in self.backup
                 param.data = self.backup[name].clone()
         self.backup = {}
+    
+    def state_dict(self):
+        return {
+            'decay': self.decay,
+            'shadow': self.shadow,
+            'backup': self.backup
+        }
+    
+    def load_state_dict(self, state_dict):
+        self.decay = state_dict['decay']
+        self.shadow = state_dict['shadow']
+        self.backup = state_dict['backup']
 
 def setup_distributed():
     """Set up distributed evaluation."""
