@@ -13,6 +13,7 @@ from tqdm import tqdm
 import numpy as np
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
+import logging
 
 from config import Config
 from models.answering_agent import AnsweringAgent
@@ -373,8 +374,14 @@ def main():
     config.training.per_gpu_batch_size = args.batch_size
     config.training.num_workers = args.num_workers
     
-    # Initialize logger (only on rank 0)
-    logger = setup_logger('evaluation_distributed', log_dir=config.log_dir) if rank == 0 else None
+    # Initialize logger for all processes
+    logger = setup_logger('evaluation_distributed', log_dir=config.log_dir)
+
+    # Silence non-rank-0 processes by setting logger level
+    if rank != 0:
+        for handler in logger.handlers:
+            if isinstance(handler, logging.StreamHandler):
+                handler.setLevel(logging.ERROR)  # Only show errors on non-rank-0
     
     # Initialize tokenizer
     tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name, model_max_length=config.data.max_seq_length)
