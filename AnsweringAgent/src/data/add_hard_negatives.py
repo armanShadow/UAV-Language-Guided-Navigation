@@ -441,7 +441,8 @@ class HardNegativeMiner:
                     
                     if not self._is_good_answer(neighbor_answer, neighbor_item):
                         continue
-                    # Check phrase diversity
+                    
+                    # Check phrase diversity (relaxed mode)
                     if not self._is_phrase_diverse(neighbor_answer, mode='relaxed'):
                         continue
                     
