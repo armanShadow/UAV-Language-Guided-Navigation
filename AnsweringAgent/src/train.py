@@ -774,20 +774,21 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         improvement = (best_val_loss - val_loss) / best_val_loss * 100
                         logger.info(f"🎯 New best model! Improved by {improvement:.2f}% | Previous best: {best_val_loss:.4f} | New best: {val_loss:.4f}")
                         
+                        with torch.cuda.amp.autocast(enabled=False):
                         # Save best model
-                        save_dict = {
-                            'epoch': epoch,
-                            'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
-                            'optimizer_state_dict': optimizer.state_dict(),
-                            'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
-                            'ema': ema.state_dict(),
-                            'val_loss': val_loss,
-                            'config': config,
-                        }
+                            save_dict_fp32 = {
+                                'epoch': epoch,
+                                'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
+                                'optimizer_state_dict': optimizer.state_dict(),
+                                'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+                                'ema': ema.state_dict(),
+                                'val_loss': val_loss,
+                                'config': config,
+                            }
                         
                         with CHECKPOINT_LOCK:
-                            best_model_path = os.path.join(checkpoint_dir, f'best_model_{epoch+1}.pth')
-                            torch.save(save_dict, best_model_path)
+                            best_model_path = os.path.join(checkpoint_dir, f'best_model_{epoch+1}_fp32.pth')
+                            torch.save(save_dict_fp32, best_model_path)
                             logger.info(f"💾 Saved best model")
                         
                         best_val_loss = val_loss
@@ -808,7 +809,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             
             # Save checkpoint at regular intervals (only rank 0)
             if rank == 0 and (epoch + 1) % save_frequency == 0:
-                save_dict = {
+                with torch.cuda.amp.autocast(enabled=False):
+                    save_dict_fp32 = {
                     'epoch': epoch,
                     'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
@@ -819,8 +821,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 }
                 
                 with CHECKPOINT_LOCK:
-                    checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch+1}.pth')
-                    torch.save(save_dict, checkpoint_path)
+                    checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch+1}_fp32.pth')
+                    torch.save(save_dict_fp32, checkpoint_path)
                     logger.info(f"💾 Checkpoint saved")
             
             # Step the scheduler based on validation loss if available
@@ -834,7 +836,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         
         # End of training - save final model
         if rank == 0:
-            save_dict = {
+            with torch.cuda.amp.autocast(enabled=False):
+                save_dict_fp32 = {
                 'epoch': num_epochs - 1,
                 'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
@@ -845,8 +848,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             }
             
             with CHECKPOINT_LOCK:
-                final_model_path = os.path.join(checkpoint_dir, f'final_model_{epoch+1}.pth')
-                torch.save(save_dict, final_model_path)
+                final_model_path = os.path.join(checkpoint_dir, f'final_model_{epoch+1}_fp32.pth')
+                torch.save(save_dict_fp32, final_model_path)
                 logger.info(f"💾 Final model saved")
 
             # Print training summary

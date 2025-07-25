@@ -47,7 +47,7 @@ class TrainingConfig:
     # Early stopping parameters
     early_stopping: bool = True
     early_stopping_patience: int = 10
-    early_stopping_min_delta: float = 0.004
+    early_stopping_min_delta: float = 0.003
     # Validation parameters
     per_gpu_batch_size_val: int = 8  # Smaller validation batch size to save VRAM
     train_chunk_size: int = 1000
@@ -65,8 +65,8 @@ class TrainingConfig:
     contrastive_margin: float = 0.1
     contrastive_temperature: float = 0.02  # Lower temperature for sharper InfoNCE
     # FIXED: Increased contrastive weights to match CE loss scale
-    contrastive_weight_start: float = 7.0  # Increased from 0.1 to 10.0
-    contrastive_weight_end: float = 7.0    # Increased from 0.5 to 25.0
+    contrastive_weight_start: float = 10.0  # Increased from 0.1 to 10.0
+    contrastive_weight_end: float = 10.0    # Increased from 0.5 to 25.0
     # New triplet loss options
     use_cosine_distance: bool = True  # Use cosine distance instead of L2 for triplet loss - Better for normalized embeddings
     contrastive_mean_all: bool = True  # Use mean over all elements instead of non-zero for triplet loss - More stable for large batches

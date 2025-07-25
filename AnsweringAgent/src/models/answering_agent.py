@@ -375,16 +375,17 @@ class AnsweringAgent(nn.Module):
             param.requires_grad = False
         
         # UNFREEZE the last two encoder blocks to give the model more capacity in stage-2 fine-tuning
-        for idx in [-1, -2]:
+        for idx in [-1, -2, -3]:
             for name, param in self.t5_model.encoder.block[idx].named_parameters():
                 param.requires_grad = True
                 
-        self.logger.info(f"T5 model: 0.00% of parameters are trainable (all frozen)")
-        self.logger.info(f"Total T5 parameters: {total_params:,}")
         
         # Count our trainable parameters
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         self.logger.info(f"Total trainable parameters: {trainable_params:,}")
+        self.logger.info(f"Total T5 parameters: {total_params:,}")
+        self.logger.info(f"T5 model: {trainable_params/total_params*100:.2f}% of parameters are trainable")
+       
     
     def forward(self, text_input: dict, current_view: torch.Tensor, 
                 previous_views: torch.Tensor, labels: torch.Tensor = None, generate: bool = False,
