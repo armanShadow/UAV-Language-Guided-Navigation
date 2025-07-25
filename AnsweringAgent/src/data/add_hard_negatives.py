@@ -47,7 +47,7 @@ class HardNegativeMiner:
     
     def __init__(self, config: Config, tokenizer, k_nn: int = 100, cosine_threshold: float = 0.2,
                  diverse_ratio: float = 0.0, min_answer_length: int = 20,
-                 min_visual_similarity: float = 0.15, fallback_phrase_reuse_limit: int = 5,
+                 min_visual_similarity: float = 0.15, fallback_phrase_reuse_limit: int = 4,
                  sliding_window_size: int = 1000):
         """Initialize the hard negative miner."""
         self.config = config
@@ -235,7 +235,13 @@ class HardNegativeMiner:
             return
         
         normalized = self._normalize_answer(answer)
-        self.used_phrases[normalized] = self.used_phrases.get(normalized, 0) + 1
+        old_count = self.used_phrases.get(normalized, 0)
+        self.used_phrases[normalized] = old_count + 1
+        new_count = self.used_phrases[normalized]
+        
+        # Debug logging for high reuse cases
+        if new_count > 4:
+            print(f"⚠️ DEBUG: Phrase '{normalized[:50]}...' now used {new_count} times (was {old_count})")
         
         # Maintain sliding window
         if len(self.used_phrases) > self.sliding_window_size:
