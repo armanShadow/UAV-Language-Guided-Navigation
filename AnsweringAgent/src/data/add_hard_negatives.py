@@ -370,9 +370,9 @@ class HardNegativeMiner:
         best_visual_similarity = None
         
         # Tighter escalating thresholds for final run - more aggressive text separation
-        thresholds = [self.cosine_threshold, self.cosine_threshold + 0.06, self.cosine_threshold + 0.12]
+        hardest_thresholds = [self.cosine_threshold, self.cosine_threshold + 0.06]
         
-        for threshold in thresholds:
+        for threshold in hardest_thresholds:
             for i, pos in enumerate(neighbor_indices):
                 sample_idx = self.visual_indices[pos]
                 if sample_idx not in dataset:
@@ -422,43 +422,45 @@ class HardNegativeMiner:
         if best_candidate is None:
             fallback_candidates = []
             
-            for i, pos in enumerate(neighbor_indices):
-                sample_idx = self.visual_indices[pos]
-                if sample_idx not in dataset:
-                    continue
+            relaxed_thresholds = [self.cosine_threshold, self.cosine_threshold + 0.06, self.cosine_threshold + 0.12]
+            for threshold in relaxed_thresholds:
+                for i, pos in enumerate(neighbor_indices):
+                    sample_idx = self.visual_indices[pos]
+                    if sample_idx not in dataset:
+                        continue
+                    
+                    visual_similarity = 1.0 - neighbor_distances[i]
+                    if visual_similarity < self.min_visual_similarity:
+                        break
+                    
+                    neighbor_item = dataset[sample_idx]
+                    neighbor_answer = neighbor_item.get('answer', '')
+                    neighbor_instruction = neighbor_item.get('first_instruction', '')
+                    
+                    if anchor_instruction == neighbor_instruction:
+                        continue
+                    
+                    if not self._is_good_answer(neighbor_answer, neighbor_item):
+                        continue
+                    
+                    # Relaxed phrase diversity check
+                    normalized = self._normalize_answer(neighbor_answer)
+                    if self.used_phrases.get(normalized, 0) >= self.fallback_phrase_reuse_limit:
+                        continue
+                    
+                    neighbor_text_features = self.text_features.get(self._normalize_answer(neighbor_answer), np.zeros(768, dtype=np.float32))
+                    text_similarity = np.dot(anchor_text_features, neighbor_text_features)
+                    
+                    if text_similarity >= self.cosine_threshold:
+                        continue
+                    
+                    # Collect candidates with their visual similarity
+                    fallback_candidates.append((sample_idx, text_similarity, visual_similarity))
                 
-                visual_similarity = 1.0 - neighbor_distances[i]
-                if visual_similarity < self.min_visual_similarity:
-                    break
-                
-                neighbor_item = dataset[sample_idx]
-                neighbor_answer = neighbor_item.get('answer', '')
-                neighbor_instruction = neighbor_item.get('first_instruction', '')
-                
-                if anchor_instruction == neighbor_instruction:
-                    continue
-                
-                if not self._is_good_answer(neighbor_answer, neighbor_item):
-                    continue
-                
-                # Relaxed phrase diversity check
-                normalized = self._normalize_answer(neighbor_answer)
-                if self.used_phrases.get(normalized, 0) >= self.fallback_phrase_reuse_limit:
-                    continue
-                
-                neighbor_text_features = self.text_features.get(self._normalize_answer(neighbor_answer), np.zeros(768, dtype=np.float32))
-                text_similarity = np.dot(anchor_text_features, neighbor_text_features)
-                
-                if text_similarity >= self.cosine_threshold:
-                    continue
-                
-                # Collect candidates with their visual similarity
-                fallback_candidates.append((sample_idx, text_similarity, visual_similarity))
-            
-            # Select candidate with highest visual similarity (most challenging)
-            if fallback_candidates:
-                fallback_candidates.sort(key=lambda x: x[2], reverse=True)  # Sort by visual similarity descending
-                best_candidate, lowest_text_similarity, best_visual_similarity = fallback_candidates[0]
+                # Select candidate with highest visual similarity (most challenging)
+                if fallback_candidates:
+                    fallback_candidates.sort(key=lambda x: x[2], reverse=True)  # Sort by visual similarity descending
+                    best_candidate, lowest_text_similarity, best_visual_similarity = fallback_candidates[0]
         
         if best_candidate is not None:
             return (best_candidate, lowest_text_similarity, best_visual_similarity)
