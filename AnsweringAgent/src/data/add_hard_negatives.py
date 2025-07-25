@@ -207,7 +207,7 @@ class HardNegativeMiner:
         normalized = self._normalize_answer(answer)
         return self.answer_quality_cache.get(normalized, False)
     
-    def _is_phrase_diverse(self, answer: str) -> bool:
+    def _is_phrase_diverse(self, answer: str, mode: str = 'strict') -> bool:
         """Check if phrase satisfies diversity requirements."""
         if not answer:
             return False
@@ -218,7 +218,12 @@ class HardNegativeMiner:
         current_uses = self.used_phrases.get(normalized, 0)
         max_uses = self._get_reuse_limit(len(normalized))
         
-        return current_uses < max_uses
+        if mode == 'strict':
+            return current_uses < max_uses
+        elif mode == 'relaxed':
+            return current_uses < max_uses + self.fallback_phrase_reuse_limit
+        else:
+            raise ValueError(f"Invalid mode: {mode}")
     
     def _get_reuse_limit(self, phrase_length: int) -> int:
         """Get reuse limit based on phrase length (from working original)."""
@@ -392,7 +397,7 @@ class HardNegativeMiner:
                     continue
                 
                 # Check phrase diversity
-                if not self._is_phrase_diverse(neighbor_answer):
+                if not self._is_phrase_diverse(neighbor_answer, mode='strict'):
                     continue
                 
                 # Calculate text similarity
@@ -436,10 +441,8 @@ class HardNegativeMiner:
                     
                     if not self._is_good_answer(neighbor_answer, neighbor_item):
                         continue
-                    
-                    # Relaxed phrase diversity check
-                    normalized = self._normalize_answer(neighbor_answer)
-                    if self.used_phrases.get(normalized, 0) >= self.fallback_phrase_reuse_limit:
+                    # Check phrase diversity
+                    if not self._is_phrase_diverse(neighbor_answer, mode='relaxed'):
                         continue
                     
                     neighbor_text_features = self.text_features.get(self._normalize_answer(neighbor_answer), np.zeros(768, dtype=np.float32))
@@ -487,7 +490,7 @@ class HardNegativeMiner:
                     continue
                 
                 # Check phrase diversity
-                if not self._is_phrase_diverse(neighbor_answer):
+                if not self._is_phrase_diverse(neighbor_answer, mode='strict'):
                     continue
                 
                 neighbor_features = self.visual_features[sample_idx]
