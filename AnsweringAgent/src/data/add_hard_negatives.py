@@ -369,8 +369,8 @@ class HardNegativeMiner:
         lowest_text_similarity = float('inf')
         best_visual_similarity = None
         
-        # Use escalating thresholds like the working original
-        thresholds = [self.cosine_threshold, self.cosine_threshold + 0.09, self.cosine_threshold + 0.18]
+        # Tighter escalating thresholds for final run - more aggressive text separation
+        thresholds = [self.cosine_threshold, self.cosine_threshold + 0.06, self.cosine_threshold + 0.12]
         
         for threshold in thresholds:
             for i, pos in enumerate(neighbor_indices):
@@ -418,8 +418,10 @@ class HardNegativeMiner:
             if best_candidate is not None:
                 break
         
-        # Fallback without phrase diversity if needed (like working original)
+        # Improved fallback: prefer higher visual similarity within diversity constraints
         if best_candidate is None:
+            fallback_candidates = []
+            
             for i, pos in enumerate(neighbor_indices):
                 sample_idx = self.visual_indices[pos]
                 if sample_idx not in dataset:
@@ -450,10 +452,13 @@ class HardNegativeMiner:
                 if text_similarity >= self.cosine_threshold:
                     continue
                 
-                best_candidate = sample_idx
-                lowest_text_similarity = text_similarity
-                best_visual_similarity = visual_similarity
-                break
+                # Collect candidates with their visual similarity
+                fallback_candidates.append((sample_idx, text_similarity, visual_similarity))
+            
+            # Select candidate with highest visual similarity (most challenging)
+            if fallback_candidates:
+                fallback_candidates.sort(key=lambda x: x[2], reverse=True)  # Sort by visual similarity descending
+                best_candidate, lowest_text_similarity, best_visual_similarity = fallback_candidates[0]
         
         if best_candidate is not None:
             return (best_candidate, lowest_text_similarity, best_visual_similarity)
