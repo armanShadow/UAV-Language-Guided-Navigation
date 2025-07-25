@@ -738,7 +738,13 @@ class HardNegativeMiner:
             max_reuse = max(phrase_counts.values()) if phrase_counts else 0
             avg_reuse = np.mean(list(phrase_counts.values())) if phrase_counts else 0
             
+            # Detailed phrase usage distribution
+            usage_distribution = {}
+            for count in phrase_counts.values():
+                usage_distribution[count] = usage_distribution.get(count, 0) + 1
+            
             print(f"🔄 Phrase Diversity: {diversity_ratio:.3f} ({len(unique_phrases)}/{len(good_unique_answers)}), max_reuse={max_reuse}, avg_reuse={avg_reuse:.2f}")
+            print(f"📊 Phrase Usage Distribution: {usage_distribution}")
             
             # Cluster analysis for diverse negatives
             cluster_transitions = []
