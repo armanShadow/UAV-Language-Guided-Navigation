@@ -236,12 +236,7 @@ class HardNegativeMiner:
         
         normalized = self._normalize_answer(answer)
         old_count = self.used_phrases.get(normalized, 0)
-        self.used_phrases[normalized] = old_count + 1
-        new_count = self.used_phrases[normalized]
-        
-        # Debug logging for high reuse cases
-        if new_count > 4:
-            print(f"⚠️ DEBUG: Phrase '{normalized[:50]}...' now used {new_count} times (was {old_count})")
+        self.used_phrases[normalized] = old_count + 1        
         
         # Maintain sliding window
         if len(self.used_phrases) > self.sliding_window_size:
@@ -420,7 +415,6 @@ class HardNegativeMiner:
         
         # Improved fallback: prefer higher visual similarity within diversity constraints
         if best_candidate is None:
-            fallback_candidates = []
             
             relaxed_thresholds = [self.cosine_threshold, self.cosine_threshold + 0.06, self.cosine_threshold + 0.12]
             for threshold in relaxed_thresholds:
@@ -451,16 +445,9 @@ class HardNegativeMiner:
                     neighbor_text_features = self.text_features.get(self._normalize_answer(neighbor_answer), np.zeros(768, dtype=np.float32))
                     text_similarity = np.dot(anchor_text_features, neighbor_text_features)
                     
-                    if text_similarity >= self.cosine_threshold:
-                        continue
+                    if text_similarity < threshold:
+                        return (sample_idx, text_similarity, visual_similarity)
                     
-                    # Collect candidates with their visual similarity
-                    fallback_candidates.append((sample_idx, text_similarity, visual_similarity))
-                
-                # Select candidate with highest visual similarity (most challenging)
-                if fallback_candidates:
-                    fallback_candidates.sort(key=lambda x: x[2], reverse=True)  # Sort by visual similarity descending
-                    best_candidate, lowest_text_similarity, best_visual_similarity = fallback_candidates[0]
         
         if best_candidate is not None:
             return (best_candidate, lowest_text_similarity, best_visual_similarity)
