@@ -210,20 +210,26 @@ def get_smart_contrastive_schedule(planned_epochs: int):
     phase2_end = int(0.7 * planned_epochs)  # 70% for balanced learning
     
     def contrastive_weight_fn(epoch: int) -> float:
+        # Use config values: start=15.0, end=5.0 (better signal preservation!)
+        start_weight = 15.0  # Strong semantic space building
+        end_weight = 5.0     # Maintain contrastive signal (vs killing it at 1.0)
+        
         if epoch <= phase1_end:
             # Phase 1: HIGH contrastive for semantic space building
-            return 15.0  # Strong contrastive signal
+            return start_weight
         elif epoch <= phase2_end:
-            # Phase 2: MODERATE contrastive, allow CE to contribute
+            # Phase 2: GRADUAL transition from high to intermediate
             progress = (epoch - phase1_end) / (phase2_end - phase1_end)
-            return 15.0 * (1 - progress) + 3.0 * progress  # 8.0 → 3.0
+            mid_weight = start_weight * 0.6  # 15.0 → 9.0 (smooth transition)
+            return start_weight * (1 - progress) + mid_weight * progress
         elif epoch < planned_epochs:
-            # Phase 3: LOW contrastive, focus on CE fine-tuning
+            # Phase 3: GENTLE decline to end weight (preserve signal!)
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
-            return 5.0 * (1 - progress) + 1.0 * progress  # 3.0 → 1.0
+            mid_weight = start_weight * 0.6  # 9.0 (from phase 2)
+            return mid_weight * (1 - progress) + end_weight * progress  # 9.0 → 5.0
         else:
-            # Extended Phase: FIXED at final value (but adaptive revival still works)
-            return 3.0
+            # Extended Phase: FIXED at end weight (adaptive revival still works)
+            return end_weight
     
     def ce_weight_fn(epoch: int) -> float:
         if epoch <= phase1_end:
@@ -245,17 +251,16 @@ def get_smart_contrastive_schedule(planned_epochs: int):
 
 def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float = 0.002):
     """
-    Adaptive contrastive scheduling that can revive signal when it dies.
+    Adaptive contrastive scheduling with gentle target-based revival.
     
     Args:
         base_schedule_fn: Base scheduling function
         revival_threshold: Threshold below which to trigger revival (0.002 for sensitive detection)
     """
     last_contrastive_losses = []
-    revival_boost = 1.0
     
     def adaptive_weight_fn(epoch: int, recent_contrastive_loss: float = None) -> float:
-        nonlocal last_contrastive_losses, revival_boost
+        nonlocal last_contrastive_losses
         
         base_weight = base_schedule_fn(epoch)
         
@@ -265,16 +270,47 @@ def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float
             if len(last_contrastive_losses) > 5:  # Keep last 5 epochs
                 last_contrastive_losses.pop(0)
         
-        # Check if contrastive signal is dying (user's insight - more sensitive threshold!)
+        # Check if contrastive signal needs gentle revival
         if len(last_contrastive_losses) >= 3:
             recent_avg = sum(last_contrastive_losses[-3:]) / 3
+            
             if recent_avg < revival_threshold:
-                revival_boost = min(revival_boost * 1.5, 3.0)  # Boost up to 3x
-                print(f"🔥 CONTRASTIVE REVIVAL at epoch {epoch}! Boost: {revival_boost:.2f} (avg_loss: {recent_avg:.4f})")
-            else:
-                revival_boost = max(revival_boost * 0.95, 1.0)  # Gradually decay boost
+                # TARGET-BASED REVIVAL: Adjust weight to achieve target loss level
+                target_loss = 0.005 if epoch < 1500 else 0.004  # More conservative in late epochs
+                
+                # Estimate weight adjustment needed (gentle approximation)
+                if recent_avg > 0.0001:  # Avoid division by zero
+                    # Simple linear approximation: loss ∝ 1/weight
+                    estimated_weight_needed = base_weight * (target_loss / recent_avg)
+                    
+                    # Apply conservative bounds based on training phase
+                    if epoch < 800:  # Planning phase - allow larger adjustments
+                        max_weight = base_weight * 2.0
+                        min_weight = base_weight * 1.2
+                    elif epoch < 2000:  # Early extended phase - moderate adjustments  
+                        max_weight = base_weight * 1.5
+                        min_weight = base_weight * 1.1
+                    else:  # Late extended phase - minimal adjustments
+                        max_weight = base_weight * 1.2
+                        min_weight = base_weight * 1.05
+                    
+                    # Clamp the estimated weight within conservative bounds
+                    revival_weight = max(min_weight, min(estimated_weight_needed, max_weight))
+                    
+                    print(f"🔥 GENTLE CONTRASTIVE REVIVAL at epoch {epoch}!")
+                    print(f"   📊 Target loss: {target_loss:.4f} | Current avg: {recent_avg:.4f}")
+                    print(f"   ⚖️  Base weight: {base_weight:.2f} → Revival weight: {revival_weight:.2f}")
+                    
+                    return revival_weight
+                else:
+                    # If loss is extremely small, apply minimal boost
+                    gentle_boost = 1.1 if epoch > 2000 else 1.3
+                    revival_weight = base_weight * gentle_boost
+                    print(f"🔥 MINIMAL CONTRASTIVE REVIVAL at epoch {epoch}! Weight: {base_weight:.2f} → {revival_weight:.2f}")
+                    return revival_weight
         
-        return base_weight * revival_boost
+        # No revival needed - return base weight
+        return base_weight
     
     return adaptive_weight_fn
 
@@ -758,15 +794,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                   f"Loss: {avg_loss:.4f} | CE: {avg_ce:.4f} | "
                                   f"Contrast: {avg_contrastive:.4f} | KD: {avg_kd:.4f} | Dest: {avg_destination:.4f}")
                         
-                        # LOG RAW LOSSES AND WEIGHTS for debugging
-                        logger.info(f"🔍 RAW | CE_raw: {ce_loss.item():.4f}×{current_ce_weight:.2f} | "
-                                  f"Contrast_raw: {contrastive_loss.item():.4f}×{current_contrastive_weight:.2f} | "
-                                  f"Dest_raw: {destination_cosine_loss.item():.4f}×{current_dest_weight:.2f} | "
-                                  f"KD_raw: {kd_loss.item():.4f}×{current_kd_weight:.2f}")
-                        
-                        # Log feature norms for debugging
-                        logger.info(f"🔧 NORMS | Feature_norm: {feature_norm.item():.4f} | "
-                                  f"Curriculum: {current_curriculum_ratio:.2f}")
                         
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
@@ -1217,21 +1244,23 @@ def visualize_weight_schedule(planned_epochs: int, max_epochs: int, logger=None)
         logger.info("=" * 100)
         logger.info("🎯 INTEGRATED STRATEGY - ALL COMPONENTS:")
         logger.info(f"  ✅ Phase 1 (0-{phase1_end}): Build Semantic Space")
-        logger.info("      • HIGH contrastive (8.0) + LOW CE (0.1) + HIGH curriculum (1.0→0.7)")
+        logger.info("      • HIGH contrastive (15.0) + LOW CE (0.1) + HIGH curriculum (1.0→0.7)")
         logger.info("      • HIGH destination (0.8) + MODERATE KD (0.5)")
         logger.info("      → Oracle helps build visual-text alignment with teacher guidance")
         logger.info(f"  ✅ Phase 2 ({phase1_end}-{phase2_end}): Balance Learning")
-        logger.info("      • MODERATE contrastive (8.0→3.0) + MODERATE CE (0.1→0.8) + MODERATE curriculum (0.7→0.3)")
+        logger.info("      • MODERATE contrastive (15.0→9.0) + MODERATE CE (0.1→0.8) + MODERATE curriculum (0.7→0.3)")
         logger.info("      • MODERATE destination (0.8→0.3) + HIGH KD (0.5→1.0)")
         logger.info("      → Balanced transition with strong teacher guidance")
         logger.info(f"  ✅ Phase 3 ({phase2_end}-{planned_epochs}): CE Fine-tuning")
-        logger.info("      • LOW contrastive (3.0→1.0) + HIGH CE (0.8→1.5) + NO curriculum (0.3→0.0)")
+        logger.info("      • PRESERVED contrastive (9.0→5.0) + HIGH CE (0.8→1.5) + NO curriculum (0.3→0.0)")
         logger.info("      • LOW destination (0.3→0.05) + LOW KD (1.0→0.1)")
-        logger.info("      → Independent navigation with task-specific optimization")
+        logger.info("      → Independent navigation with PRESERVED contrastive signal")
         logger.info(f"  🚀 Extended ({planned_epochs}-{max_epochs}): Fixed Weights + Adaptive Revival")
-        logger.info("      • FIXED: CE=1.5, Contrastive=1.0, Curriculum=0.0, Destination=0.05, KD=0.1")
-        logger.info("      → Continue with mature configuration until early stopping")
-        logger.info("  🔥 Contrastive revival active throughout (auto-boost when signal dies)!")
+        logger.info("      • FIXED: CE=1.5, Contrastive=5.0, Curriculum=0.0, Destination=0.05, KD=0.1")
+        logger.info("      → Continue with STRONG contrastive signal until early stopping")
+        logger.info("  🔥 GENTLE contrastive revival active throughout!")
+        logger.info("    → Target-based revival: <0.002 → 0.004-0.005 (prevents late-epoch noise)")
+        logger.info("    → Conservative bounds: Early training (2x max) → Late training (1.2x max)")
         logger.info("=" * 100)
 
 def main():
