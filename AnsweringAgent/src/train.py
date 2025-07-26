@@ -452,7 +452,8 @@ def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mas
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler,
                 num_epochs, device, checkpoint_dir, config, teacher_model=None, start_epoch=0,
-                best_val_loss=float('inf'), rank=None, logger=None, is_distributed=False):
+                best_val_loss=float('inf'), rank=None, logger=None, is_distributed=False,
+                checkpoint_data=None):
     """Train the model with mixed precision training and gradient accumulation."""
     global TRAINING_FAILED
 
@@ -473,6 +474,38 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     
     # Initialize Exponential Moving Average
     ema = EMA(model, decay=0.999)
+    
+    # Load optimizer, scheduler, and EMA states if resuming from checkpoint
+    if checkpoint_data is not None:
+        try:
+            if rank == 0:
+                logger.info(f"🔄 Loading optimizer, scheduler, and EMA states from checkpoint...")
+            
+            # Load optimizer state
+            if 'optimizer_state_dict' in checkpoint_data:
+                optimizer.load_state_dict(checkpoint_data['optimizer_state_dict'])
+                if rank == 0:
+                    logger.info(f"✅ Optimizer state loaded")
+            
+            # Load scheduler state  
+            if 'scheduler_state_dict' in checkpoint_data and checkpoint_data['scheduler_state_dict'] is not None:
+                scheduler.load_state_dict(checkpoint_data['scheduler_state_dict'])
+                if rank == 0:
+                    logger.info(f"✅ Scheduler state loaded")
+            
+            # Load EMA state
+            if 'ema' in checkpoint_data:
+                ema.load_state_dict(checkpoint_data['ema'])
+                if rank == 0:
+                    logger.info(f"✅ EMA state loaded")
+                    
+            if rank == 0:
+                logger.info(f"🎯 Complete checkpoint state restored for epoch {start_epoch + 1}")
+                
+        except Exception as e:
+            if rank == 0:
+                logger.warning(f"⚠️ Could not load optimizer/scheduler/EMA states: {e}")
+                logger.info(f"📝 Continuing with fresh optimizer/scheduler/EMA states")
     
     # Initialize contrastive loss if enabled
     contrastive_loss_fn = None
@@ -1421,26 +1454,36 @@ def main():
             )
 
         # Resume training if checkpoint is provided
+        checkpoint_data = None
         if args.checkpoint and os.path.exists(args.checkpoint):
             if rank == 0:
                 logger.info(f"📂 Loading checkpoint: {args.checkpoint}")
                 
             # Load checkpoint on CPU first to avoid GPU memory issues
             try:
-                checkpoint = torch.load(args.checkpoint, map_location='cpu')
+                checkpoint_data = torch.load(args.checkpoint, map_location='cpu')
                 
                 # Move model state dict to GPU after loading
                 if hasattr(model, 'module'):
-                    model.module.load_state_dict(checkpoint['model_state_dict'])
+                    model.module.load_state_dict(checkpoint_data['model_state_dict'])
                 else:
-                    model.load_state_dict(checkpoint['model_state_dict'])
+                    model.load_state_dict(checkpoint_data['model_state_dict'])
                     
-                start_epoch = checkpoint['epoch']
-                best_val_loss = checkpoint.get('val_loss', float('inf'))
+                start_epoch = checkpoint_data['epoch']
+                best_val_loss = checkpoint_data.get('val_loss', float('inf'))
+                
+                # Validate config compatibility if available
+                if 'config' in checkpoint_data:
+                    saved_config = checkpoint_data['config']
+                    # Check key compatibility
+                    if (saved_config.model.hidden_size != config.model.hidden_size or 
+                        saved_config.training.per_gpu_batch_size != config.training.per_gpu_batch_size):
+                        if rank == 0:
+                            logger.warning(f"⚠️ Config mismatch detected - continuing with current config")
                 
                 if rank == 0:
                     logger.info(f"▶️ Resuming from epoch {start_epoch+1}")
-                    logger.info(f"💾 Checkpoint loaded successfully on CPU, then moved to GPU")
+                    logger.info(f"💾 Model state loaded successfully")
                     
             except Exception as e:
                 if rank == 0:
@@ -1448,6 +1491,7 @@ def main():
                     logger.info("🔄 Starting training from scratch")
                 start_epoch = 0
                 best_val_loss = float('inf')
+                checkpoint_data = None
 
         
         
@@ -1572,7 +1616,8 @@ def main():
             best_val_loss=best_val_loss,
             rank=rank,
             logger=logger,
-            is_distributed=is_distributed
+            is_distributed=is_distributed,
+            checkpoint_data=checkpoint_data
         )
 
         # Normal cleanup
