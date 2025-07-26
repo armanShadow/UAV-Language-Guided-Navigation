@@ -211,8 +211,8 @@ def get_smart_contrastive_schedule(planned_epochs: int):
     
     def contrastive_weight_fn(epoch: int) -> float:
         # Use config values: start=15.0, end=5.0 (better signal preservation!)
-        start_weight = 15.0  # Strong semantic space building
-        end_weight = 5.0     # Maintain contrastive signal (vs killing it at 1.0)
+        start_weight = 10.0  # Strong semantic space building
+        end_weight = 3.0     # Maintain contrastive signal (vs killing it at 1.0)
         
         if epoch <= phase1_end:
             # Phase 1: HIGH contrastive for semantic space building
