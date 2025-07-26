@@ -258,24 +258,35 @@ def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float
         revival_threshold: Threshold below which to trigger revival (0.002 for sensitive detection)
     """
     last_contrastive_losses = []
+    flag_revival = False
     
     def adaptive_weight_fn(epoch: int, recent_contrastive_loss: float = None) -> float:
         nonlocal last_contrastive_losses
-        
+        nonlocal flag_revival
+
         base_weight = base_schedule_fn(epoch)
         
-        # Track recent contrastive losses
+        # Only update flag when new data is provided (epoch end)
         if recent_contrastive_loss is not None:
             last_contrastive_losses.append(recent_contrastive_loss)
             if len(last_contrastive_losses) > 5:  # Keep last 5 epochs
                 last_contrastive_losses.pop(0)
-        
-        # Check if contrastive signal needs gentle revival
-        if len(last_contrastive_losses) >= 3:
-            recent_avg = sum(last_contrastive_losses[-3:]) / 3
             
-            if recent_avg < revival_threshold:
-                # TARGET-BASED REVIVAL: Adjust weight to achieve target loss level
+            # Only calculate and update flag when we have enough data
+            if len(last_contrastive_losses) >= 2:  # Need at least 2 epochs for comparison
+                recent_avg = sum(last_contrastive_losses[-4:]) / len(last_contrastive_losses[-4:])
+                
+                if recent_avg < revival_threshold:
+                    flag_revival = True
+                else:
+                    flag_revival = False
+        
+        # Use current flag state (whether updated this call or from previous epoch)
+        if flag_revival:
+            
+            # Calculate target loss and recent average for revival logic
+            if len(last_contrastive_losses) >= 2:
+                recent_avg = sum(last_contrastive_losses[-4:]) / len(last_contrastive_losses[-4:])
                 target_loss = 0.005 if epoch < 1500 else 0.004  # More conservative in late epochs
                 
                 # Estimate weight adjustment needed (gentle approximation)
@@ -284,7 +295,7 @@ def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float
                     estimated_weight_needed = base_weight * (target_loss / recent_avg)
                     
                     # Apply conservative bounds based on training phase
-                    if epoch < 800:  # Planning phase - allow larger adjustments
+                    if epoch < 400:  # Planning phase - allow larger adjustments
                         max_weight = base_weight * 2.0
                         min_weight = base_weight * 1.2
                     elif epoch < 2000:  # Early extended phase - moderate adjustments  
@@ -308,7 +319,7 @@ def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float
                     revival_weight = base_weight * gentle_boost
                     print(f"🔥 MINIMAL CONTRASTIVE REVIVAL at epoch {epoch}! Weight: {base_weight:.2f} → {revival_weight:.2f}")
                     return revival_weight
-        
+    
         # No revival needed - return base weight
         return base_weight
     
@@ -722,7 +733,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             
                             
                             # Add weighted contrastive loss to total loss
-                            contrastive_weight = adaptive_contrastive_fn(epoch, recent_contrastive_loss=contrastive_loss.item())
+                            contrastive_weight = adaptive_contrastive_fn(epoch)
                             loss = loss + contrastive_weight * contrastive_loss
                             total_contrastive_loss += contrastive_loss.item()
                         elif rank == 0 and batch_idx == 0 and epoch == 0:
@@ -783,12 +794,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         avg_destination = total_destination_loss / (batch_idx + 1)
                         avg_kd = total_kd_loss / (batch_idx + 1)
                         
-                        # Get current weights for this batch
-                        current_ce_weight = ce_weight_fn(epoch)
-                        current_contrastive_weight = adaptive_contrastive_fn(epoch)
-                        current_dest_weight = destination_weight_fn(epoch)
-                        current_curriculum_ratio = curriculum_ratio_fn(epoch)
-                        current_kd_weight = kd_weight_fn(epoch)
                         
                         logger.info(f"📊 Batch {batch_idx}/{len(train_loader)} | "
                                   f"Loss: {avg_loss:.4f} | CE: {avg_ce:.4f} | "
@@ -845,7 +850,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 if hasattr(config.training, 'log_loss_weights') and config.training.log_loss_weights:
                     max_curriculum_epochs = config.training.curriculum_epochs
                     current_ce_weight = ce_weight_fn(epoch)
-                    current_contrastive_weight = adaptive_contrastive_fn(epoch)
+                    current_contrastive_weight = adaptive_contrastive_fn(epoch, recent_contrastive_loss=avg_contrastive_loss)
                     current_dest_weight = destination_weight_fn(epoch)
                     current_curriculum_ratio = curriculum_ratio_fn(epoch)
                     current_kd_weight = kd_weight_fn(epoch)
