@@ -212,18 +212,18 @@ def get_smart_contrastive_schedule(planned_epochs: int):
     def contrastive_weight_fn(epoch: int) -> float:
         if epoch <= phase1_end:
             # Phase 1: HIGH contrastive for semantic space building
-            return 8.0  # Strong contrastive signal
+            return 15.0  # Strong contrastive signal
         elif epoch <= phase2_end:
             # Phase 2: MODERATE contrastive, allow CE to contribute
             progress = (epoch - phase1_end) / (phase2_end - phase1_end)
-            return 8.0 * (1 - progress) + 3.0 * progress  # 8.0 → 3.0
+            return 15.0 * (1 - progress) + 3.0 * progress  # 8.0 → 3.0
         elif epoch < planned_epochs:
             # Phase 3: LOW contrastive, focus on CE fine-tuning
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
-            return 3.0 * (1 - progress) + 1.0 * progress  # 3.0 → 1.0
+            return 5.0 * (1 - progress) + 1.0 * progress  # 3.0 → 1.0
         else:
             # Extended Phase: FIXED at final value (but adaptive revival still works)
-            return 1.0
+            return 3.0
     
     def ce_weight_fn(epoch: int) -> float:
         if epoch <= phase1_end:
@@ -339,20 +339,12 @@ def get_smart_kd_schedule(planned_epochs: int):
     return kd_weight_fn
 
 def calculate_reconstruction_loss(reconstructed_features, original_features):
-    # MIXED PRECISION: Ensure consistent dtypes
-    reconstructed_features = reconstructed_features.float()
-    original_features = original_features.float()
-    
     reconstructed_features_norm = F.normalize(reconstructed_features, p=2, dim=1)
     original_features_norm = F.normalize(original_features, p=2, dim=1)
     reconstruction_loss = F.mse_loss(reconstructed_features_norm, original_features_norm)
     return reconstruction_loss
 
 def calculate_cosine_similarity_loss(first_features, second_features):
-    # MIXED PRECISION: Ensure consistent dtypes for stable computation
-    first_features = first_features.float()
-    second_features = second_features.float()
-    
     first_features_norm = F.normalize(first_features, p=2, dim=1)
     second_features_norm = F.normalize(second_features, p=2, dim=1)
     cosine_loss = 1 - F.cosine_similarity(first_features_norm, second_features_norm).mean()
@@ -372,7 +364,7 @@ def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mas
     Returns:
         Sentence-level distribution similarity loss
     """
-    distribution_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+    distribution_loss = torch.tensor(0.0, device=device)
     
     # Only compute on non-padded tokens (where mask is 1)
     valid_positions = mask_flat.bool()
@@ -384,9 +376,6 @@ def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mas
         valid_logits = logits_reshaped[valid_positions]  # [valid_count, vocab_size]
         valid_labels = labels_reshaped[valid_positions]  # [valid_count]
         
-        # MIXED PRECISION: Ensure FP32 for stable computation
-        valid_logits = valid_logits.float()
-        
         # Get softmax of logits (predicted distribution)
         probs = F.softmax(valid_logits, dim=-1)
         
@@ -395,11 +384,11 @@ def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mas
             embedding_layer = model_to_use.t5_model.decoder.embed_tokens
             
             # Get embeddings for target tokens
-            target_embeddings = embedding_layer(valid_labels).float()  # [valid_count, hidden_dim]
+            target_embeddings = embedding_layer(valid_labels)  # [valid_count, hidden_dim]
             
             # Get embeddings for predicted distribution
             # Weight each embedding by its probability
-            all_token_embeddings = embedding_layer.weight.float()  # [vocab_size, hidden_dim]
+            all_token_embeddings = embedding_layer.weight  # [vocab_size, hidden_dim]
             predicted_embeddings = torch.matmul(probs, all_token_embeddings)  # [valid_count, hidden_dim]
         
         # Normalize embeddings
@@ -423,22 +412,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     save_frequency = config.training.checkpoint_frequency
     log_frequency = max(10, len(train_loader) // 3)
 
-    # Enable automatic mixed precision training
-    scaler = torch.cuda.amp.GradScaler(enabled=config.training.mixed_precision)
-    use_amp = config.training.mixed_precision
+    # Training configuration
+    use_amp = config.training.mixed_precision  # Should be False now
     
     if rank == 0:
         logger.info(f"🎯 Training Configuration:")
-        logger.info(f"  Mixed precision: {'✅' if use_amp else '❌'}")
-        if use_amp:
-            logger.info(f"  🔧 Mixed precision optimizations:")
-            logger.info(f"    • Main forward pass in autocast context (FP16)")
-            logger.info(f"    • KD loss computed in FP32 for stability")
-            logger.info(f"    • Custom loss functions use FP32 for numerical stability")
-            logger.info(f"    • Teacher embeddings properly dtype-matched")
-            logger.info(f"    • Gradient scaler enabled with safeguards")
-            logger.info(f"    • Contrastive revival threshold: 0.002 (more sensitive)")
-            logger.info(f"  ⚠️  If training hangs, try: mixed_precision = False in config")
+        logger.info(f"  Mixed precision: {'✅' if use_amp else '❌ DISABLED'}")
         logger.info(f"  Gradient accumulation: {config.training.gradient_accumulation_steps}")
         logger.info(f"  Contrastive learning: {'✅' if config.training.use_contrastive_learning else '❌'}")
         
@@ -608,139 +587,121 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             if 'negative_input_2' in batch:
                                 negative_input_2 = {k: v.to(device, non_blocking=True) for k, v in batch['negative_input_2'].items()}
                                    
-                    # Debug log on first batch to check data loading
-                    if batch_idx == 0 and epoch == 0 and rank == 0:
-                        logger.info(f"🔍 Debug | Batch keys: {list(batch.keys())}")
-                        logger.info(f"🔍 Debug | Context-aware contrastive examples found: {contrastive_examples_found}")
-                        if 'positive_example' in batch:
-                            logger.info(f"🔍 Debug | Positive context shape: {batch['positive_input']['input_ids'].shape}")
-                        if 'positive_example_2' in batch:
-                            logger.info(f"🔍 Debug | Positive context 2 shape: {batch['positive_input_2']['input_ids'].shape}")
-                        if 'negative_example' in batch:
-                            logger.info(f"🔍 Debug | Negative context shape: {batch['negative_input']['input_ids'].shape}")
-                        logger.info(f"🔍 Debug | All contrastive examples now include full context for semantic alignment")
-                        logger.info(f"🔍 Debug | Context includes: First Instruction + Dialog History + Current Question")
                     
-                    # Forward pass with mixed precision
-                    with torch.cuda.amp.autocast(enabled=use_amp):
-                        outputs = model(
-                            text_input, 
-                            current_view, 
-                            previous_views, 
-                            labels=label_input_ids,
-                            destination_view=destination_view,
-                            curriculum_ratio=curriculum_ratio,
-                            positive_input=positive_input,
-                            positive_input_2=positive_input_2,
-                            negative_input=negative_input,
-                            negative_input_2=negative_input_2
-                        )
+                    # Forward pass
+                    outputs = model(
+                        text_input, 
+                        current_view, 
+                        previous_views, 
+                        labels=label_input_ids,
+                        destination_view=destination_view,
+                        curriculum_ratio=curriculum_ratio,
+                        positive_input=positive_input,
+                        positive_input_2=positive_input_2,
+                        negative_input=negative_input,
+                        negative_input_2=negative_input_2
+                    )
+                    
+                    logits = outputs["logits"]
+                    # Use the loss already calculated by T5 instead of recalculating
+                    ce_loss = outputs.get("loss", torch.tensor(0.0, device=device))
+                    feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
+
+
+                    if torch.isnan(logits).any():
+                        if rank == 0:
+                            logger.error(f"❌ NaN detected in logits at batch {batch_idx}")
+                        optimizer.zero_grad(set_to_none=True)
+                        continue
+
+                    # No need to recalculate CE loss - T5 already did it!
+                    # logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
+                    # labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
+                    # ce_loss = criterion(logits_reshaped, labels_reshaped)  # REMOVED: redundant calculation
+                    
+                    ce_loss_weight = ce_weight_fn(epoch)
+
+                    # Add feature regularization with clipping to prevent explosion
+                    feature_norm_clipped = feature_norm.clamp(max=1e3)  # Clip to prevent explosion
+                    reg_loss = 1e-4 * feature_norm_clipped
+                    loss = ce_loss_weight * ce_loss + reg_loss
                         
-                        logits = outputs["logits"]
-                        # Use the loss already calculated by T5 instead of recalculating
-                        ce_loss = outputs.get("loss", torch.tensor(0.0, device=device, dtype=torch.float32))
-                        feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device, dtype=torch.float32))
-
-
-                        if torch.isnan(logits).any():
-                            if rank == 0:
-                                logger.error(f"❌ NaN detected in logits at batch {batch_idx}")
-                            optimizer.zero_grad(set_to_none=True)
-                            continue
-
-                        # No need to recalculate CE loss - T5 already did it!
-                        # logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
-                        # labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
-                        # ce_loss = criterion(logits_reshaped, labels_reshaped)  # REMOVED: redundant calculation
+                    # Add destination loss if destination view is available
+                    if destination_view is not None:
+                        dest_features = outputs.get("destination_features", outputs["raw_adapted_features"])
+                        # Use raw_adapted_features for destination loss - these are the pure T5 adapter outputs
+                        # before contrastive projection, representing the model's learned visual-text alignment
+                        destination_cosine_loss = calculate_cosine_similarity_loss(outputs["raw_adapted_features"], dest_features)
                         
-                        ce_loss_weight = ce_weight_fn(epoch)
+                        destination_weight = destination_weight_fn(epoch)
+                        loss = loss + destination_weight * destination_cosine_loss
+                    else:
+                        destination_cosine_loss = torch.tensor(0.0, device=device)
 
-                        # Add feature regularization with clipping to prevent explosion
-                        feature_norm_clipped = feature_norm.clamp(max=1e3)  # Clip to prevent explosion
-                        reg_loss = 1e-4 * feature_norm_clipped
-                        loss = ce_loss_weight * ce_loss + reg_loss
-                            
-                        # Add destination loss if destination view is available
-                        if destination_view is not None:
-                            dest_features = outputs.get("destination_features", outputs["raw_adapted_features"])
-                            # Use raw_adapted_features for destination loss - these are the pure T5 adapter outputs
-                            # before contrastive projection, representing the model's learned visual-text alignment
-                            destination_cosine_loss = calculate_cosine_similarity_loss(outputs["raw_adapted_features"], dest_features)
-                            
-                            destination_weight = destination_weight_fn(epoch)
-                            loss = loss + destination_weight * destination_cosine_loss
-                        else:
-                            destination_cosine_loss = torch.tensor(0.0, device=device, dtype=loss.dtype)
-
+                    
+                    # Calculate contrastive loss if enabled
+                    contrastive_loss = torch.tensor(0.0, device=device)
+                    if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
                         
-                        # Calculate contrastive loss if enabled
-                        contrastive_loss = torch.tensor(0.0, device=device, dtype=loss.dtype)
-                        if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
+                        # Collect all positive and negative embeddings
+                        anchor_emb = None
+                        positive_embs = []
+                        negative_emb = None
+                        
+                        if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
+                            anchor_emb = outputs['adapted_features']
+                            positive_embs.append(outputs['positive_adapted_features'])
                             
-                            # Collect all positive and negative embeddings
-                            anchor_emb = None
-                            positive_embs = []
-                            negative_emb = None
+                            # Gather negatives
+                            negatives_embs = []
+                            if 'negative_adapted_features' in outputs:
+                                negatives_embs.append(outputs['negative_adapted_features'])
+                            if 'negative_adapted_features_2' in outputs:
+                                negatives_embs.append(outputs['negative_adapted_features_2'])
                             
-                            if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
-                                anchor_emb = outputs['adapted_features']
-                                positive_embs.append(outputs['positive_adapted_features'])
-                                
-                                # Gather negatives
-                                negatives_embs = []
-                                if 'negative_adapted_features' in outputs:
-                                    negatives_embs.append(outputs['negative_adapted_features'])
-                                if 'negative_adapted_features_2' in outputs:
-                                    negatives_embs.append(outputs['negative_adapted_features_2'])
-                                
-                                # Add second positive if available
-                                if 'positive_adapted_features_2' in outputs:
-                                    positive_embs.append(outputs['positive_adapted_features_2'])
-                                
-                                # Stack positives if we have multiple
-                                if len(positive_embs) > 1:
-                                    positive_combined = torch.stack(positive_embs, dim=1)  # [batch, num_pos, hidden]
-                                else:
-                                    positive_combined = positive_embs[0]  # [batch, hidden]
-                                
-                                # Compute contrastive loss for each negative and average
-                                contrastive_losses_list = []
-                                if not negatives_embs:
-                                    # Fall back to in-batch negatives if none provided
+                            # Add second positive if available
+                            if 'positive_adapted_features_2' in outputs:
+                                positive_embs.append(outputs['positive_adapted_features_2'])
+                            
+                            # Stack positives if we have multiple
+                            if len(positive_embs) > 1:
+                                positive_combined = torch.stack(positive_embs, dim=1)  # [batch, num_pos, hidden]
+                            else:
+                                positive_combined = positive_embs[0]  # [batch, hidden]
+                            
+                            # Compute contrastive loss for each negative and average
+                            contrastive_losses_list = []
+                            if not negatives_embs:
+                                # Fall back to in-batch negatives if none provided
+                                contrastive_losses_list.append(
+                                    contrastive_loss_fn(anchor_emb, positive_combined, None)
+                                )
+                            else:
+                                for neg_emb in negatives_embs:
                                     contrastive_losses_list.append(
-                                        contrastive_loss_fn(anchor_emb, positive_combined, None)
+                                        contrastive_loss_fn(anchor_emb, positive_combined, neg_emb)
                                     )
-                                else:
-                                    for neg_emb in negatives_embs:
-                                        contrastive_losses_list.append(
-                                            contrastive_loss_fn(anchor_emb, positive_combined, neg_emb)
-                                        )
-                                
-                                contrastive_loss = torch.stack(contrastive_losses_list).mean()
-                                
-                                
-                                # Add weighted contrastive loss to total loss
-                                contrastive_weight = adaptive_contrastive_fn(epoch, recent_contrastive_loss=contrastive_loss.item())
-                                loss = loss + contrastive_weight * contrastive_loss
-                                total_contrastive_loss += contrastive_loss.item()
-                            elif rank == 0 and batch_idx == 0 and epoch == 0:
-                                logger.warning(f"⚠️ Contrastive learning enabled but no adapted features found in outputs!")
-                                logger.info(f"🔍 Available output keys: {list(outputs.keys())}")
+                            
+                            contrastive_loss = torch.stack(contrastive_losses_list).mean()
+                            
+                            
+                            # Add weighted contrastive loss to total loss
+                            contrastive_weight = adaptive_contrastive_fn(epoch, recent_contrastive_loss=contrastive_loss.item())
+                            loss = loss + contrastive_weight * contrastive_loss
+                            total_contrastive_loss += contrastive_loss.item()
+                        elif rank == 0 and batch_idx == 0 and epoch == 0:
+                            logger.warning(f"⚠️ Contrastive learning enabled but no adapted features found in outputs!")
+                            logger.info(f"🔍 Available output keys: {list(outputs.keys())}")
                 
                     # KD loss using embeddings generated during preprocessing
-                    # MIXED PRECISION: Compute KD loss outside autocast for better numerical stability
-                    kd_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+                    kd_loss = torch.tensor(0.0, device=device)
                     if config.training.use_kd:
                         # Teacher embeddings are included in the batch from preprocessing
                         teacher_embeddings = batch['teacher_embed'].to(device)
                         
-                        # Move student features to FP32 for stable KD computation
-                        student_features = outputs["raw_adapted_features"].float()
-                        teacher_embeddings = teacher_embeddings.float()
-                        
                         # Use raw_adapted_features for KD - these are the pure T5 adapter outputs before contrastive projection
                         # This aligns with the teacher's general-purpose embeddings for better knowledge transfer
-                        student_hidden = F.normalize(student_features, p=2, dim=-1)
+                        student_hidden = F.normalize(outputs["raw_adapted_features"], p=2, dim=-1)
                         teacher_hidden = F.normalize(teacher_embeddings, p=2, dim=-1)
                         
                         kd_loss = 1 - F.cosine_similarity(student_hidden, teacher_hidden, dim=-1).mean()
@@ -756,75 +717,25 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     total_ce_loss += ce_loss.item()
                     total_destination_loss += destination_cosine_loss.item()
                     
-                    # Mixed precision safeguards
-                    if use_amp:
-                        # Check for inf/nan in loss before scaling
-                        if not torch.isfinite(loss):
-                            if rank == 0:
-                                logger.warning(f"⚠️ Non-finite loss detected: {loss.item():.4f}, skipping batch")
-                            optimizer.zero_grad(set_to_none=True)
-                            continue
-                            
-                        # Check scaler state
-                        if scaler.get_scale() < 1.0:
-                            if rank == 0 and batch_idx % 100 == 0:
-                                logger.warning(f"⚠️ Gradient scaler very low: {scaler.get_scale():.2e}")
-                    
-                    # Backpropagation with mixed precision safeguards
-                    try:
-                        if rank == 0 and batch_idx == 0:
-                            logger.info(f"🔄 Starting backward pass for batch {batch_idx}")
-                        
-                        scaler.scale(loss).backward()
-                        
-                        if rank == 0 and batch_idx == 0:
-                            logger.info(f"✅ Backward pass completed for batch {batch_idx}")
-                            
-                    except RuntimeError as e:
-                        if rank == 0:
-                            logger.error(f"❌ Backward pass failed: {str(e)}")
-                        optimizer.zero_grad(set_to_none=True)
-                        continue
+                    # Backpropagation
+                    loss.backward()
 
                     # Gradient accumulation
                     if ((batch_idx + 1) % config.training.gradient_accumulation_steps == 0) or (batch_idx + 1 == len(train_loader)):
-                        try:
-                            if rank == 0 and batch_idx < 2:
-                                logger.info(f"🔄 Starting gradient operations for batch {batch_idx}")
-                            
-                            # Unscale gradients to apply custom gradient operations (like clipping)
-                            scaler.unscale_(optimizer)
+                        # Gradient clipping
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.gradient_clip)
+                                
+                        # Update parameters
+                        optimizer.step()
+                        
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()      # release cached kernels
+                            torch.cuda.ipc_collect()      # C++ side arena defrag
 
-                            # Add gradient clipping with error handling
-                            try:
-                                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.gradient_clip)
-                                if rank == 0 and batch_idx < 2:
-                                    logger.info(f"🔧 Gradient norm: {grad_norm:.4f}")
-                            except RuntimeError as e:
-                                if rank == 0:
-                                    logger.warning(f"⚠️ Gradient clipping failed: {str(e)}")
-                                    
-                            # Update parameters with scaler aware step
-                            scaler.step(optimizer)
-                            scaler.update()
-                            
-                            if rank == 0 and batch_idx < 2:
-                                logger.info(f"✅ Optimizer step completed for batch {batch_idx}")
-
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()      # release cached kernels
-                                torch.cuda.ipc_collect()      # C++ side arena defrag
-
-                            optimizer.zero_grad(set_to_none=True)
-                            
-                            # Update EMA
-                            ema.update()
-                            
-                        except RuntimeError as e:
-                            if rank == 0:
-                                logger.error(f"❌ Gradient accumulation step failed: {str(e)}")
-                            optimizer.zero_grad(set_to_none=True)
-                            continue
+                        optimizer.zero_grad(set_to_none=True)
+                        
+                        # Update EMA
+                        ema.update()
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
                 
@@ -856,11 +767,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Log feature norms for debugging
                         logger.info(f"🔧 NORMS | Feature_norm: {feature_norm.item():.4f} | "
                                   f"Curriculum: {current_curriculum_ratio:.2f}")
-                        
-                        # Mixed precision debugging
-                        if use_amp:
-                            logger.info(f"🎯 AMP | Scaler_scale: {scaler.get_scale():.0f} | "
-                                      f"CE_dtype: {ce_loss.dtype} | Loss_dtype: {loss.dtype}")
                         
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
@@ -997,74 +903,73 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     
                         
                             # Use mixed precision for validation as well for consistent numerical behavior
-                            with torch.cuda.amp.autocast(enabled=use_amp):
-                                outputs = model(
-                                    text_input, 
-                                    current_view, 
-                                    previous_views, 
-                                    labels=label_input_ids,
-                                    destination_view=destination_view,
-                                    curriculum_ratio=0.0,  # No curriculum during validation - pure model performance
-                                    positive_input=positive_input,
-                                    positive_input_2=positive_input_2,
-                                    negative_input=negative_input,
-                                    negative_input_2=negative_input_2
-                                )
+                            outputs = model(
+                                text_input, 
+                                current_view, 
+                                previous_views, 
+                                labels=label_input_ids,
+                                destination_view=destination_view,
+                                curriculum_ratio=0.0,  # No curriculum during validation - pure model performance
+                                positive_input=positive_input,
+                                positive_input_2=positive_input_2,
+                                negative_input=negative_input,
+                                negative_input_2=negative_input_2
+                            )
+                            
+                            logits = outputs["logits"]
+                            # Use the loss already calculated by T5 instead of recalculating in validation too
+                            ce_loss = outputs.get("loss", torch.tensor(0.0, device=device))
+                            
+                            # No need to manually calculate CE loss in validation either - T5 already did it!
+                            # logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
+                            # labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
+                            # ce_loss = criterion(logits_reshaped, labels_reshaped)  # REMOVED: redundant calculation
+                            
+                            # Calculate validation loss
+                            loss = ce_weight_fn(epoch) * ce_loss
+                            
+                            
+                            # Add contrastive loss if enabled
+                            if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
+                                contrastive_losses = []
                                 
-                                logits = outputs["logits"]
-                                # Use the loss already calculated by T5 instead of recalculating in validation too
-                                ce_loss = outputs.get("loss", torch.tensor(0.0, device=device, dtype=torch.float32))
-                                
-                                # No need to manually calculate CE loss in validation either - T5 already did it!
-                                # logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
-                                # labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
-                                # ce_loss = criterion(logits_reshaped, labels_reshaped)  # REMOVED: redundant calculation
-                                
-                                # Calculate validation loss
-                                loss = ce_weight_fn(epoch) * ce_loss
-                                
-                                
-                                # Add contrastive loss if enabled
-                                if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
-                                    contrastive_losses = []
+                                # First triplet: anchor, positive1, negative
+                                if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
+                                    anchor_emb = outputs['adapted_features']
+                                    positive_emb = outputs['positive_adapted_features']
+                                    negatives_val = [outputs['negative_adapted_features']]
+                                    if 'negative_adapted_features_2' in outputs:
+                                        negatives_val.append(outputs['negative_adapted_features_2'])
                                     
-                                    # First triplet: anchor, positive1, negative
-                                    if 'positive_adapted_features' in outputs and 'negative_adapted_features' in outputs:
-                                        anchor_emb = outputs['adapted_features']
-                                        positive_emb = outputs['positive_adapted_features']
-                                        negatives_val = [outputs['negative_adapted_features']]
-                                        if 'negative_adapted_features_2' in outputs:
-                                            negatives_val.append(outputs['negative_adapted_features_2'])
-                                        
-                                        # Add shape validation for each negative
-                                        for neg_emb in negatives_val:
-                                            if anchor_emb.shape != positive_emb.shape or anchor_emb.shape != neg_emb.shape:
-                                                logger.error(f"❌ Shape mismatch in validation contrastive loss: anchor={anchor_emb.shape}, "
-                                                           f"positive={positive_emb.shape}, negative={neg_emb.shape}")
-                                                continue
-                                            contrastive_losses.append(
-                                                contrastive_loss_fn(anchor_emb, positive_emb, neg_emb)
-                                            )
-                                    
-                                    # Second triplet: anchor, positive2, negative (if available)
-                                    if 'positive_adapted_features_2' in outputs and 'negative_adapted_features' in outputs:
-                                        anchor_emb = outputs['adapted_features']
-                                        positive_emb_2 = outputs['positive_adapted_features_2']
-                                        negative_emb = outputs['negative_adapted_features']
-                                        
-                                        # Add shape validation
-                                        if anchor_emb.shape != positive_emb_2.shape or anchor_emb.shape != negative_emb.shape:
-                                            logger.error(f"❌ Shape mismatch in validation contrastive loss (triplet 2): anchor={anchor_emb.shape}, "
-                                                       f"positive_2={positive_emb_2.shape}, negative={negative_emb.shape}")
+                                    # Add shape validation for each negative
+                                    for neg_emb in negatives_val:
+                                        if anchor_emb.shape != positive_emb.shape or anchor_emb.shape != neg_emb.shape:
+                                            logger.error(f"❌ Shape mismatch in validation contrastive loss: anchor={anchor_emb.shape}, "
+                                                       f"positive={positive_emb.shape}, negative={neg_emb.shape}")
                                             continue
-                                        
-                                        contrastive_loss_2 = contrastive_loss_fn(anchor_emb, positive_emb_2, negative_emb)
-                                        contrastive_losses.append(contrastive_loss_2)
-                                        
-                                    # Average the contrastive losses and add to validation loss
-                                    if contrastive_losses:
-                                        contrastive_loss = torch.stack(contrastive_losses).mean()
-                                        loss = loss + adaptive_contrastive_fn(epoch) * contrastive_loss
+                                        contrastive_losses.append(
+                                            contrastive_loss_fn(anchor_emb, positive_emb, neg_emb)
+                                        )
+                                
+                                # Second triplet: anchor, positive2, negative (if available)
+                                if 'positive_adapted_features_2' in outputs and 'negative_adapted_features' in outputs:
+                                    anchor_emb = outputs['adapted_features']
+                                    positive_emb_2 = outputs['positive_adapted_features_2']
+                                    negative_emb = outputs['negative_adapted_features']
+                                    
+                                    # Add shape validation
+                                    if anchor_emb.shape != positive_emb_2.shape or anchor_emb.shape != negative_emb.shape:
+                                        logger.error(f"❌ Shape mismatch in validation contrastive loss (triplet 2): anchor={anchor_emb.shape}, "
+                                                   f"positive_2={positive_emb_2.shape}, negative={negative_emb.shape}")
+                                        continue
+                                    
+                                    contrastive_loss_2 = contrastive_loss_fn(anchor_emb, positive_emb_2, negative_emb)
+                                    contrastive_losses.append(contrastive_loss_2)
+                                    
+                                # Average the contrastive losses and add to validation loss
+                                if contrastive_losses:
+                                    contrastive_loss = torch.stack(contrastive_losses).mean()
+                                    loss = loss + adaptive_contrastive_fn(epoch) * contrastive_loss
                             
                             val_loss += loss.item()
                         except Exception as e:

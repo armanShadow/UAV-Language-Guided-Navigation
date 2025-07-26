@@ -67,8 +67,8 @@ class TrainingConfig:
     contrastive_loss_type: str = "infonce"
     contrastive_margin: float = 0.4  # Larger margin for UAV aerial perspective differences
     contrastive_temperature: float = 0.15  # Higher temp for aerial imagery similarity learning
-    contrastive_weight_start: float = 8.0  # Will be overridden by smart scheduler
-    contrastive_weight_end: float = 1.0    # Will be overridden by smart scheduler
+    contrastive_weight_start: float = 15.0  # Will be overridden by smart scheduler
+    contrastive_weight_end: float = 5.0    # Will be overridden by smart scheduler
     # UAV-specific triplet loss options
     use_cosine_distance: bool = True  # Better for aerial visual similarities
     contrastive_mean_all: bool = False  # More selective for UAV landmark learning
