@@ -261,7 +261,7 @@ def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float
     flag_revival = False
     last_revival_epoch = -1  # Track when revival was last triggered
     
-    def adaptive_weight_fn(epoch: int, recent_contrastive_loss: float = None) -> tuple[float, dict]:
+    def adaptive_weight_fn(epoch: int, recent_contrastive_loss: float = None) -> tuple:
         nonlocal last_contrastive_losses
         nonlocal flag_revival
         nonlocal last_revival_epoch
