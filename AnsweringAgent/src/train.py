@@ -249,7 +249,7 @@ def get_smart_contrastive_schedule(planned_epochs: int):
     
     return contrastive_weight_fn, ce_weight_fn
 
-def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float = 0.002):
+def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float = 0.001):
     """
     Adaptive contrastive scheduling with gentle target-based revival.
     
@@ -1076,7 +1076,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 # Average the contrastive losses and add to validation loss
                                 if contrastive_losses:
                                     contrastive_loss = torch.stack(contrastive_losses).mean()
-                                    loss = loss + adaptive_contrastive_fn(epoch) * contrastive_loss
+                                    # Use the same adaptive weight function for validation consistency
+                                    val_contrastive_weight, _ = adaptive_contrastive_fn(epoch)
+                                    loss = loss + val_contrastive_weight * contrastive_loss
                             
                             val_loss += loss.item()
                         except Exception as e:
