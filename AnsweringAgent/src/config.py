@@ -37,7 +37,7 @@ class TrainingConfig:
     eval_freq: int = 25  # Less frequent evaluation for long training
     num_workers: int = 4
     pin_memory: bool = True
-    mixed_precision: bool = True  # Enable for faster training
+    mixed_precision: bool = False  # DISABLED - was causing hang at backward pass
     device: str = 'cuda'
     seed: int = 42
     checkpoint_frequency: int = 100  # Save every 100 epochs (much less frequent)
