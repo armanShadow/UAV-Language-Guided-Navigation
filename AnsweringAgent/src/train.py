@@ -60,7 +60,7 @@ class EMA:
         for name, param in self.model.named_parameters():
             if param.requires_grad:
                 assert name in self.shadow
-                self.backup[name] = param.data.clone()
+                self.backup[name] = param.data.cpu()  # Store backup on CPU to save GPU memory
                 param.data = self.shadow[name].clone()
     
     def restore(self):
@@ -68,7 +68,7 @@ class EMA:
         for name, param in self.model.named_parameters():
             if param.requires_grad:
                 assert name in self.backup
-                param.data = self.backup[name].clone()
+                param.data = self.backup[name].to(param.device)  # Move from CPU back to GPU
         self.backup = {}
     
     def state_dict(self):
@@ -91,7 +91,7 @@ def setup_minimal_environment():
     
     # Memory optimizations
     if torch.cuda.is_available():
-        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:32,garbage_collection_threshold:0.6'
         # Remove blocking for performance
         # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'  # Only for debugging
         
@@ -1123,6 +1123,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             torch.save(save_dict_fp32, best_model_path)
                             logger.info(f"💾 Saved best model")
                         
+                        # Free memory after saving
+                        del save_dict_fp32
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        
                         best_val_loss = val_loss
                         last_best_epoch = epoch
                         
@@ -1156,6 +1161,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch+1}_fp32.pth')
                     torch.save(save_dict_fp32, checkpoint_path)
                     logger.info(f"💾 Checkpoint saved")
+                
+                # Free memory after saving
+                del save_dict_fp32
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             
             # Step the scheduler based on validation loss if available
             if scheduler:
@@ -1183,6 +1193,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 final_model_path = os.path.join(checkpoint_dir, f'final_model_{epoch+1}_fp32.pth')
                 torch.save(save_dict_fp32, final_model_path)
                 logger.info(f"💾 Final model saved")
+            
+            # Free memory after saving
+            del save_dict_fp32
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
             # Print training summary
             if last_best_epoch is not None:
