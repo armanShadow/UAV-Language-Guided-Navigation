@@ -13,11 +13,11 @@ class ModelConfig:
     bert_model_name: str = 'bert-base-uncased'  # Legacy setting
     t5_model_name: str = 't5-base'  # New setting for T5
     hidden_size: int = 768  # Match T5-base hidden size (d_model)
-    dropout: float = 0.3
-    feat_dropout: float = 0.4
+    dropout: float = 0.2  # Lower dropout for UAV spatial reasoning retention
+    feat_dropout: float = 0.3  # Reduced for better aerial feature preservation
     num_decoder_layers: int = 4  # Not used when using pretrained T5 decoder
     num_attention_heads: int = 8  # Match T5-base (8 heads)
-    num_visual_tokens: int = 32  # Number of visual tokens
+    num_visual_tokens: int = 64  # Increased for richer aerial imagery representation
     feedforward_dim: int = 2048  # Match T5-base feed forward dimension
     max_answer_length: int = 128
     vocab_size: int = 32128  # T5 vocabulary size for t5-base
@@ -29,8 +29,8 @@ class ModelConfig:
 class TrainingConfig:      
     num_epochs: int = 3000  # Maximum epochs - early stopping determines actual end
     planned_epochs: int = 800  # 3-phase planning horizon  
-    learning_rate: float = 8e-5  # Moderate LR for stable long training  
-    weight_decay: float = 0.01  # Reduced
+    learning_rate: float = 6e-5  # Slightly lower for stable UAV spatial learning convergence
+    weight_decay: float = 0.008  # Moderate regularization for UAV feature preservation
     gradient_clip: float = 1.0
     warmup_steps: int = 1000  # Longer warmup for stability in long training
     log_freq: int = 20
@@ -53,25 +53,25 @@ class TrainingConfig:
     per_gpu_batch_size: int = 8  # Manageable batch size
     per_gpu_batch_size_val: int = 8  
     train_chunk_size: int = 1000
-    # Curriculum learning parameters - ADAPTED FOR 3-PHASE STRATEGY (planned epochs)
+    # Curriculum learning parameters - ADAPTED FOR UAV SPATIAL LEARNING
     curriculum_epochs: int = 240  # 30% of 800 planned epochs (align with Phase 1)
-    destination_loss_weight_start: float = 0.8  # Strong destination signal in Phase 1
-    destination_loss_weight_end: float = 0.05   # Minimal in Phase 3
+    destination_loss_weight_start: float = 1.2  # Higher for UAV navigation importance
+    destination_loss_weight_end: float = 0.1   # Maintain some spatial guidance
     
     # These are overridden by smart scheduling but kept for compatibility
     ce_loss_weight_start: float = 0.1  # Will be overridden by smart scheduler
     ce_loss_weight_end: float = 1.5   # Will be overridden by smart scheduler
     
-    # Contrastive Learning Parameters - OVERRIDDEN BY SMART SCHEDULER
+    # Contrastive Learning Parameters - OPTIMIZED FOR UAV AERIAL IMAGERY
     use_contrastive_learning: bool = True
     contrastive_loss_type: str = "infonce"
-    contrastive_margin: float = 0.2
-    contrastive_temperature: float = 0.05  
+    contrastive_margin: float = 0.4  # Larger margin for UAV aerial perspective differences
+    contrastive_temperature: float = 0.15  # Higher temp for aerial imagery similarity learning
     contrastive_weight_start: float = 8.0  # Will be overridden by smart scheduler
     contrastive_weight_end: float = 1.0    # Will be overridden by smart scheduler
-    # New triplet loss options
-    use_cosine_distance: bool = True  
-    contrastive_mean_all: bool = True  
+    # UAV-specific triplet loss options
+    use_cosine_distance: bool = True  # Better for aerial visual similarities
+    contrastive_mean_all: bool = False  # More selective for UAV landmark learning
     
     # Add per-epoch weight logging for debugging
     log_loss_weights: bool = True  

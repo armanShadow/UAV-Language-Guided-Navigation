@@ -243,13 +243,13 @@ def get_smart_contrastive_schedule(planned_epochs: int):
     
     return contrastive_weight_fn, ce_weight_fn
 
-def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float = 0.01):
+def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float = 0.002):
     """
     Adaptive contrastive scheduling that can revive signal when it dies.
     
     Args:
         base_schedule_fn: Base scheduling function
-        revival_threshold: Threshold below which to trigger revival
+        revival_threshold: Threshold below which to trigger revival (0.002 for sensitive detection)
     """
     last_contrastive_losses = []
     revival_boost = 1.0
@@ -265,12 +265,12 @@ def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float
             if len(last_contrastive_losses) > 5:  # Keep last 5 epochs
                 last_contrastive_losses.pop(0)
         
-        # Check if contrastive signal is dying (user's insight!)
+        # Check if contrastive signal is dying (user's insight - more sensitive threshold!)
         if len(last_contrastive_losses) >= 3:
             recent_avg = sum(last_contrastive_losses[-3:]) / 3
             if recent_avg < revival_threshold:
                 revival_boost = min(revival_boost * 1.5, 3.0)  # Boost up to 3x
-                print(f"🔥 CONTRASTIVE REVIVAL at epoch {epoch}! Boost: {revival_boost:.2f}")
+                print(f"🔥 CONTRASTIVE REVIVAL at epoch {epoch}! Boost: {revival_boost:.2f} (avg_loss: {recent_avg:.4f})")
             else:
                 revival_boost = max(revival_boost * 0.95, 1.0)  # Gradually decay boost
         
@@ -436,6 +436,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             logger.info(f"    • KD loss computed in FP32 for stability")
             logger.info(f"    • Custom loss functions use FP32 for numerical stability")
             logger.info(f"    • Teacher embeddings properly dtype-matched")
+            logger.info(f"    • Gradient scaler enabled with safeguards")
+            logger.info(f"    • Contrastive revival threshold: 0.002 (more sensitive)")
+            logger.info(f"  ⚠️  If training hangs, try: mixed_precision = False in config")
         logger.info(f"  Gradient accumulation: {config.training.gradient_accumulation_steps}")
         logger.info(f"  Contrastive learning: {'✅' if config.training.use_contrastive_learning else '❌'}")
         
@@ -487,7 +490,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     curriculum_ratio_fn = get_smart_curriculum_schedule(config.training.planned_epochs)
     
     # Get adaptive contrastive scheduler with revival capability
-    adaptive_contrastive_fn = get_adaptive_contrastive_schedule(contrastive_weight_fn, revival_threshold=0.01)
+    adaptive_contrastive_fn = get_adaptive_contrastive_schedule(contrastive_weight_fn, revival_threshold=0.002)  # More sensitive threshold
     
     # Traditional schedulers for other losses
     destination_weight_fn = get_smart_destination_schedule(config.training.planned_epochs)
@@ -753,29 +756,75 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     total_ce_loss += ce_loss.item()
                     total_destination_loss += destination_cosine_loss.item()
                     
-                    # Backpropagation with mixed precision
-                    scaler.scale(loss).backward()
+                    # Mixed precision safeguards
+                    if use_amp:
+                        # Check for inf/nan in loss before scaling
+                        if not torch.isfinite(loss):
+                            if rank == 0:
+                                logger.warning(f"⚠️ Non-finite loss detected: {loss.item():.4f}, skipping batch")
+                            optimizer.zero_grad(set_to_none=True)
+                            continue
+                            
+                        # Check scaler state
+                        if scaler.get_scale() < 1.0:
+                            if rank == 0 and batch_idx % 100 == 0:
+                                logger.warning(f"⚠️ Gradient scaler very low: {scaler.get_scale():.2e}")
                     
+                    # Backpropagation with mixed precision safeguards
+                    try:
+                        if rank == 0 and batch_idx == 0:
+                            logger.info(f"🔄 Starting backward pass for batch {batch_idx}")
+                        
+                        scaler.scale(loss).backward()
+                        
+                        if rank == 0 and batch_idx == 0:
+                            logger.info(f"✅ Backward pass completed for batch {batch_idx}")
+                            
+                    except RuntimeError as e:
+                        if rank == 0:
+                            logger.error(f"❌ Backward pass failed: {str(e)}")
+                        optimizer.zero_grad(set_to_none=True)
+                        continue
+
                     # Gradient accumulation
                     if ((batch_idx + 1) % config.training.gradient_accumulation_steps == 0) or (batch_idx + 1 == len(train_loader)):
-                        # Unscale gradients to apply custom gradient operations (like clipping)
-                        scaler.unscale_(optimizer)
+                        try:
+                            if rank == 0 and batch_idx < 2:
+                                logger.info(f"🔄 Starting gradient operations for batch {batch_idx}")
+                            
+                            # Unscale gradients to apply custom gradient operations (like clipping)
+                            scaler.unscale_(optimizer)
 
-                        # Add gradient clipping
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.gradient_clip)
-                        
-                        # Update parameters with scaler aware step
-                        scaler.step(optimizer)
-                        scaler.update()
+                            # Add gradient clipping with error handling
+                            try:
+                                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.gradient_clip)
+                                if rank == 0 and batch_idx < 2:
+                                    logger.info(f"🔧 Gradient norm: {grad_norm:.4f}")
+                            except RuntimeError as e:
+                                if rank == 0:
+                                    logger.warning(f"⚠️ Gradient clipping failed: {str(e)}")
+                                    
+                            # Update parameters with scaler aware step
+                            scaler.step(optimizer)
+                            scaler.update()
+                            
+                            if rank == 0 and batch_idx < 2:
+                                logger.info(f"✅ Optimizer step completed for batch {batch_idx}")
 
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()      # release cached kernels
-                            torch.cuda.ipc_collect()      # C++ side arena defrag
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()      # release cached kernels
+                                torch.cuda.ipc_collect()      # C++ side arena defrag
 
-                        optimizer.zero_grad(set_to_none=True)
-                        
-                        # Update EMA
-                        ema.update()
+                            optimizer.zero_grad(set_to_none=True)
+                            
+                            # Update EMA
+                            ema.update()
+                            
+                        except RuntimeError as e:
+                            if rank == 0:
+                                logger.error(f"❌ Gradient accumulation step failed: {str(e)}")
+                            optimizer.zero_grad(set_to_none=True)
+                            continue
 
                     total_loss += loss.item() * config.training.gradient_accumulation_steps
                 
@@ -787,12 +836,34 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         avg_destination = total_destination_loss / (batch_idx + 1)
                         avg_kd = total_kd_loss / (batch_idx + 1)
                         
+                        # Get current weights for this batch
+                        current_ce_weight = ce_weight_fn(epoch)
+                        current_contrastive_weight = adaptive_contrastive_fn(epoch)
+                        current_dest_weight = destination_weight_fn(epoch)
+                        current_curriculum_ratio = curriculum_ratio_fn(epoch)
+                        current_kd_weight = kd_weight_fn(epoch)
+                        
                         logger.info(f"📊 Batch {batch_idx}/{len(train_loader)} | "
                                   f"Loss: {avg_loss:.4f} | CE: {avg_ce:.4f} | "
                                   f"Contrast: {avg_contrastive:.4f} | KD: {avg_kd:.4f} | Dest: {avg_destination:.4f}")
                         
+                        # LOG RAW LOSSES AND WEIGHTS for debugging
+                        logger.info(f"🔍 RAW | CE_raw: {ce_loss.item():.4f}×{current_ce_weight:.2f} | "
+                                  f"Contrast_raw: {contrastive_loss.item():.4f}×{current_contrastive_weight:.2f} | "
+                                  f"Dest_raw: {destination_cosine_loss.item():.4f}×{current_dest_weight:.2f} | "
+                                  f"KD_raw: {kd_loss.item():.4f}×{current_kd_weight:.2f}")
+                        
+                        # Log feature norms for debugging
+                        logger.info(f"🔧 NORMS | Feature_norm: {feature_norm.item():.4f} | "
+                                  f"Curriculum: {current_curriculum_ratio:.2f}")
+                        
+                        # Mixed precision debugging
+                        if use_amp:
+                            logger.info(f"🎯 AMP | Scaler_scale: {scaler.get_scale():.0f} | "
+                                      f"CE_dtype: {ce_loss.dtype} | Loss_dtype: {loss.dtype}")
+                        
                     if torch.cuda.is_available():
-                        torch.cuda.empty_cache()   
+                        torch.cuda.empty_cache()
 
                 except Exception as e:
                     # Log and continue in case of batch failure
