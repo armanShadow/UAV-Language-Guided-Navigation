@@ -44,7 +44,7 @@ class TrainingConfig:
     scheduler_factor: float = 0.5
     scheduler_patience: int = 20  # More patience for longer training
     scheduler_verbose: bool = True
-    gradient_accumulation_steps: int = 4  # Increased for effective larger batch
+    gradient_accumulation_steps: int = 2  # Increased for effective larger batch
     # Early stopping parameters
     early_stopping: bool = True
     early_stopping_patience: int = 20  # Much more patience for long 3-phase training
@@ -54,7 +54,7 @@ class TrainingConfig:
     per_gpu_batch_size_val: int = 8  
     train_chunk_size: int = 1000
     # Curriculum learning parameters - ADAPTED FOR UAV SPATIAL LEARNING
-    curriculum_epochs: int = 240  # 30% of 800 planned epochs (align with Phase 1)
+    curriculum_epochs: int = 120  # 30% of 400 planned epochs (align with Phase 1)
     destination_loss_weight_start: float = 1.2  # Higher for UAV navigation importance
     destination_loss_weight_end: float = 0.1   # Maintain some spatial guidance
     
