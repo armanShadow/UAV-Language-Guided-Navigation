@@ -27,46 +27,48 @@ class ModelConfig:
 
 @dataclass
 class TrainingConfig:      
-    num_epochs: int = 50  # Reduced for rapid experimentation
-    learning_rate: float = 1e-4  # Higher LR for faster convergence  
+    num_epochs: int = 3000  # Maximum epochs - early stopping determines actual end
+    planned_epochs: int = 800  # 3-phase planning horizon  
+    learning_rate: float = 8e-5  # Moderate LR for stable long training  
     weight_decay: float = 0.01  # Reduced
     gradient_clip: float = 1.0
-    warmup_steps: int = 200  # Reduced warmup
-    log_freq: int = 5
-    eval_freq: int = 5  # More frequent evaluation for rapid feedback
+    warmup_steps: int = 1000  # Longer warmup for stability in long training
+    log_freq: int = 20
+    eval_freq: int = 25  # Less frequent evaluation for long training
     num_workers: int = 4
     pin_memory: bool = True
     mixed_precision: bool = True  # Enable for faster training
     device: str = 'cuda'
     seed: int = 42
-    checkpoint_frequency: int = 10  # More frequent checkpoints
+    checkpoint_frequency: int = 100  # Save every 100 epochs (much less frequent)
     scheduler_factor: float = 0.5
-    scheduler_patience: int = 3  # Reduced patience
+    scheduler_patience: int = 20  # More patience for longer training
     scheduler_verbose: bool = True
     gradient_accumulation_steps: int = 4  # Increased for effective larger batch
     # Early stopping parameters
     early_stopping: bool = True
-    early_stopping_patience: int = 5  # Reduced for rapid experiments
-    early_stopping_min_delta: float = 0.01
+    early_stopping_patience: int = 20  # Much more patience for long 3-phase training
+    early_stopping_min_delta: float = 0.002  # Smaller delta for long training
     # Validation parameters
     per_gpu_batch_size: int = 8  # Manageable batch size
     per_gpu_batch_size_val: int = 8  
     train_chunk_size: int = 1000
-    # Curriculum learning parameters
-    curriculum_epochs: int = 15  # Reduced curriculum phase
-    destination_loss_weight_start: float = 0.5  # Reduced weights for focus on CE+contrastive
-    destination_loss_weight_end: float = 0.1
+    # Curriculum learning parameters - ADAPTED FOR 3-PHASE STRATEGY (planned epochs)
+    curriculum_epochs: int = 240  # 30% of 800 planned epochs (align with Phase 1)
+    destination_loss_weight_start: float = 0.8  # Strong destination signal in Phase 1
+    destination_loss_weight_end: float = 0.05   # Minimal in Phase 3
     
-    ce_loss_weight_start: float = 0.5  # Higher start weight
-    ce_loss_weight_end: float = 1.0   # Full weight at end
+    # These are overridden by smart scheduling but kept for compatibility
+    ce_loss_weight_start: float = 0.1  # Will be overridden by smart scheduler
+    ce_loss_weight_end: float = 1.5   # Will be overridden by smart scheduler
     
-    # Contrastive Learning Parameters - BALANCED FOR RAPID RESULTS
+    # Contrastive Learning Parameters - OVERRIDDEN BY SMART SCHEDULER
     use_contrastive_learning: bool = True
     contrastive_loss_type: str = "infonce"
     contrastive_margin: float = 0.2
     contrastive_temperature: float = 0.05  
-    contrastive_weight_start: float = 2.0  # Moderate contrastive weight
-    contrastive_weight_end: float = 5.0    # Ramp up contrastive importance
+    contrastive_weight_start: float = 8.0  # Will be overridden by smart scheduler
+    contrastive_weight_end: float = 1.0    # Will be overridden by smart scheduler
     # New triplet loss options
     use_cosine_distance: bool = True  
     contrastive_mean_all: bool = True  
@@ -74,12 +76,11 @@ class TrainingConfig:
     # Add per-epoch weight logging for debugging
     log_loss_weights: bool = True  
     
-    # Knowledge-distillation (KD) parameters - REDUCED FOR SPEED
-    use_kd: bool = False  # Disable KD for rapid experiments
+    # Knowledge-distillation (KD) parameters - NOW WITH SMART SCHEDULING
+    use_kd: bool = True  # Enable KD with smart 3-phase scheduling
     kd_teacher_model_name: str = "sentence-transformers/all-mpnet-base-v2"  
-    kd_weight_start: float = 1.0  
-    kd_weight_end: float = 0.1    
-    kd_epochs: int = 15
+    kd_weight_start: float = 0.5  # Overridden by smart scheduler but kept for compatibility
+    kd_weight_end: float = 0.1    # Overridden by smart scheduler but kept for compatibility
 
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""

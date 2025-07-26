@@ -164,13 +164,195 @@ def get_weight_schedule(start_weight: float, end_weight: float, total_epochs: in
 
     return weight_fn
 
+def get_smart_curriculum_schedule(planned_epochs: int):
+    """
+    Smart curriculum learning schedule aligned with 3-phase training.
+    After planned_epochs, curriculum stays at final value (0.0).
+    
+    Phase 1 (0-30%): HIGH curriculum ratio (oracle destination helps build space)
+    Phase 2 (30-70%): MODERATE curriculum (gradual independence)  
+    Phase 3 (70-100%): LOW curriculum (model learns to navigate independently)
+    Extended Phase (>100%): FIXED at 0.0 (no oracle assistance)
+    """
+    phase1_end = int(0.3 * planned_epochs)  # 30% for semantic space building
+    phase2_end = int(0.7 * planned_epochs)  # 70% for balanced learning
+    
+    def curriculum_ratio_fn(epoch: int) -> float:
+        if epoch <= phase1_end:
+            # Phase 1: HIGH curriculum (oracle destination helps semantic space)
+            progress = epoch / phase1_end
+            return 1.0 * (1 - progress) + 0.7 * progress  # 1.0 → 0.7 (strong oracle help)
+        elif epoch <= phase2_end:
+            # Phase 2: MODERATE curriculum (gradual independence)
+            progress = (epoch - phase1_end) / (phase2_end - phase1_end)
+            return 0.7 * (1 - progress) + 0.3 * progress  # 0.7 → 0.3
+        elif epoch < planned_epochs:
+            # Phase 3: LOW curriculum (independent navigation)
+            progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
+            return 0.3 * (1 - progress) + 0.0 * progress  # 0.3 → 0.0 (no oracle)
+        else:
+            # Extended Phase: FIXED at final value (no oracle assistance)
+            return 0.0
+    
+    return curriculum_ratio_fn
+
+def get_smart_contrastive_schedule(planned_epochs: int):
+    """
+    Smart 3-phase contrastive learning schedule based on user insights:
+    Phase 1 (0-30%): Build semantic space - HIGH contrastive, LOW CE
+    Phase 2 (30-70%): Balance learning - MODERATE both  
+    Phase 3 (70-100%): Fine-tune with CE - LOW contrastive, HIGH CE
+    Extended Phase (>100%): FIXED weights, but adaptive revival still active
+    
+    Includes contrastive signal revival when needed.
+    """
+    phase1_end = int(0.3 * planned_epochs)  # 30% for semantic space building
+    phase2_end = int(0.7 * planned_epochs)  # 70% for balanced learning
+    
+    def contrastive_weight_fn(epoch: int) -> float:
+        if epoch <= phase1_end:
+            # Phase 1: HIGH contrastive for semantic space building
+            return 8.0  # Strong contrastive signal
+        elif epoch <= phase2_end:
+            # Phase 2: MODERATE contrastive, allow CE to contribute
+            progress = (epoch - phase1_end) / (phase2_end - phase1_end)
+            return 8.0 * (1 - progress) + 3.0 * progress  # 8.0 → 3.0
+        elif epoch < planned_epochs:
+            # Phase 3: LOW contrastive, focus on CE fine-tuning
+            progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
+            return 3.0 * (1 - progress) + 1.0 * progress  # 3.0 → 1.0
+        else:
+            # Extended Phase: FIXED at final value (but adaptive revival still works)
+            return 1.0
+    
+    def ce_weight_fn(epoch: int) -> float:
+        if epoch <= phase1_end:
+            # Phase 1: LOW CE, let contrastive build space
+            return 0.1  # Minimal CE interference
+        elif epoch <= phase2_end:
+            # Phase 2: GRADUAL CE increase
+            progress = (epoch - phase1_end) / (phase2_end - phase1_end)
+            return 0.1 + (0.8 - 0.1) * progress  # 0.1 → 0.8
+        elif epoch < planned_epochs:
+            # Phase 3: HIGH CE for final fine-tuning
+            progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
+            return 0.8 + (1.5 - 0.8) * progress  # 0.8 → 1.5
+        else:
+            # Extended Phase: FIXED at final value
+            return 1.5
+    
+    return contrastive_weight_fn, ce_weight_fn
+
+def get_adaptive_contrastive_schedule(base_schedule_fn, revival_threshold: float = 0.01):
+    """
+    Adaptive contrastive scheduling that can revive signal when it dies.
+    
+    Args:
+        base_schedule_fn: Base scheduling function
+        revival_threshold: Threshold below which to trigger revival
+    """
+    last_contrastive_losses = []
+    revival_boost = 1.0
+    
+    def adaptive_weight_fn(epoch: int, recent_contrastive_loss: float = None) -> float:
+        nonlocal last_contrastive_losses, revival_boost
+        
+        base_weight = base_schedule_fn(epoch)
+        
+        # Track recent contrastive losses
+        if recent_contrastive_loss is not None:
+            last_contrastive_losses.append(recent_contrastive_loss)
+            if len(last_contrastive_losses) > 5:  # Keep last 5 epochs
+                last_contrastive_losses.pop(0)
+        
+        # Check if contrastive signal is dying (user's insight!)
+        if len(last_contrastive_losses) >= 3:
+            recent_avg = sum(last_contrastive_losses[-3:]) / 3
+            if recent_avg < revival_threshold:
+                revival_boost = min(revival_boost * 1.5, 3.0)  # Boost up to 3x
+                print(f"🔥 CONTRASTIVE REVIVAL at epoch {epoch}! Boost: {revival_boost:.2f}")
+            else:
+                revival_boost = max(revival_boost * 0.95, 1.0)  # Gradually decay boost
+        
+        return base_weight * revival_boost
+    
+    return adaptive_weight_fn
+
+def get_smart_destination_schedule(planned_epochs: int):
+    """
+    Smart destination loss scheduling aligned with curriculum learning.
+    
+    Phase 1 (0-30%): HIGH destination weight (oracle available, strong supervision)
+    Phase 2 (30-70%): MODERATE destination (transition to independence)  
+    Phase 3 (70-100%): LOW destination (minimal oracle supervision)
+    Extended Phase (>100%): FIXED at final value
+    """
+    phase1_end = int(0.3 * planned_epochs)  # 30% for semantic space building
+    phase2_end = int(0.7 * planned_epochs)  # 70% for balanced learning
+    
+    def destination_weight_fn(epoch: int) -> float:
+        if epoch <= phase1_end:
+            # Phase 1: HIGH destination weight (oracle available)
+            return 0.8  # Strong destination supervision
+        elif epoch <= phase2_end:
+            # Phase 2: MODERATE destination (gradual independence)
+            progress = (epoch - phase1_end) / (phase2_end - phase1_end)
+            return 0.8 * (1 - progress) + 0.3 * progress  # 0.8 → 0.3
+        elif epoch < planned_epochs:
+            # Phase 3: LOW destination (minimal supervision)
+            progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
+            return 0.3 * (1 - progress) + 0.05 * progress  # 0.3 → 0.05
+        else:
+            # Extended Phase: FIXED at final value
+            return 0.05
+    
+    return destination_weight_fn
+
+def get_smart_kd_schedule(planned_epochs: int):
+    """
+    Smart Knowledge Distillation scheduling aligned with 3-phase strategy.
+    
+    Phase 1 (0-30%): MODERATE KD (help build semantic space alongside contrastive)
+    Phase 2 (30-70%): HIGH KD (teacher guidance during transition)  
+    Phase 3 (70-100%): LOW KD (focus on task-specific learning)
+    Extended Phase (>100%): FIXED at final value
+    """
+    phase1_end = int(0.3 * planned_epochs)  # 30% for semantic space building
+    phase2_end = int(0.7 * planned_epochs)  # 70% for balanced learning
+    
+    def kd_weight_fn(epoch: int) -> float:
+        if epoch <= phase1_end:
+            # Phase 1: MODERATE KD (complementary to contrastive learning)
+            return 0.5  # Moderate teacher guidance
+        elif epoch <= phase2_end:
+            # Phase 2: HIGH KD (strongest teacher guidance during transition)
+            progress = (epoch - phase1_end) / (phase2_end - phase1_end)
+            return 0.5 + (1.0 - 0.5) * progress  # 0.5 → 1.0
+        elif epoch < planned_epochs:
+            # Phase 3: LOW KD (focus on task-specific fine-tuning)
+            progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
+            return 1.0 * (1 - progress) + 0.1 * progress  # 1.0 → 0.1
+        else:
+            # Extended Phase: FIXED at final value
+            return 0.1
+    
+    return kd_weight_fn
+
 def calculate_reconstruction_loss(reconstructed_features, original_features):
+    # MIXED PRECISION: Ensure consistent dtypes
+    reconstructed_features = reconstructed_features.float()
+    original_features = original_features.float()
+    
     reconstructed_features_norm = F.normalize(reconstructed_features, p=2, dim=1)
     original_features_norm = F.normalize(original_features, p=2, dim=1)
     reconstruction_loss = F.mse_loss(reconstructed_features_norm, original_features_norm)
     return reconstruction_loss
 
 def calculate_cosine_similarity_loss(first_features, second_features):
+    # MIXED PRECISION: Ensure consistent dtypes for stable computation
+    first_features = first_features.float()
+    second_features = second_features.float()
+    
     first_features_norm = F.normalize(first_features, p=2, dim=1)
     second_features_norm = F.normalize(second_features, p=2, dim=1)
     cosine_loss = 1 - F.cosine_similarity(first_features_norm, second_features_norm).mean()
@@ -190,7 +372,7 @@ def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mas
     Returns:
         Sentence-level distribution similarity loss
     """
-    distribution_loss = torch.tensor(0.0, device=device)
+    distribution_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
     
     # Only compute on non-padded tokens (where mask is 1)
     valid_positions = mask_flat.bool()
@@ -202,6 +384,9 @@ def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mas
         valid_logits = logits_reshaped[valid_positions]  # [valid_count, vocab_size]
         valid_labels = labels_reshaped[valid_positions]  # [valid_count]
         
+        # MIXED PRECISION: Ensure FP32 for stable computation
+        valid_logits = valid_logits.float()
+        
         # Get softmax of logits (predicted distribution)
         probs = F.softmax(valid_logits, dim=-1)
         
@@ -210,11 +395,11 @@ def calculate_distribution_similarity_loss(logits_reshaped, labels_reshaped, mas
             embedding_layer = model_to_use.t5_model.decoder.embed_tokens
             
             # Get embeddings for target tokens
-            target_embeddings = embedding_layer(valid_labels)  # [valid_count, hidden_dim]
+            target_embeddings = embedding_layer(valid_labels).float()  # [valid_count, hidden_dim]
             
             # Get embeddings for predicted distribution
             # Weight each embedding by its probability
-            all_token_embeddings = embedding_layer.weight  # [vocab_size, hidden_dim]
+            all_token_embeddings = embedding_layer.weight.float()  # [vocab_size, hidden_dim]
             predicted_embeddings = torch.matmul(probs, all_token_embeddings)  # [valid_count, hidden_dim]
         
         # Normalize embeddings
@@ -245,6 +430,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     if rank == 0:
         logger.info(f"🎯 Training Configuration:")
         logger.info(f"  Mixed precision: {'✅' if use_amp else '❌'}")
+        if use_amp:
+            logger.info(f"  🔧 Mixed precision optimizations:")
+            logger.info(f"    • Main forward pass in autocast context (FP16)")
+            logger.info(f"    • KD loss computed in FP32 for stability")
+            logger.info(f"    • Custom loss functions use FP32 for numerical stability")
+            logger.info(f"    • Teacher embeddings properly dtype-matched")
         logger.info(f"  Gradient accumulation: {config.training.gradient_accumulation_steps}")
         logger.info(f"  Contrastive learning: {'✅' if config.training.use_contrastive_learning else '❌'}")
         
@@ -268,6 +459,39 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             distance_type = "cosine" if config.training.use_cosine_distance else "L2"
             mean_type = "all" if config.training.contrastive_mean_all else "non-zero"
             logger.info(f"🔗 Contrastive learning: {config.training.contrastive_loss_type} loss ({distance_type} distance, {mean_type} mean)")
+    
+    # Initialize smart weight scheduling based on user insights
+    if rank == 0:
+        logger.info(f"🧠 SMART 3-Phase Planning + Extended Training Strategy:")
+        logger.info(f"📈 Strategy based on your experience:")
+        logger.info(f"   • Previous overfitting at ~100 epochs (before contrastive)")
+        logger.info(f"   • Self-predicting went to 2000+ epochs")
+        logger.info(f"   • Plan 3 phases until epoch {config.training.planned_epochs}, then continue with fixed weights")
+        logger.info(f"")
+        logger.info(f"🎯 3-Phase Planning (0-{config.training.planned_epochs}):")
+        logger.info(f"  Phase 1 (0-30%): Build semantic space - HIGH contrastive, LOW CE")
+        logger.info(f"  Phase 2 (30-70%): Balance learning - MODERATE both")
+        logger.info(f"  Phase 3 (70-100%): Fine-tune with CE - LOW contrastive, HIGH CE")
+        logger.info(f"")
+        logger.info(f"🚀 Extended Training ({config.training.planned_epochs}-{num_epochs}):")
+        logger.info(f"  • Fixed weights at mature values (CE=1.5, Contrastive=1.0)")
+        logger.info(f"  • Adaptive contrastive revival still active (auto-boost when signal dies)")
+        logger.info(f"  • Early stopping determines actual end ({config.training.early_stopping_patience} epochs patience)")
+        logger.info(f"💾 Checkpoints every 100 epochs (less frequent for long training)")
+        
+        # Show the user the weight schedule visualization
+        visualize_weight_schedule(config.training.planned_epochs, config.training.num_epochs, logger)
+    
+    # Get smart scheduling functions
+    contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(config.training.planned_epochs)
+    curriculum_ratio_fn = get_smart_curriculum_schedule(config.training.planned_epochs)
+    
+    # Get adaptive contrastive scheduler with revival capability
+    adaptive_contrastive_fn = get_adaptive_contrastive_schedule(contrastive_weight_fn, revival_threshold=0.01)
+    
+    # Traditional schedulers for other losses
+    destination_weight_fn = get_smart_destination_schedule(config.training.planned_epochs)
+    kd_weight_fn = get_smart_kd_schedule(config.training.planned_epochs)
     
     # Clear cache once at beginning
     if torch.cuda.is_available():
@@ -315,6 +539,24 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
             # Only rank 0 logs the results
             if rank == 0:
+                # Check for phase transitions and announce them
+                phase1_end = int(0.3 * config.training.planned_epochs)
+                phase2_end = int(0.7 * config.training.planned_epochs)
+                
+                if epoch == phase1_end:
+                    logger.info("🔄 PHASE TRANSITION: Entering Phase 2 - Balance Learning!")
+                    logger.info("  📈 CE weight increasing, Contrastive weight decreasing")
+                    logger.info("  🎯 Curriculum ratio transitioning (0.7 → 0.3)")
+                elif epoch == phase2_end:
+                    logger.info("🔄 PHASE TRANSITION: Entering Phase 3 - CE Fine-tuning!")
+                    logger.info("  🎯 Focus on cross-entropy loss for final optimization")
+                    logger.info("  🚀 Curriculum diminishing (0.3 → 0.0) - Independent navigation!")
+                elif epoch == config.training.planned_epochs:
+                    logger.info("🔄 ENTERING EXTENDED PHASE: Fixed Weights Training!")
+                    logger.info("  ⚖️ Weights fixed at mature values: CE=1.5, Contrastive=1.0")
+                    logger.info("  🔥 Adaptive contrastive revival still active!")
+                    logger.info("  🛑 Training continues until early stopping triggers")
+                
                 logger.info(f"🚀 Epoch {epoch + 1}/{num_epochs}")
             
             for batch_idx, batch in enumerate(train_loader):
@@ -338,9 +580,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Set up destination view if available in batch and curriculum is active
                     destination_view = batch['destination_image'].to(device, non_blocking=True) if 'destination_image' in batch else None
                     
-                    # Calculate curriculum learning ratio based on epochs
-                    max_curriculum_epochs = config.training.curriculum_epochs
-                    curriculum_ratio = max(0.0, 1.0 - (epoch / max_curriculum_epochs))
+                    # Calculate curriculum learning ratio using smart schedule
+                    curriculum_ratio = curriculum_ratio_fn(epoch)
                     
                     # Prepare contrastive examples if enabled
                     positive_input = None
@@ -394,8 +635,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         
                         logits = outputs["logits"]
                         # Use the loss already calculated by T5 instead of recalculating
-                        ce_loss = outputs.get("loss", torch.tensor(0.0, device=device))
-                        feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
+                        ce_loss = outputs.get("loss", torch.tensor(0.0, device=device, dtype=torch.float32))
+                        feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device, dtype=torch.float32))
 
 
                         if torch.isnan(logits).any():
@@ -409,7 +650,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
                         # ce_loss = criterion(logits_reshaped, labels_reshaped)  # REMOVED: redundant calculation
                         
-                        ce_loss_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
+                        ce_loss_weight = ce_weight_fn(epoch)
 
                         # Add feature regularization with clipping to prevent explosion
                         feature_norm_clipped = feature_norm.clamp(max=1e3)  # Clip to prevent explosion
@@ -419,16 +660,18 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         # Add destination loss if destination view is available
                         if destination_view is not None:
                             dest_features = outputs.get("destination_features", outputs["raw_adapted_features"])
+                            # Use raw_adapted_features for destination loss - these are the pure T5 adapter outputs
+                            # before contrastive projection, representing the model's learned visual-text alignment
                             destination_cosine_loss = calculate_cosine_similarity_loss(outputs["raw_adapted_features"], dest_features)
                             
-                            destination_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
+                            destination_weight = destination_weight_fn(epoch)
                             loss = loss + destination_weight * destination_cosine_loss
                         else:
-                            destination_cosine_loss = torch.tensor(0.0, device=device)
+                            destination_cosine_loss = torch.tensor(0.0, device=device, dtype=loss.dtype)
 
                         
                         # Calculate contrastive loss if enabled
-                        contrastive_loss = torch.tensor(0.0, device=device)
+                        contrastive_loss = torch.tensor(0.0, device=device, dtype=loss.dtype)
                         if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
                             
                             # Collect all positive and negative embeddings
@@ -474,11 +717,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 
                                 
                                 # Add weighted contrastive loss to total loss
-                                contrastive_weight = get_weight_schedule(
-                                    config.training.contrastive_weight_start,
-                                    config.training.contrastive_weight_end,
-                                    max_curriculum_epochs
-                                )(epoch)
+                                contrastive_weight = adaptive_contrastive_fn(epoch, recent_contrastive_loss=contrastive_loss.item())
                                 loss = loss + contrastive_weight * contrastive_loss
                                 total_contrastive_loss += contrastive_loss.item()
                             elif rank == 0 and batch_idx == 0 and epoch == 0:
@@ -486,18 +725,24 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 logger.info(f"🔍 Available output keys: {list(outputs.keys())}")
                 
                     # KD loss using embeddings generated during preprocessing
-                    kd_loss = torch.tensor(0.0, device=device)
+                    # MIXED PRECISION: Compute KD loss outside autocast for better numerical stability
+                    kd_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
                     if config.training.use_kd:
                         # Teacher embeddings are included in the batch from preprocessing
                         teacher_embeddings = batch['teacher_embed'].to(device)
-                        student_hidden = F.normalize(outputs["raw_adapted_features"], p=2, dim=-1)  # Use raw features for KD
-                        kd_loss = 1 - F.cosine_similarity(student_hidden, teacher_embeddings, dim=-1).mean()
                         
-                        kd_weight = get_weight_schedule(
-                            config.training.kd_weight_start,
-                            config.training.kd_weight_end,
-                            config.training.kd_epochs
-                        )(epoch)
+                        # Move student features to FP32 for stable KD computation
+                        student_features = outputs["raw_adapted_features"].float()
+                        teacher_embeddings = teacher_embeddings.float()
+                        
+                        # Use raw_adapted_features for KD - these are the pure T5 adapter outputs before contrastive projection
+                        # This aligns with the teacher's general-purpose embeddings for better knowledge transfer
+                        student_hidden = F.normalize(student_features, p=2, dim=-1)
+                        teacher_hidden = F.normalize(teacher_embeddings, p=2, dim=-1)
+                        
+                        kd_loss = 1 - F.cosine_similarity(student_hidden, teacher_hidden, dim=-1).mean()
+                        
+                        kd_weight = kd_weight_fn(epoch)
                         loss = loss + kd_weight * kd_loss
                         total_kd_loss += kd_loss.item()
 
@@ -595,10 +840,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 # Calculate current weights for this epoch
                 if hasattr(config.training, 'log_loss_weights') and config.training.log_loss_weights:
                     max_curriculum_epochs = config.training.curriculum_epochs
-                    current_ce_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
-                    current_contrastive_weight = get_weight_schedule(config.training.contrastive_weight_start, config.training.contrastive_weight_end, max_curriculum_epochs)(epoch)
-                    current_dest_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
-                    current_kd_weight = get_weight_schedule(config.training.kd_weight_start, config.training.kd_weight_end, max_curriculum_epochs)(epoch)
+                    current_ce_weight = ce_weight_fn(epoch)
+                    current_contrastive_weight = adaptive_contrastive_fn(epoch)
+                    current_dest_weight = destination_weight_fn(epoch)
+                    current_curriculum_ratio = curriculum_ratio_fn(epoch)
+                    current_kd_weight = kd_weight_fn(epoch)
 
                     
                     logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
@@ -606,7 +852,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                               f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | KD: {avg_kd_loss:.4f} "
                               f"Time: {epoch_time:.1f}s")
                     logger.info(f"🎛️  Weights | CE: {current_ce_weight:.2f} | "
-                              f"Contrastive: {current_contrastive_weight:.2f} | Dest: {current_dest_weight:.2f} | KD: {current_kd_weight} ")
+                              f"Contrastive: {current_contrastive_weight:.2f} | Dest: {current_dest_weight:.2f} | "
+                              f"Curriculum: {current_curriculum_ratio:.2f} | KD: {current_kd_weight:.2f}")
                     
                     # Log effective contributions for debugging
                     effective_ce = avg_ce_loss * current_ce_weight
@@ -686,7 +933,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     previous_views, 
                                     labels=label_input_ids,
                                     destination_view=destination_view,
-                                    curriculum_ratio=0.0,  # No curriculum during validation
+                                    curriculum_ratio=0.0,  # No curriculum during validation - pure model performance
                                     positive_input=positive_input,
                                     positive_input_2=positive_input_2,
                                     negative_input=negative_input,
@@ -695,7 +942,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 
                                 logits = outputs["logits"]
                                 # Use the loss already calculated by T5 instead of recalculating in validation too
-                                ce_loss = outputs.get("loss", torch.tensor(0.0, device=device))
+                                ce_loss = outputs.get("loss", torch.tensor(0.0, device=device, dtype=torch.float32))
                                 
                                 # No need to manually calculate CE loss in validation either - T5 already did it!
                                 # logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
@@ -703,7 +950,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 # ce_loss = criterion(logits_reshaped, labels_reshaped)  # REMOVED: redundant calculation
                                 
                                 # Calculate validation loss
-                                loss = config.training.ce_loss_weight_end * ce_loss
+                                loss = ce_weight_fn(epoch) * ce_loss
                                 
                                 
                                 # Add contrastive loss if enabled
@@ -746,7 +993,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                     # Average the contrastive losses and add to validation loss
                                     if contrastive_losses:
                                         contrastive_loss = torch.stack(contrastive_losses).mean()
-                                        loss = loss + config.training.contrastive_weight_end * contrastive_loss
+                                        loss = loss + adaptive_contrastive_fn(epoch) * contrastive_loss
                             
                             val_loss += loss.item()
                         except Exception as e:
@@ -947,6 +1194,69 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+def visualize_weight_schedule(planned_epochs: int, max_epochs: int, logger=None):
+    """
+    Visualize the complete 3-phase weight scheduling to help user understand the plan.
+    """
+    contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(planned_epochs)
+    curriculum_ratio_fn = get_smart_curriculum_schedule(planned_epochs)
+    destination_weight_fn = get_smart_destination_schedule(planned_epochs)
+    kd_weight_fn = get_smart_kd_schedule(planned_epochs)
+    
+    if logger:
+        logger.info("📊 COMPLETE TRAINING SCHEDULE VISUALIZATION:")
+        logger.info(f"🎯 3-Phase Planning: {planned_epochs} epochs | Max Training: {max_epochs} epochs")
+        logger.info("=" * 100)
+        
+        # Show key epochs from planning phase + extended phase
+        phase1_end = int(0.3 * planned_epochs)
+        phase2_end = int(0.7 * planned_epochs)
+        
+        epochs_to_show = [0, phase1_end//2, phase1_end, (phase1_end + phase2_end)//2, 
+                         phase2_end, (phase2_end + planned_epochs)//2, planned_epochs-1, 
+                         planned_epochs + 100, max_epochs-1]
+        
+        logger.info(f"{'Epoch':>6} | {'Phase':^30} | {'CE':>5} | {'Contrast':>8} | {'Curriculum':>10} | {'Dest':>6} | {'KD':>5}")
+        logger.info("-" * 100)
+        
+        for epoch in epochs_to_show:
+            ce_w = ce_weight_fn(epoch)
+            cont_w = contrastive_weight_fn(epoch)
+            curr_r = curriculum_ratio_fn(epoch)
+            dest_w = destination_weight_fn(epoch)
+            kd_w = kd_weight_fn(epoch)
+            
+            if epoch < phase1_end:
+                phase = "PHASE 1: Build Space"
+            elif epoch < phase2_end:
+                phase = "PHASE 2: Balance"
+            elif epoch < planned_epochs:
+                phase = "PHASE 3: CE Fine-tune"
+            else:
+                phase = "EXTENDED: Fixed Weights"
+                
+            logger.info(f"{epoch:6d} | {phase:^30} | {ce_w:5.2f} | {cont_w:8.2f} | {curr_r:10.2f} | {dest_w:6.2f} | {kd_w:5.2f}")
+        
+        logger.info("=" * 100)
+        logger.info("🎯 INTEGRATED STRATEGY - ALL COMPONENTS:")
+        logger.info(f"  ✅ Phase 1 (0-{phase1_end}): Build Semantic Space")
+        logger.info("      • HIGH contrastive (8.0) + LOW CE (0.1) + HIGH curriculum (1.0→0.7)")
+        logger.info("      • HIGH destination (0.8) + MODERATE KD (0.5)")
+        logger.info("      → Oracle helps build visual-text alignment with teacher guidance")
+        logger.info(f"  ✅ Phase 2 ({phase1_end}-{phase2_end}): Balance Learning")
+        logger.info("      • MODERATE contrastive (8.0→3.0) + MODERATE CE (0.1→0.8) + MODERATE curriculum (0.7→0.3)")
+        logger.info("      • MODERATE destination (0.8→0.3) + HIGH KD (0.5→1.0)")
+        logger.info("      → Balanced transition with strong teacher guidance")
+        logger.info(f"  ✅ Phase 3 ({phase2_end}-{planned_epochs}): CE Fine-tuning")
+        logger.info("      • LOW contrastive (3.0→1.0) + HIGH CE (0.8→1.5) + NO curriculum (0.3→0.0)")
+        logger.info("      • LOW destination (0.3→0.05) + LOW KD (1.0→0.1)")
+        logger.info("      → Independent navigation with task-specific optimization")
+        logger.info(f"  🚀 Extended ({planned_epochs}-{max_epochs}): Fixed Weights + Adaptive Revival")
+        logger.info("      • FIXED: CE=1.5, Contrastive=1.0, Curriculum=0.0, Destination=0.05, KD=0.1")
+        logger.info("      → Continue with mature configuration until early stopping")
+        logger.info("  🔥 Contrastive revival active throughout (auto-boost when signal dies)!")
+        logger.info("=" * 100)
 
 def main():
     """Main training function that works with torchrun."""
