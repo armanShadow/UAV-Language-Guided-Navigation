@@ -124,7 +124,7 @@ class CrossModalFusion(nn.Module):
         
         Args:
             text_features: Text encoded features [batch_size, seq_len, hidden_size]
-            visual_features: Visual features [batch_size, hidden_size]
+            visual_features: Visual features [batch_size, num_visual_tokens, hidden_size]
             text_mask: Attention mask for text [batch_size, seq_len]
             
         Returns:
@@ -153,9 +153,20 @@ class CrossModalFusion(nn.Module):
             value=visual_features
         )
 
-
-        # Interpolate attended_text to the sequence length
-        attended_text = F.interpolate(attended_text.transpose(1, 2), size=seq_len, mode='linear', align_corners=False).transpose(1, 2)
+        # Handle dimensional mismatch properly:
+        # attended_text has shape [batch, num_visual_tokens, hidden] from visual query
+        # attended_visual has shape [batch, seq_len, hidden] from text query
+        # We need both to have shape [batch, seq_len, hidden] for fusion
+        
+        # For attended_text: aggregate visual tokens to get single representation per text position
+        # Use a learned aggregation instead of interpolation
+        if attended_text.size(1) != seq_len:
+            # Project visual tokens to text positions using attention pooling
+            visual_to_text_pooling = torch.softmax(
+                torch.matmul(text_features, attended_text.transpose(-2, -1)) / math.sqrt(text_features.size(-1)), 
+                dim=-1
+            )  # [batch, seq_len, num_visual_tokens]
+            attended_text = torch.matmul(visual_to_text_pooling, attended_text)  # [batch, seq_len, hidden]
 
         attended_text = self.norm1(attended_text)
         attended_visual = self.norm2(attended_visual)
@@ -497,7 +508,6 @@ class AnsweringAgent(nn.Module):
         )
         
         # Get text features from encoder
-        # text_features = encoder_outputs.last_hidden_state # This line is now redundant
 
         # Apply cross-modal fusion between text and visual features
         fused_features = self.fusion_module(
@@ -515,24 +525,29 @@ class AnsweringAgent(nn.Module):
         if not generate:
             # Training or validation mode
             
-            # Get decoder outputs
-            decoder_outputs = self.t5_model.decoder(
-                input_ids=labels,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_attention_mask=text_input["attention_mask"],
+            # Use the full T5 model which handles teacher forcing automatically
+            # This properly creates decoder_input_ids by shifting labels and uses them correctly
+            t5_outputs = self.t5_model(
+                encoder_outputs=BaseModelOutput(last_hidden_state=encoder_hidden_states),
+                attention_mask=text_input["attention_mask"],
+                labels=labels,
                 return_dict=True
             )
             
-            # Get logits for token prediction
-            logits = self.t5_model.lm_head(decoder_outputs.last_hidden_state)
+            logits = t5_outputs.logits
+            
+            # Compute once and reuse to avoid redundant computation
+            encoder_hidden_mean = encoder_hidden_states.mean(dim=1)  # [batch, hidden]
                 
             # Create output dictionary
             outputs = {
                 "logits": logits,
+                "loss": t5_outputs.loss,  # Include the T5-calculated loss
                 "encoder_last_hidden_state": encoder_hidden_states,
                 "visual_context": visual_context,
-                "adapted_features": self.contrastive_proj(encoder_hidden_states.mean(dim=1)),  # Apply contrastive projection
-                "feature_norm": visual_context.norm(p=2, dim=1).mean()
+                "raw_adapted_features": encoder_hidden_mean,  # Raw features for destination similarity - reuse computation
+                "adapted_features": self.contrastive_proj(encoder_hidden_mean),  # Contrastive-optimized features - reuse computation
+                "feature_norm": encoder_hidden_states.norm(p=2, dim=-1).mean()  # Use adapted features norm, not raw visual context
             }
             
             
@@ -550,10 +565,7 @@ class AnsweringAgent(nn.Module):
                 )
                 positive_hint_features = self.paraphrase_proj(positive_hint_output.last_hidden_state.mean(dim=1))
                 
-                # Mean-pool encoder_hidden_states to match hint features shape
-                encoder_hidden_mean = encoder_hidden_states.mean(dim=1)  # [batch, hidden]
-                
-                # Combine adapted features with positive hint
+                # Combine adapted features with positive hint (reuse precomputed mean)
                 combined_positive_features = encoder_hidden_mean + p_weight * positive_hint_features  # Weighted combination
                 outputs["positive_adapted_features"] = self.contrastive_proj(combined_positive_features)  # Apply contrastive projection
                 
@@ -567,10 +579,7 @@ class AnsweringAgent(nn.Module):
                 )
                 positive_hint_features_2 = self.paraphrase_proj(positive_hint_output_2.last_hidden_state.mean(dim=1))
                 
-                # Mean-pool encoder_hidden_states to match hint features shape
-                encoder_hidden_mean = encoder_hidden_states.mean(dim=1)  # [batch, hidden]
-                
-                # Combine adapted features with positive hint
+                # Combine adapted features with positive hint (reuse precomputed mean)
                 combined_positive_features_2 = encoder_hidden_mean + p_weight * positive_hint_features_2
                 outputs["positive_adapted_features_2"] = self.contrastive_proj(combined_positive_features_2)  # Apply contrastive projection
                 
@@ -584,10 +593,7 @@ class AnsweringAgent(nn.Module):
                 )
                 negative_hint_features = self.paraphrase_proj(negative_hint_output.last_hidden_state.mean(dim=1))
                 
-                # Mean-pool encoder_hidden_states to match hint features shape
-                encoder_hidden_mean = encoder_hidden_states.mean(dim=1)  # [batch, hidden]
-                
-                # Combine adapted features with negative hint
+                # Combine adapted features with negative hint (reuse precomputed mean)
                 combined_negative_features = encoder_hidden_mean + p_weight * negative_hint_features
                 outputs["negative_adapted_features"] = self.contrastive_proj(combined_negative_features)  # Apply contrastive projection
                 
@@ -602,39 +608,54 @@ class AnsweringAgent(nn.Module):
                 )
                 negative_hint_features_2 = self.paraphrase_proj(negative_hint_output_2.last_hidden_state.mean(dim=1))
                 
-                # Mean-pool encoder_hidden_states to match hint features shape
-                encoder_hidden_mean = encoder_hidden_states.mean(dim=1)  # [batch, hidden]
-                
-                # Combine adapted features with negative_2 hint
+                # Combine adapted features with negative_2 hint (reuse precomputed mean)
                 combined_negative_features_2 = encoder_hidden_mean + p_weight * negative_hint_features_2
                 outputs["negative_adapted_features_2"] = self.contrastive_proj(combined_negative_features_2)  # Apply contrastive projection
                 
             return outputs
         else:
             # Generation mode
-            # Return encoder outputs for use with generate_answer
+            # Use T5's generate method with improved parameters for better quality
+            generated_ids = self.t5_model.generate(
+                encoder_outputs=BaseModelOutput(last_hidden_state=encoder_hidden_states),
+                attention_mask=text_input["attention_mask"],
+                max_new_tokens=64,       # More flexible than max_length
+                min_length=5,            # Ensure minimum response length
+                num_beams=2,             # Light beam search for better quality
+                do_sample=True,          # Enable sampling for diversity
+                temperature=0.8,         # Controlled randomness
+                top_p=0.9,              # Nucleus sampling
+                repetition_penalty=1.1, # Reduce repetition
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
+                early_stopping=True,
+                no_repeat_ngram_size=2   # Prevent repeated 2-grams
+            )
+            
             return {
+                "sequences": generated_ids,
                 "encoder_hidden_states": encoder_hidden_states,
                 "encoder_attention_mask": text_input["attention_mask"]
             }
     
             
     def generate_answer(self, text_input: dict, current_view: torch.Tensor, 
-                       previous_views: torch.Tensor, max_length: int = 128) -> torch.Tensor:
+                       previous_views: torch.Tensor, max_new_tokens: int = 64, **generation_kwargs) -> torch.Tensor:
         """
-        Generate answer text.
+        Generate answer text with flexible parameters.
         
         Args:
             text_input: Dictionary with input_ids and attention_mask
             current_view: Current visual input [batch_size, channels, height, width] 
             previous_views: Previous visual inputs [batch_size, num_prev, channels, height, width]
-            max_length: Maximum generated sequence length
+            max_new_tokens: Maximum new tokens to generate
+            **generation_kwargs: Additional generation parameters
             
         Returns:
             Generated token IDs [batch_size, seq_len]
         """
-        # Forward pass in evaluation mode
+        # Forward pass in generation mode
         with torch.no_grad():
-            outputs = self.forward(text_input, current_view, previous_views)
+            outputs = self.forward(text_input, current_view, previous_views, generate=True)
             
         return outputs["sequences"]

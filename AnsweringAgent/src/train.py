@@ -393,10 +393,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         )
                         
                         logits = outputs["logits"]
+                        # Use the loss already calculated by T5 instead of recalculating
+                        ce_loss = outputs.get("loss", torch.tensor(0.0, device=device))
                         feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
 
-                        # Get batch and sequence dimensions
-                        batch_size, seq_len, vocab_size = logits.size()
 
                         if torch.isnan(logits).any():
                             if rank == 0:
@@ -404,12 +404,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             optimizer.zero_grad(set_to_none=True)
                             continue
 
-                        # Reshape outputs and labels consistently
-                        logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
-                        labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
-
-                        # Calculate cross-entropy loss
-                        ce_loss = criterion(logits_reshaped, labels_reshaped)
+                        # No need to recalculate CE loss - T5 already did it!
+                        # logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
+                        # labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
+                        # ce_loss = criterion(logits_reshaped, labels_reshaped)  # REMOVED: redundant calculation
+                        
                         ce_loss_weight = get_weight_schedule(config.training.ce_loss_weight_start, config.training.ce_loss_weight_end, max_curriculum_epochs)(epoch)
 
                         # Add feature regularization with clipping to prevent explosion
@@ -419,8 +418,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             
                         # Add destination loss if destination view is available
                         if destination_view is not None:
-                            dest_features = outputs.get("destination_features", outputs["adapted_features"])
-                            destination_cosine_loss = calculate_cosine_similarity_loss(outputs["adapted_features"], dest_features)
+                            dest_features = outputs.get("destination_features", outputs["raw_adapted_features"])
+                            destination_cosine_loss = calculate_cosine_similarity_loss(outputs["raw_adapted_features"], dest_features)
                             
                             destination_weight = get_weight_schedule(config.training.destination_loss_weight_start, config.training.destination_loss_weight_end, max_curriculum_epochs)(epoch)
                             loss = loss + destination_weight * destination_cosine_loss
@@ -491,7 +490,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     if config.training.use_kd:
                         # Teacher embeddings are included in the batch from preprocessing
                         teacher_embeddings = batch['teacher_embed'].to(device)
-                        student_hidden = F.normalize(outputs["adapted_features"], p=2, dim=-1)
+                        student_hidden = F.normalize(outputs["raw_adapted_features"], p=2, dim=-1)  # Use raw features for KD
                         kd_loss = 1 - F.cosine_similarity(student_hidden, teacher_embeddings, dim=-1).mean()
                         
                         kd_weight = get_weight_schedule(
@@ -695,14 +694,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 )
                                 
                                 logits = outputs["logits"]
-                                batch_size, seq_len, vocab_size = logits.size()
+                                # Use the loss already calculated by T5 instead of recalculating in validation too
+                                ce_loss = outputs.get("loss", torch.tensor(0.0, device=device))
                                 
-                                # Reshape logits and labels
-                                logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
-                                labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
+                                # No need to manually calculate CE loss in validation either - T5 already did it!
+                                # logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
+                                # labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
+                                # ce_loss = criterion(logits_reshaped, labels_reshaped)  # REMOVED: redundant calculation
                                 
-                                # Calculate validation losses
-                                ce_loss = criterion(logits_reshaped, labels_reshaped)
+                                # Calculate validation loss
                                 loss = config.training.ce_loss_weight_end * ce_loss
                                 
                                 

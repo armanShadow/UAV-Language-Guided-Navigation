@@ -27,59 +27,59 @@ class ModelConfig:
 
 @dataclass
 class TrainingConfig:      
-    num_epochs: int = 10000
-    learning_rate: float = 5e-6  # Reduced from 5e-5 for second-stage fine-tuning
-    weight_decay: float = 0.02
-    gradient_clip: float = 0.5
-    warmup_steps: int = 1000
-    log_freq: int = 2
-    eval_freq: int = 50  #(validate every ~66 minutes)
+    num_epochs: int = 50  # Reduced for rapid experimentation
+    learning_rate: float = 1e-4  # Higher LR for faster convergence  
+    weight_decay: float = 0.01  # Reduced
+    gradient_clip: float = 1.0
+    warmup_steps: int = 200  # Reduced warmup
+    log_freq: int = 5
+    eval_freq: int = 5  # More frequent evaluation for rapid feedback
     num_workers: int = 4
     pin_memory: bool = True
-    mixed_precision: bool = False
+    mixed_precision: bool = True  # Enable for faster training
     device: str = 'cuda'
     seed: int = 42
-    checkpoint_frequency: int = 200
+    checkpoint_frequency: int = 10  # More frequent checkpoints
     scheduler_factor: float = 0.5
-    scheduler_patience: int = 5
+    scheduler_patience: int = 3  # Reduced patience
     scheduler_verbose: bool = True
-    gradient_accumulation_steps: int = 3
+    gradient_accumulation_steps: int = 4  # Increased for effective larger batch
     # Early stopping parameters
     early_stopping: bool = True
-    early_stopping_patience: int = 10
-    early_stopping_min_delta: float = 0.003
+    early_stopping_patience: int = 5  # Reduced for rapid experiments
+    early_stopping_min_delta: float = 0.01
     # Validation parameters
-    per_gpu_batch_size_val: int = 8  # Smaller validation batch size to save VRAM
+    per_gpu_batch_size: int = 8  # Manageable batch size
+    per_gpu_batch_size_val: int = 8  
     train_chunk_size: int = 1000
     # Curriculum learning parameters
-    curriculum_epochs: int = 30  # Number of epochs for curriculum learning phase
-    destination_loss_weight_start: float = 1.0
-    destination_loss_weight_end: float = 0.2
+    curriculum_epochs: int = 15  # Reduced curriculum phase
+    destination_loss_weight_start: float = 0.5  # Reduced weights for focus on CE+contrastive
+    destination_loss_weight_end: float = 0.1
     
-    ce_loss_weight_start: float = 0.02  # Lower start weight so CE does not dominate early
-    ce_loss_weight_end: float = 0.5   # Final weight still substantial but lower than before
+    ce_loss_weight_start: float = 0.5  # Higher start weight
+    ce_loss_weight_end: float = 1.0   # Full weight at end
     
-    # Contrastive Learning Parameters - FIXED WEIGHTS FOR BETTER BALANCE
+    # Contrastive Learning Parameters - BALANCED FOR RAPID RESULTS
     use_contrastive_learning: bool = True
     contrastive_loss_type: str = "infonce"
-    contrastive_margin: float = 0.1
-    contrastive_temperature: float = 0.02  # Lower temperature for sharper InfoNCE
-    # FIXED: Increased contrastive weights to match CE loss scale
-    contrastive_weight_start: float = 10.0  # Increased from 0.1 to 10.0
-    contrastive_weight_end: float = 10.0    # Increased from 0.5 to 25.0
+    contrastive_margin: float = 0.2
+    contrastive_temperature: float = 0.05  
+    contrastive_weight_start: float = 2.0  # Moderate contrastive weight
+    contrastive_weight_end: float = 5.0    # Ramp up contrastive importance
     # New triplet loss options
-    use_cosine_distance: bool = True  # Use cosine distance instead of L2 for triplet loss - Better for normalized embeddings
-    contrastive_mean_all: bool = True  # Use mean over all elements instead of non-zero for triplet loss - More stable for large batches
+    use_cosine_distance: bool = True  
+    contrastive_mean_all: bool = True  
     
     # Add per-epoch weight logging for debugging
-    log_loss_weights: bool = True  # Log weight values each epoch
+    log_loss_weights: bool = True  
     
-    # Knowledge-distillation (KD) parameters
-    use_kd: bool = True  # Enable teacher-student KD
-    kd_teacher_model_name: str = "sentence-transformers/all-mpnet-base-v2"  # Teacher model for KD
-    kd_weight_start: float = 5.0  # KD weight at epoch 0
-    kd_weight_end: float = 0.5    # KD weight after kd_epochs
-    kd_epochs: int = 30  # Epochs over which KD weight is annealed to kd_weight_end
+    # Knowledge-distillation (KD) parameters - REDUCED FOR SPEED
+    use_kd: bool = False  # Disable KD for rapid experiments
+    kd_teacher_model_name: str = "sentence-transformers/all-mpnet-base-v2"  
+    kd_weight_start: float = 1.0  
+    kd_weight_end: float = 0.1    
+    kd_epochs: int = 15
 
     def __post_init__(self):
         """Initialize GPU settings and scale batch size/workers."""

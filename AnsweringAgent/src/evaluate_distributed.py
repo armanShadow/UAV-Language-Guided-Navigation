@@ -211,15 +211,15 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                         )
                         
                         logits = outputs["logits"]
+                        # Use the loss already calculated by T5 instead of recalculating
+                        ce_loss = outputs.get("loss", torch.tensor(0.0, device=device))
                         feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
                         batch_size, seq_len, vocab_size = logits.size()
                         
-                        # Reshape logits and labels consistently (matches training)
-                        logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
-                        labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
-                        
-                        # Calculate cross-entropy loss
-                        ce_loss = criterion(logits_reshaped, labels_reshaped)
+                        # No need to manually calculate CE loss in evaluation either - T5 already did it!
+                        # logits_reshaped = logits.contiguous().view(batch_size * seq_len, vocab_size)
+                        # labels_reshaped = label_input_ids.contiguous().view(batch_size * seq_len)
+                        # ce_loss = criterion(logits_reshaped, labels_reshaped)  # REMOVED: redundant calculation
                         
                         # Start with weighted CE loss
                         loss = config.training.ce_loss_weight_end * ce_loss
@@ -288,10 +288,30 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                             target_text = tokenizer.decode(label_input_ids[i], skip_special_tokens=True)
                             predicted_text = tokenizer.decode(predicted_tokens, skip_special_tokens=True)
                             
+                            # Optional: Add autoregressive generation for real-world performance
+                            # This shows actual inference capability (no teacher forcing)
+                            try:
+                                # Get the actual model (unwrap DDP if needed)
+                                actual_model = model.module if hasattr(model, 'module') else model
+                                
+                                generated_outputs = actual_model(
+                                    {k: v[i:i+1] for k, v in text_input.items()},  # Single sample
+                                    current_view[i:i+1], 
+                                    previous_views[i:i+1],
+                                    labels=None,  # No labels for generation
+                                    generate=True,  # Autoregressive generation
+                                    destination_view=destination_view[i:i+1] if destination_view is not None else None,
+                                    curriculum_ratio=0.0
+                                )
+                                generated_text = tokenizer.decode(generated_outputs["sequences"][0], skip_special_tokens=True)
+                            except Exception as e:
+                                generated_text = f"Generation failed: {str(e)[:50]}"
+                            
                             sample_outputs.append({
                                 'input': input_text,
                                 'target': target_text,
-                                'predicted': predicted_text,
+                                'predicted_teacher_forcing': predicted_text,  # From teacher forcing
+                                'generated_autoregressive': generated_text,   # From real generation
                                 'accuracy': metrics['accuracy']
                             })
                             sample_count += 1
@@ -512,7 +532,8 @@ def main():
                     logger.info(f"  Sample {i+1}:")
                     logger.info(f"    Input: {sample['input'][:200]}...")
                     logger.info(f"    Target: {sample['target']}")
-                    logger.info(f"    Predicted: {sample['predicted']}")
+                    logger.info(f"    Predicted (Teacher Forcing): {sample['predicted_teacher_forcing']}")
+                    logger.info(f"    Generated (Autoregressive): {sample['generated_autoregressive']}")
                     logger.info(f"    Accuracy: {sample['accuracy']:.4f}")
                     logger.info("")
                 
