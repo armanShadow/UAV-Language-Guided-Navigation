@@ -91,7 +91,7 @@ def setup_minimal_environment():
     
     # Memory optimizations
     if torch.cuda.is_available():
-        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:32,garbage_collection_threshold:0.6'
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
         # Remove blocking for performance
         # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'  # Only for debugging
         
