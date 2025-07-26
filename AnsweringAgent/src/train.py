@@ -1115,6 +1115,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
                                 'ema': ema.state_dict(),
                                 'val_loss': val_loss,
+                                'best_val_loss': best_val_loss,  # Save the best validation loss achieved so far
                                 'config': config,
                             }
                         
@@ -1154,6 +1155,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
                     'ema': ema.state_dict(),
                     'val_loss': val_loss if 'val_loss' in locals() else None,
+                    'best_val_loss': best_val_loss,  # Save the best validation loss achieved so far
                     'config': config,
                 }
                 
@@ -1186,6 +1188,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
                 'ema': ema.state_dict(),
                 'val_loss': val_loss if 'val_loss' in locals() else None,
+                'best_val_loss': best_val_loss,  # Save the best validation loss achieved so far
                 'config': config,
             }
             
@@ -1529,7 +1532,9 @@ def main():
                     model.load_state_dict(checkpoint_data['model_state_dict'])
                     
                 start_epoch = checkpoint_data['epoch']
-                best_val_loss = checkpoint_data.get('val_loss', float('inf'))
+                # Load the best validation loss achieved so far, not just the current epoch's val_loss
+                best_val_loss = checkpoint_data.get('best_val_loss', 
+                                                  checkpoint_data.get('val_loss', float('inf')))
                 
                 # Validate config compatibility if available
                 if 'config' in checkpoint_data:
