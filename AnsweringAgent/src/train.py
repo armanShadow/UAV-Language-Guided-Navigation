@@ -484,8 +484,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # Load optimizer state
             if 'optimizer_state_dict' in checkpoint_data:
                 optimizer.load_state_dict(checkpoint_data['optimizer_state_dict'])
+                # Move optimizer tensors to correct device
+                for state in optimizer.state.values():
+                    for k, v in state.items():
+                        if torch.is_tensor(v):
+                            state[k] = v.to(device)
                 if rank == 0:
-                    logger.info(f"✅ Optimizer state loaded")
+                    logger.info(f"✅ Optimizer state loaded and moved to {device}")
             
             # Load scheduler state  
             if 'scheduler_state_dict' in checkpoint_data and checkpoint_data['scheduler_state_dict'] is not None:
@@ -496,8 +501,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # Load EMA state
             if 'ema' in checkpoint_data:
                 ema.load_state_dict(checkpoint_data['ema'])
+                # Move EMA shadow parameters to correct device
+                for name, param in ema.shadow.items():
+                    ema.shadow[name] = param.to(device)
                 if rank == 0:
-                    logger.info(f"✅ EMA state loaded")
+                    logger.info(f"✅ EMA state loaded and moved to {device}")
                     
             if rank == 0:
                 logger.info(f"🎯 Complete checkpoint state restored for epoch {start_epoch + 1}")
