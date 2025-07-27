@@ -1323,7 +1323,7 @@ def visualize_weight_schedule(planned_epochs: int, max_epochs: int, logger=None)
     """
     Visualize the complete 3-phase weight scheduling to help user understand the plan.
     """
-    contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(planned_epochs)
+    contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(planned_epochs, max_epochs)
     curriculum_ratio_fn = get_smart_curriculum_schedule(planned_epochs)
     destination_weight_fn = get_smart_destination_schedule(planned_epochs)
     kd_weight_fn = get_smart_kd_schedule(planned_epochs)
