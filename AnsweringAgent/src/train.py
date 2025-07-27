@@ -248,11 +248,11 @@ def get_smart_contrastive_schedule(planned_epochs: int):
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             return 0.8 + (1.5 - 0.8) * progress  # 0.8 → 1.5
         elif epoch < 450:
-            # Phase 4: Lower CE for refreshed Hard Negatives 
-            return 1.2 # Fixed at 1.2 for 75 epochs
+            # Phase 4: Lower CE for KD-focused fine-tuning window
+            return 0.5  # Keep CE modest so KD can dominate
         elif epoch < 500:
             progress = (epoch - 450) / (500 - 450)
-            return 1.2 * (1 - progress) + 1.5 * progress # 1.2 → 1.5 for 50 epochs
+            return 0.5 * (1 - progress) + 1.5 * progress  # 0.5 → 1.5 over 50 epochs
         else:
             # Extended Phase: FIXED at final value
             return 1.5
@@ -418,9 +418,13 @@ def get_smart_kd_schedule(planned_epochs: int):
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             return 1.0 * (1 - progress) + 0.7 * progress  # 1.0 → 0.7
         elif epoch < 450:
-            # Phase 4: Bump up KD weight for 75 epochs
+            # Phase 4: KD-focused fine-tuning window (75 epochs)
             progress = (epoch - 375) / (450 - 375)
-            return 0.7 * (1 - progress) + 0.4 * progress # 0.7 → 0.3 for 75 epochs
+            return 0.7 + (1.4 - 0.7) * progress  # 0.7 → 1.4
+        elif epoch < 500:
+            # Phase 5: Transition KD back down while CE ramps up
+            progress = (epoch - 450) / (500 - 450)
+            return 1.4 * (1 - progress) + 0.3 * progress  # 1.4 → 0.3
         else:
             # Extended Phase: FIXED at final value
             return 0.3
