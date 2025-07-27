@@ -247,15 +247,13 @@ def get_smart_contrastive_schedule(planned_epochs: int, max_epochs: int):
             # Phase 3: HIGH CE for final fine-tuning
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             return 0.8 + (1.2 - 0.8) * progress  # 0.8 → 1.2
-        elif epoch < 575:
-            return 0.8
         elif epoch < 650:
             # Keep CE modest while KD is still high
-            return 0.8
+            return 0.6
         elif epoch < 750:
             # Gentle polish: 0.8 → 1.0 over 100 epochs
             progress = (epoch - 650) / 100
-            return 0.8 * (1 - progress) + 1.0 * progress   # 0.8 → 1.0
+            return 0.6 * (1 - progress) + 1.0 * progress   # 0.6 → 1.0
         else:
             # Fix CE at 1.0 for the remainder of training (avoid over-fitting)
             return 1.0
@@ -423,18 +421,14 @@ def get_smart_kd_schedule(planned_epochs: int):
         elif epoch < 450:
             # Phase 4: KD-focused fine-tuning window (75 epochs)
             progress = (epoch - 375) / (450 - 375)
-            return 0.7 + (1.4 - 0.7) * progress  # 0.7 → 1.4
-        # inside kd_weight_fn
-        elif epoch < 525:
-            return 1.4                    # keep 1.4 for 35 more epochs (to 525)
-        elif epoch < 575:                 # new early decay window 525-575
-            progress = (epoch - 525) / 50
-            return 1.4 * (1 - progress) + 0.8 * progress   # 1.4 → 0.8
-        elif epoch < 650:                 # second decay 575-650
-            progress = (epoch - 575) / 75
-            return 0.8 * (1 - progress) + 0.5 * progress   # 0.8 → 0.5
+            return 0.7 + (1.2 - 0.7) * progress  # 0.7 → 1.2
+        elif epoch < 650:
+            return 1.2
+        elif epoch < 750:
+            progress = (epoch - 650) / 100
+            return 1.2 * (1 - progress) + 0.8 * progress   # 1.2 → 0.8
         else:
-            return 0.5                    # fixed tail
+            return 0.8                    # fixed tail
     
     return kd_weight_fn
 
