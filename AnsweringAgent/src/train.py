@@ -196,7 +196,7 @@ def get_smart_curriculum_schedule(planned_epochs: int):
     
     return curriculum_ratio_fn
 
-def get_smart_contrastive_schedule(planned_epochs: int):
+def get_smart_contrastive_schedule(planned_epochs: int, max_epochs: int):
     """
     Smart 3-phase contrastive learning schedule based on user insights:
     Phase 1 (0-30%): Build semantic space - HIGH contrastive, LOW CE
@@ -247,15 +247,15 @@ def get_smart_contrastive_schedule(planned_epochs: int):
             # Phase 3: HIGH CE for final fine-tuning
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             return 0.8 + (1.5 - 0.8) * progress  # 0.8 → 1.5
-        elif epoch < 450:
-            # Phase 4: Lower CE for KD-focused fine-tuning window
-            return 0.5  # Keep CE modest so KD can dominate
-        elif epoch < 500:
-            progress = (epoch - 450) / (500 - 450)
-            return 0.5 * (1 - progress) + 1.5 * progress  # 0.5 → 1.5 over 50 epochs
+        elif epoch < 525:
+            progress = (epoch - planned_epochs) / (525 - planned_epochs)
+            return 1.5 * (1 - progress) + 0.8 * progress # 1.5 → 0.8 for 150 epochs
+        elif epoch < 600:
+            progress = (epoch - 525) / (600 - 525) # 525 is the end of the first plateau
+            return 0.8 * (1 - progress) + 0.3 * progress # 0.8 → 0.3
         else:
-            # Extended Phase: FIXED at final value
-            return 1.5
+            progress = (epoch - 600) / (max_epochs - 600) # 600 is the end of the second plateau
+            return 0.3 * (1 - progress) + 1.2 * progress # 0.3 → 1.2
     
     return contrastive_weight_fn, ce_weight_fn
 
@@ -421,12 +421,15 @@ def get_smart_kd_schedule(planned_epochs: int):
             # Phase 4: KD-focused fine-tuning window (75 epochs)
             progress = (epoch - 375) / (450 - 375)
             return 0.7 + (1.4 - 0.7) * progress  # 0.7 → 1.4
-        elif epoch < 500:
-            # Phase 5: Transition KD back down while CE ramps up
-            progress = (epoch - 450) / (500 - 450)
-            return 1.4 * (1 - progress) + 0.3 * progress  # 1.4 → 0.3
+        elif epoch < 525:          # extended plateau
+            return 1.4
+        elif epoch < 600:          # gentle decay
+            progress = (epoch - 525) / (600 - 525)
+            return 1.4 * (1 - progress) + 0.6 * progress # 1.4 → 0.6
+        elif epoch < 700:          # optional second decay
+            progress = (epoch - 600) / (700 - 600)
+            return 0.6 * (1 - progress) + 0.3 * progress # 0.6 → 0.3
         else:
-            # Extended Phase: FIXED at final value
             return 0.3
     
     return kd_weight_fn
@@ -599,7 +602,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         visualize_weight_schedule(config.training.planned_epochs, config.training.num_epochs, logger)
     
     # Get smart scheduling functions
-    contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(config.training.planned_epochs)
+    contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(config.training.planned_epochs, config.training.num_epochs)
     curriculum_ratio_fn = get_smart_curriculum_schedule(config.training.planned_epochs)
     
     # Get adaptive contrastive scheduler with revival capability
