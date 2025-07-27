@@ -227,13 +227,10 @@ def get_smart_contrastive_schedule(planned_epochs: int):
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             mid_weight = start_weight * 0.6  # 6.0 (from phase 2)
             return mid_weight * (1 - progress) + end_weight * progress  # 6.0 → 3.0
-        elif epoch < 500:
-            # Higher weight for 100 epochs for refreshed Hard Negatives 
-            progress = (epoch - phase2_end) / (500 - phase2_end)
-            return 10.0 * (1 - progress) + 5.0 * progress # 10.0 → 5.0 for 100 epochs
-        elif epoch < 550:
-            # Fixed at 5.0 for 50 epochs
-            return 5.0 
+        elif epoch < 450:
+            # Higher weight for 75 epochs for refreshed Hard Negatives 
+            progress = (epoch - phase2_end) / (450 - phase2_end)
+            return 10.0 * (1 - progress) + 3.0 * progress # 10.0 → 3.0 for 75 epochs
         else:
             # Extended Phase: FIXED at end weight (adaptive revival still works)
             return 3.0
@@ -250,11 +247,11 @@ def get_smart_contrastive_schedule(planned_epochs: int):
             # Phase 3: HIGH CE for final fine-tuning
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             return 0.8 + (1.5 - 0.8) * progress  # 0.8 → 1.5
-        elif epoch < 500:
+        elif epoch < 450:
             # Phase 4: Lower CE for refreshed Hard Negatives 
-            return 1.2 # Fixed at 1.2 for 100 epochs
-        elif epoch < 550:
-            progress = (epoch - 500) / (550 - 500)
+            return 1.2 # Fixed at 1.2 for 75 epochs
+        elif epoch < 500:
+            progress = (epoch - 450) / (500 - 450)
             return 1.2 * (1 - progress) + 1.5 * progress # 1.2 → 1.5 for 50 epochs
         else:
             # Extended Phase: FIXED at final value
@@ -420,10 +417,10 @@ def get_smart_kd_schedule(planned_epochs: int):
             # Phase 3: LOW KD (focus on task-specific fine-tuning)
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             return 1.0 * (1 - progress) + 0.3 * progress  # 1.0 → 0.3
-        elif epoch < 500:
-            # Phase 4: Bump up KD weight for 100 epochs
-            progress = (epoch - 400) / (500 - 400)
-            return 0.5 * (1 - progress) + 0.3 * progress # 0.5 → 0.3 for 100 epochs
+        elif epoch < 450:
+            # Phase 4: Bump up KD weight for 75 epochs
+            progress = (epoch - 400) / (450 - 400)
+            return 0.5 * (1 - progress) + 0.3 * progress # 0.5 → 0.3 for 75 epochs
         else:
             # Extended Phase: FIXED at final value
             return 0.3
