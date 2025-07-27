@@ -229,8 +229,8 @@ def get_smart_contrastive_schedule(planned_epochs: int):
             return mid_weight * (1 - progress) + end_weight * progress  # 6.0 → 3.0
         elif epoch < 450:
             # Higher weight for 75 epochs for refreshed Hard Negatives 
-            progress = (epoch - phase2_end) / (450 - phase2_end)
-            return 10.0 * (1 - progress) + 3.0 * progress # 10.0 → 3.0 for 75 epochs
+            progress = (epoch - planned_epochs) / (450 - planned_epochs)
+            return 7.0 * (1 - progress) + 3.0 * progress # 7.0 → 3.0 for 75 epochs
         else:
             # Extended Phase: FIXED at end weight (adaptive revival still works)
             return 3.0
@@ -416,11 +416,11 @@ def get_smart_kd_schedule(planned_epochs: int):
         elif epoch < planned_epochs:
             # Phase 3: LOW KD (focus on task-specific fine-tuning)
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
-            return 1.0 * (1 - progress) + 0.3 * progress  # 1.0 → 0.3
+            return 1.0 * (1 - progress) + 0.7 * progress  # 1.0 → 0.7
         elif epoch < 450:
             # Phase 4: Bump up KD weight for 75 epochs
-            progress = (epoch - 400) / (450 - 400)
-            return 0.5 * (1 - progress) + 0.3 * progress # 0.5 → 0.3 for 75 epochs
+            progress = (epoch - 375) / (450 - 375)
+            return 0.7 * (1 - progress) + 0.4 * progress # 0.7 → 0.3 for 75 epochs
         else:
             # Extended Phase: FIXED at final value
             return 0.3
