@@ -48,7 +48,7 @@ class HardNegativeMiner:
     def __init__(self, config: Config, tokenizer, k_nn: int = 100, cosine_threshold: float = 0.2,
                  diverse_ratio: float = 0.0, min_answer_length: int = 20,
                  min_visual_similarity: float = 0.15, fallback_phrase_reuse_limit: int = 4,
-                 sliding_window_size: int = 1000):
+                 sliding_window_size: int = 1000, mining_mode: str = 'relaxed'):
         """Initialize the hard negative miner."""
         self.config = config
         self.tokenizer = tokenizer
@@ -59,6 +59,7 @@ class HardNegativeMiner:
         self.min_visual_similarity = min_visual_similarity
         self.fallback_phrase_reuse_limit = max(1, fallback_phrase_reuse_limit)
         self.sliding_window_size = sliding_window_size
+        self.mining_mode = mining_mode
         
         # GPU settings
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -227,12 +228,22 @@ class HardNegativeMiner:
     
     def _get_reuse_limit(self, phrase_length: int) -> int:
         """Get reuse limit based on phrase length (from working original)."""
-        if phrase_length < 60:
-            return 1
-        elif phrase_length < 100:
-            return 2
-        else:
-            return 3
+
+        if self.mining_mode == 'strict':
+            if phrase_length < 60:
+                return 2 
+            elif phrase_length < 100:
+                return 4  
+            else:
+                return 8
+        elif self.mining_mode == 'relaxed':
+            if phrase_length < 60:
+                return 1 
+            elif phrase_length < 100:
+                return 2  
+            else:
+                return 3
+        
     
     def _track_phrase_usage(self, answer: str):
         """Track phrase usage with sliding window (from working original)."""
@@ -397,7 +408,7 @@ class HardNegativeMiner:
                     continue
                 
                 # Check phrase diversity
-                if not self._is_phrase_diverse(neighbor_answer, mode='strict'):
+                if not self._is_phrase_diverse(neighbor_answer):
                     continue
                 
                 # Calculate text similarity
@@ -876,7 +887,8 @@ def main():
                        help='Batch size for GPU processing')
     parser.add_argument('--gpu-id', type=int, default=0,
                        help='GPU ID to use')
-    
+    parser.add_argument('--mining-mode', type=str, default='relaxed', choices=['strict', 'relaxed'],
+                       help='Mining mode for hard negatives')
     args = parser.parse_args()
     
     # Set up GPU
@@ -906,7 +918,8 @@ def main():
         min_answer_length=args.min_answer_length,
         min_visual_similarity=args.min_visual_similarity,
         fallback_phrase_reuse_limit=args.fallback_phrase_reuse_limit,
-        sliding_window_size=args.sliding_window_size
+        sliding_window_size=args.sliding_window_size,
+        mining_mode=args.mining_mode
     )
     
     miner.batch_size = args.batch_size
