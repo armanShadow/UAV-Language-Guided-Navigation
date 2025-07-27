@@ -157,6 +157,25 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
             mean_all=config.training.contrastive_mean_all
         )
     
+    # Calculate actual weights used for proper reporting
+    actual_weights = {}
+    if epoch is not None:
+        try:
+            from train import get_smart_contrastive_schedule, get_adaptive_contrastive_schedule
+            contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(config.training.planned_epochs, config.training.num_epochs)
+            adaptive_contrastive_fn = get_adaptive_contrastive_schedule(contrastive_weight_fn)
+            
+            actual_weights['ce_weight'] = ce_weight_fn(epoch)
+            actual_weights['contrastive_weight'], _ = adaptive_contrastive_fn(epoch)
+        except Exception as e:
+            if rank == 0:
+                logger.warning(f"⚠️ Could not calculate epoch weights: {str(e)}")
+            actual_weights['ce_weight'] = config.training.ce_loss_weight_end
+            actual_weights['contrastive_weight'] = config.training.contrastive_weight_end
+    else:
+        actual_weights['ce_weight'] = config.training.ce_loss_weight_end
+        actual_weights['contrastive_weight'] = config.training.contrastive_weight_end
+    
     try:
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm(dataloader, desc=f"Evaluating {split_name}", disable=rank!=0)):
@@ -386,7 +405,9 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
         'overall_accuracy': overall_accuracy,
         'total_tokens': total_tokens,
         'correct_tokens': correct_tokens,
-        'samples': sample_outputs
+        'samples': sample_outputs,
+        'ce_weight': actual_weights['ce_weight'],
+        'contrastive_weight': actual_weights['contrastive_weight']
     }
     
     return results
@@ -582,11 +603,11 @@ def main():
                 
                 # Log effective contributions with correct weights
                 logger.info(f"🔍 Effective Loss Components:")
-                logger.info(f"  CE (weighted): {results['ce_loss'] * actual_weights['ce_weight']:.4f}")
-                logger.info(f"  Contrastive (weighted): {results['contrastive_loss'] * actual_weights['contrastive_weight']:.4f}")
+                logger.info(f"  CE (weighted): {results['ce_loss'] * results['ce_weight']:.4f}")
+                logger.info(f"  Contrastive (weighted): {results['contrastive_loss'] * results['contrastive_weight']:.4f}")
                 logger.info(f"⚖️  Weights Used (Epoch {checkpoint_epoch + 1 if checkpoint_epoch is not None else 'Unknown'}):")
-                logger.info(f"  CE Weight: {actual_weights['ce_weight']:.2f}")
-                logger.info(f"  Contrastive Weight: {actual_weights['contrastive_weight']:.2f}")
+                logger.info(f"  CE Weight: {results['ce_weight']:.2f}")
+                logger.info(f"  Contrastive Weight: {results['contrastive_weight']:.2f}")
                 
                 # Display samples
                 logger.info(f"📝 {split.upper()} Samples:")
@@ -604,22 +625,8 @@ def main():
                 logger.error(f"❌ Error evaluating {split} dataset: {str(e)}")
                 all_results[split] = {'error': str(e)}
     
-    # Calculate actual weights used for proper reporting
-    actual_weights = {}
-    if checkpoint_epoch is not None:
-        try:
-            from train import get_smart_contrastive_schedule, get_adaptive_contrastive_schedule
-            contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(config.training.planned_epochs, config.training.num_epochs)
-            adaptive_contrastive_fn = get_adaptive_contrastive_schedule(contrastive_weight_fn)
-            
-            actual_weights['ce_weight'] = ce_weight_fn(checkpoint_epoch)
-            actual_weights['contrastive_weight'], _ = adaptive_contrastive_fn(checkpoint_epoch)
-        except:
-            actual_weights['ce_weight'] = config.training.ce_loss_weight_end
-            actual_weights['contrastive_weight'] = config.training.contrastive_weight_end
-    else:
-        actual_weights['ce_weight'] = config.training.ce_loss_weight_end
-        actual_weights['contrastive_weight'] = config.training.contrastive_weight_end
+    # Weights are now calculated inside evaluate_dataset_distributed function
+    # No need to duplicate here
 
     # Save results (only on rank 0)
     if rank == 0:
@@ -641,10 +648,13 @@ def main():
                         'samples': results['samples'],
                         # Save weighted contributions using correct epoch weights
                         'weighted_contributions': {
-                            'ce_weighted': float(results['ce_loss']) * actual_weights['ce_weight'],
-                            'contrastive_weighted': float(results['contrastive_loss']) * actual_weights['contrastive_weight'],
+                            'ce_weighted': float(results['ce_loss']) * results.get('ce_weight', config.training.ce_loss_weight_end),
+                            'contrastive_weighted': float(results['contrastive_loss']) * results.get('contrastive_weight', config.training.contrastive_weight_end),
                             'epoch': checkpoint_epoch,
-                            'weights_used': actual_weights
+                            'weights_used': {
+                                'ce_weight': results.get('ce_weight', config.training.ce_loss_weight_end),
+                                'contrastive_weight': results.get('contrastive_weight', config.training.contrastive_weight_end)
+                            }
                         }
                     }
             
