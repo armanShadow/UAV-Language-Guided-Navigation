@@ -336,7 +336,7 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                                     current_view[i:i+1], 
                                     previous_views[i:i+1],
                                     labels=None,  # No labels for generation
-                                    generate=True,  # Autoregressive generation
+                                    generate=True,  # Autoregressive generation with spatial guidance
                                     destination_view=destination_view[i:i+1] if destination_view is not None else None,
                                     curriculum_ratio=0.0
                                 )

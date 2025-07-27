@@ -614,26 +614,73 @@ class AnsweringAgent(nn.Module):
                 
             return outputs
         else:
-            # Generation mode
-            # Use T5's generate method with improved parameters for better quality
+            # Generation mode with spatial reasoning guidance
+            batch_size = encoder_hidden_states.size(0)
+            device = encoder_hidden_states.device
+            
+            # Create guide prompt for spatial reasoning
+            guide_prompt = "Answer with precise clock directions (1-12 o'clock), landmark shapes, colors, and clear spatial instructions. "
+            
+            # Tokenize guide prompt
+            guide_tokens = self.tokenizer(
+                guide_prompt, 
+                return_tensors="pt", 
+                add_special_tokens=False,
+                padding=False,
+                truncation=False
+            )
+            guide_ids = guide_tokens['input_ids'].to(device)  # [1, guide_len]
+            guide_mask = guide_tokens['attention_mask'].to(device)
+            
+            # Prepare guided input by prepending guide prompt to original input
+            guided_input_ids = torch.cat([
+                guide_ids.repeat(batch_size, 1),  # Repeat for batch
+                text_input["input_ids"]
+            ], dim=1)
+            
+            guided_attention_mask = torch.cat([
+                guide_mask.repeat(batch_size, 1),  # Repeat for batch  
+                text_input["attention_mask"]
+            ], dim=1)
+            
+            # Prepare forced words for spatial reasoning (based on validation pipeline patterns)
+            spatial_keywords = [
+                "o'clock", "clock", "direction", "building", "turn", "move", "go", 
+                "north", "south", "east", "west", "left", "right", "forward", "straight"
+            ]
+            
+            # Create forced word IDs (only include words that exist in vocabulary)
+            force_words_ids = []
+            for word in spatial_keywords:
+                try:
+                    word_ids = self.tokenizer.encode(word, add_special_tokens=False)
+                    if len(word_ids) == 1:  # Only single-token words for stability
+                        force_words_ids.append(word_ids)
+                except:
+                    continue
+            
+            # Use T5's generate method with spatial guidance
             generated_ids = self.t5_model.generate(
                 encoder_outputs=BaseModelOutput(last_hidden_state=encoder_hidden_states),
-                attention_mask=text_input["attention_mask"],
+                attention_mask=guided_attention_mask,  # Use guided attention mask
                 max_new_tokens=64,       # More flexible than max_length
-                min_length=5,            # Ensure minimum response length
-                num_beams=3,             # Increase beam search for better quality
+                min_length=8,            # Ensure minimum response length for spatial detail
+                num_beams=4,             # Increase beam search for better spatial reasoning
                 do_sample=True,          # Enable sampling for diversity
-                temperature=0.7,         # Lower temperature for more focused generation
-                top_p=0.85,              # Slightly more focused nucleus sampling
-                repetition_penalty=1.3,  # Stronger repetition penalty
-                length_penalty=1.1,      # Encourage longer, more complete responses
+                temperature=0.65,        # Lower temperature for more focused spatial generation
+                top_p=0.8,               # More focused nucleus sampling for precision
+                repetition_penalty=1.4,  # Stronger repetition penalty
+                length_penalty=1.2,      # Encourage longer, more detailed responses
+                diversity_penalty=0.3,   # Encourage diverse vocabulary usage
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
                 early_stopping=True,
-                no_repeat_ngram_size=3,  # Prevent repeated 3-grams (more aggressive)
+                no_repeat_ngram_size=3,  # Prevent repeated 3-grams
                 encoder_no_repeat_ngram_size=2,  # Also prevent repetition from encoder
                 bad_words_ids=[[self.tokenizer.unk_token_id]],  # Avoid unknown tokens
-                forced_eos_token_id=self.tokenizer.eos_token_id  # Ensure proper ending
+                forced_eos_token_id=self.tokenizer.eos_token_id,  # Ensure proper ending
+                force_words_ids=force_words_ids if force_words_ids else None,  # Force spatial keywords
+                remove_invalid_values=True  # Handle any invalid values gracefully
             )
             
             return {
