@@ -210,7 +210,7 @@ def get_smart_contrastive_schedule(planned_epochs: int):
     phase2_end = int(0.7 * planned_epochs)  # 70% for balanced learning
     
     def contrastive_weight_fn(epoch: int) -> float:
-        # Use config values: start=15.0, end=5.0 (better signal preservation!)
+        # Use config values: start=10.0, end=5.0 (better signal preservation!)
         start_weight = 10.0  # Strong semantic space building
         end_weight = 3.0     # Maintain contrastive signal (vs killing it at 1.0)
         
@@ -220,16 +220,23 @@ def get_smart_contrastive_schedule(planned_epochs: int):
         elif epoch <= phase2_end:
             # Phase 2: GRADUAL transition from high to intermediate
             progress = (epoch - phase1_end) / (phase2_end - phase1_end)
-            mid_weight = start_weight * 0.6  # 15.0 → 9.0 (smooth transition)
+            mid_weight = start_weight * 0.6  # 10.0 → 6.0 (smooth transition)
             return start_weight * (1 - progress) + mid_weight * progress
         elif epoch < planned_epochs:
             # Phase 3: GENTLE decline to end weight (preserve signal!)
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
-            mid_weight = start_weight * 0.6  # 9.0 (from phase 2)
-            return mid_weight * (1 - progress) + end_weight * progress  # 9.0 → 5.0
+            mid_weight = start_weight * 0.6  # 6.0 (from phase 2)
+            return mid_weight * (1 - progress) + end_weight * progress  # 6.0 → 3.0
+        elif epoch < 500:
+            # Higher weight for 100 epochs for refreshed Hard Negatives 
+            progress = (epoch - phase2_end) / (500 - phase2_end)
+            return 10.0 * (1 - progress) + 5.0 * progress # 10.0 → 5.0 for 100 epochs
+        elif epoch < 550:
+            # Fixed at 5.0 for 50 epochs
+            return 5.0 
         else:
             # Extended Phase: FIXED at end weight (adaptive revival still works)
-            return end_weight
+            return 3.0
     
     def ce_weight_fn(epoch: int) -> float:
         if epoch <= phase1_end:
@@ -243,6 +250,12 @@ def get_smart_contrastive_schedule(planned_epochs: int):
             # Phase 3: HIGH CE for final fine-tuning
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             return 0.8 + (1.5 - 0.8) * progress  # 0.8 → 1.5
+        elif epoch < 500:
+            # Phase 4: Lower CE for refreshed Hard Negatives 
+            return 1.2 # Fixed at 1.2 for 100 epochs
+        elif epoch < 550:
+            progress = (epoch - 500) / (550 - 500)
+            return 1.2 * (1 - progress) + 1.5 * progress # 1.2 → 1.5 for 50 epochs
         else:
             # Extended Phase: FIXED at final value
             return 1.5
@@ -406,10 +419,14 @@ def get_smart_kd_schedule(planned_epochs: int):
         elif epoch < planned_epochs:
             # Phase 3: LOW KD (focus on task-specific fine-tuning)
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
-            return 1.0 * (1 - progress) + 0.1 * progress  # 1.0 → 0.1
+            return 1.0 * (1 - progress) + 0.3 * progress  # 1.0 → 0.3
+        elif epoch < 500:
+            # Phase 4: Bump up KD weight for 100 epochs
+            progress = (epoch - 400) / (500 - 400)
+            return 0.5 * (1 - progress) + 0.3 * progress # 0.5 → 0.3 for 100 epochs
         else:
             # Extended Phase: FIXED at final value
-            return 0.1
+            return 0.3
     
     return kd_weight_fn
 
