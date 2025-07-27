@@ -247,16 +247,16 @@ def get_smart_contrastive_schedule(planned_epochs: int, max_epochs: int):
             # Phase 3: HIGH CE for final fine-tuning
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             return 0.8 + (1.2 - 0.8) * progress  # 0.8 → 1.2
-        elif epoch < 650:
+        elif epoch < 525:
             # Keep CE modest while KD is still high
             return 0.6
-        elif epoch < 750:
-            # Gentle polish: 0.8 → 1.0 over 100 epochs
-            progress = (epoch - 650) / 100
-            return 0.6 * (1 - progress) + 1.0 * progress   # 0.6 → 1.0
+        elif epoch < 550:
+            # Gentle polish: 0.6 → 0.8 over 25 epochs
+            progress = (epoch - 525) / 25
+            return 0.6 * (1 - progress) + 0.8 * progress   # 0.6 → 0.8
         else:
             # Fix CE at 1.0 for the remainder of training (avoid over-fitting)
-            return 1.0
+            return 0.8
     
     return contrastive_weight_fn, ce_weight_fn
 
@@ -418,17 +418,11 @@ def get_smart_kd_schedule(planned_epochs: int):
             # Phase 3: LOW KD (focus on task-specific fine-tuning)
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             return 1.0 * (1 - progress) + 0.7 * progress  # 1.0 → 0.7
-        elif epoch < 450:
-            # Phase 4: KD-focused fine-tuning window (75 epochs)
-            progress = (epoch - 375) / (450 - 375)
-            return 0.7 + (1.2 - 0.7) * progress  # 0.7 → 1.2
-        elif epoch < 650:
-            return 1.2
-        elif epoch < 750:
-            progress = (epoch - 650) / 100
-            return 1.2 * (1 - progress) + 0.8 * progress   # 1.2 → 0.8
+        elif epoch < 525:
+            progress = (epoch - planned_epochs) / (525 - planned_epochs)
+            return 0.7 * (1 - progress) + 1.2 * progress   # 0.7 → 1.4
         else:
-            return 0.8                    # fixed tail
+            return 1.4                    # fixed tail
     
     return kd_weight_fn
 
