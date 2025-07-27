@@ -124,7 +124,7 @@ def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: i
     }
 
 def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer, split_name: str, 
-                              max_samples: int = 5, logger=None, rank=0, world_size=1, config=None) -> Dict[str, float]:
+                              max_samples: int = 5, logger=None, rank=0, world_size=1, config=None, epoch=None) -> Dict[str, float]:
     """Evaluate model on a dataset with distributed processing and training-matching loss calculation."""
     model.eval()
     
@@ -214,8 +214,25 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                         feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
                         batch_size, seq_len, vocab_size = logits.size()
                         
-                        # Start with weighted CE loss
-                        loss = config.training.ce_loss_weight_end * ce_loss
+                        # CRITICAL FIX: Use actual training weights, not static end weights!
+                        # Import weight scheduling functions from training
+                        from train import get_smart_contrastive_schedule, get_adaptive_contrastive_schedule
+                        
+                        # Get the actual weights used during training
+                        if epoch is not None:
+                            contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(config.training.planned_epochs, config.training.num_epochs)
+                            adaptive_contrastive_fn = get_adaptive_contrastive_schedule(contrastive_weight_fn)
+                            
+                            # Use epoch-specific weights
+                            ce_weight = ce_weight_fn(epoch)
+                            contrastive_weight, _ = adaptive_contrastive_fn(epoch)
+                        else:
+                            # Fallback to end weights if epoch not provided
+                            ce_weight = config.training.ce_loss_weight_end
+                            contrastive_weight = config.training.contrastive_weight_end
+                        
+                        # Start with weighted CE loss using correct weights
+                        loss = ce_weight * ce_loss
                         
                         # Calculate contrastive loss if enabled
                         contrastive_loss = torch.tensor(0.0, device=device)
@@ -257,8 +274,7 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                                 
                                 contrastive_loss = torch.stack(contrastive_losses_list).mean()
                                 
-                                # Add weighted contrastive loss to total loss
-                                contrastive_weight = config.training.contrastive_weight_end
+                                # Add weighted contrastive loss using correct weights
                                 loss = loss + contrastive_weight * contrastive_loss
                         
                         # Accumulate loss components
@@ -287,8 +303,17 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                                 # Get the actual model (unwrap DDP if needed)
                                 actual_model = model.module if hasattr(model, 'module') else model
                                 
+                                # Prepare single sample input properly
+                                single_text_input = {}
+                                for k, v in text_input.items():
+                                    if isinstance(v, dict):
+                                        # Handle nested dictionaries (like first_instruction_input)
+                                        single_text_input[k] = {sub_k: sub_v[i:i+1] for sub_k, sub_v in v.items()}
+                                    else:
+                                        single_text_input[k] = v[i:i+1]
+                                
                                 generated_outputs = actual_model(
-                                    {k: v[i:i+1] for k, v in text_input.items()},  # Single sample
+                                    single_text_input,  # Properly formatted single sample
                                     current_view[i:i+1], 
                                     previous_views[i:i+1],
                                     labels=None,  # No labels for generation
@@ -298,7 +323,10 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                                 )
                                 generated_text = tokenizer.decode(generated_outputs["sequences"][0], skip_special_tokens=True)
                             except Exception as e:
-                                generated_text = f"Generation failed: {str(e)[:50]}"
+                                import traceback
+                                generated_text = f"Generation failed: {str(e)}"
+                                if rank == 0:
+                                    logger.error(f"Generation error details: {traceback.format_exc()}")
                             
                             sample_outputs.append({
                                 'input': input_text,
@@ -452,6 +480,14 @@ def main():
     
     checkpoint = torch.load(args.checkpoint, map_location='cpu')
     
+    # Extract epoch for correct weight calculation
+    checkpoint_epoch = checkpoint.get('epoch', None)
+    if rank == 0:
+        if checkpoint_epoch is not None:
+            logger.info(f"📅 Checkpoint epoch: {checkpoint_epoch + 1}")
+        else:
+            logger.warning("⚠️ No epoch info in checkpoint - using fallback weights")
+    
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
         if rank == 0:
@@ -515,7 +551,7 @@ def main():
                 pin_memory=True
             )
             
-            # Evaluate dataset
+            # Evaluate dataset with correct epoch for weight calculation
             results = evaluate_dataset_distributed(
                 model=model,
                 dataloader=dataloader,
@@ -527,7 +563,8 @@ def main():
                 logger=logger,
                 rank=rank,
                 world_size=world_size,
-                config=config
+                config=config,
+                epoch=checkpoint_epoch  # Pass epoch for correct weights
             )
             
             if rank == 0:
@@ -543,10 +580,13 @@ def main():
                 logger.info(f"  Total Tokens: {results['total_tokens']:,}")
                 logger.info(f"  Correct Tokens: {results['correct_tokens']:,}")
                 
-                # Log effective contributions
+                # Log effective contributions with correct weights
                 logger.info(f"🔍 Effective Loss Components:")
-                logger.info(f"  CE (weighted): {results['ce_loss'] * config.training.ce_loss_weight_end:.4f}")
-                logger.info(f"  Contrastive (weighted): {results['contrastive_loss'] * config.training.contrastive_weight_end:.4f}")
+                logger.info(f"  CE (weighted): {results['ce_loss'] * actual_weights['ce_weight']:.4f}")
+                logger.info(f"  Contrastive (weighted): {results['contrastive_loss'] * actual_weights['contrastive_weight']:.4f}")
+                logger.info(f"⚖️  Weights Used (Epoch {checkpoint_epoch + 1 if checkpoint_epoch is not None else 'Unknown'}):")
+                logger.info(f"  CE Weight: {actual_weights['ce_weight']:.2f}")
+                logger.info(f"  Contrastive Weight: {actual_weights['contrastive_weight']:.2f}")
                 
                 # Display samples
                 logger.info(f"📝 {split.upper()} Samples:")
@@ -564,6 +604,23 @@ def main():
                 logger.error(f"❌ Error evaluating {split} dataset: {str(e)}")
                 all_results[split] = {'error': str(e)}
     
+    # Calculate actual weights used for proper reporting
+    actual_weights = {}
+    if checkpoint_epoch is not None:
+        try:
+            from train import get_smart_contrastive_schedule, get_adaptive_contrastive_schedule
+            contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(config.training.planned_epochs, config.training.num_epochs)
+            adaptive_contrastive_fn = get_adaptive_contrastive_schedule(contrastive_weight_fn)
+            
+            actual_weights['ce_weight'] = ce_weight_fn(checkpoint_epoch)
+            actual_weights['contrastive_weight'], _ = adaptive_contrastive_fn(checkpoint_epoch)
+        except:
+            actual_weights['ce_weight'] = config.training.ce_loss_weight_end
+            actual_weights['contrastive_weight'] = config.training.contrastive_weight_end
+    else:
+        actual_weights['ce_weight'] = config.training.ce_loss_weight_end
+        actual_weights['contrastive_weight'] = config.training.contrastive_weight_end
+
     # Save results (only on rank 0)
     if rank == 0:
         results_file = os.path.join(args.output_dir, 'evaluation_results.json')
@@ -582,10 +639,12 @@ def main():
                         'total_tokens': int(results['total_tokens']),
                         'correct_tokens': int(results['correct_tokens']),
                         'samples': results['samples'],
-                        # Save weighted contributions
+                        # Save weighted contributions using correct epoch weights
                         'weighted_contributions': {
-                            'ce_weighted': float(results['ce_loss']) * config.training.ce_loss_weight_end,
-                            'contrastive_weighted': float(results['contrastive_loss']) * config.training.contrastive_weight_end
+                            'ce_weighted': float(results['ce_loss']) * actual_weights['ce_weight'],
+                            'contrastive_weighted': float(results['contrastive_loss']) * actual_weights['contrastive_weight'],
+                            'epoch': checkpoint_epoch,
+                            'weights_used': actual_weights
                         }
                     }
             

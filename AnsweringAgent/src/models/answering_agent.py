@@ -621,15 +621,19 @@ class AnsweringAgent(nn.Module):
                 attention_mask=text_input["attention_mask"],
                 max_new_tokens=64,       # More flexible than max_length
                 min_length=5,            # Ensure minimum response length
-                num_beams=2,             # Light beam search for better quality
+                num_beams=3,             # Increase beam search for better quality
                 do_sample=True,          # Enable sampling for diversity
-                temperature=0.8,         # Controlled randomness
-                top_p=0.9,              # Nucleus sampling
-                repetition_penalty=1.1, # Reduce repetition
+                temperature=0.7,         # Lower temperature for more focused generation
+                top_p=0.85,              # Slightly more focused nucleus sampling
+                repetition_penalty=1.3,  # Stronger repetition penalty
+                length_penalty=1.1,      # Encourage longer, more complete responses
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
                 early_stopping=True,
-                no_repeat_ngram_size=2   # Prevent repeated 2-grams
+                no_repeat_ngram_size=3,  # Prevent repeated 3-grams (more aggressive)
+                encoder_no_repeat_ngram_size=2,  # Also prevent repetition from encoder
+                bad_words_ids=[[self.tokenizer.unk_token_id]],  # Avoid unknown tokens
+                forced_eos_token_id=self.tokenizer.eos_token_id  # Ensure proper ending
             )
             
             return {
