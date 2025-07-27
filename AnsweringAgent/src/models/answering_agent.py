@@ -666,6 +666,7 @@ class AnsweringAgent(nn.Module):
                 max_new_tokens=64,       # More flexible than max_length
                 min_length=8,            # Ensure minimum response length for spatial detail
                 num_beams=4,             # Increase beam search for better spatial reasoning
+                num_beam_groups=2,       # Required for diversity penalty with multiple beams
                 do_sample=True,          # Enable sampling for diversity
                 temperature=0.65,        # Lower temperature for more focused spatial generation
                 top_p=0.8,               # More focused nucleus sampling for precision
