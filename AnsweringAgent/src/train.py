@@ -1548,7 +1548,7 @@ def main():
                 else:
                     model.load_state_dict(checkpoint_data['model_state_dict'])
                     
-                start_epoch = checkpoint_data['epoch']
+                start_epoch = checkpoint_data['epoch'] + 1 # +1 because we want to start from the next epoch
                 # Load the best validation loss achieved so far, not just the current epoch's val_loss
                 best_val_loss = checkpoint_data.get('best_val_loss', 
                                                   checkpoint_data.get('val_loss', float('inf')))
