@@ -246,13 +246,15 @@ def get_smart_contrastive_schedule(planned_epochs: int, max_epochs: int):
         elif epoch < planned_epochs:
             # Phase 3: HIGH CE for final fine-tuning
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
-            return 0.8 + (1.5 - 0.8) * progress  # 0.8 → 1.5
-        elif epoch < 525:
-            progress = (epoch - planned_epochs) / (525 - planned_epochs)
-            return 1.5 * (1 - progress) + 0.8 * progress # 1.5 → 0.8 for 150 epochs
-        elif epoch < 600:
-            progress = (epoch - 525) / (600 - 525) # 525 is the end of the first plateau
-            return 0.8 * (1 - progress) + 1.5 * progress # 0.8 → 1.5
+            return 0.8 + (1.2 - 0.8) * progress  # 0.8 → 1.2
+        elif epoch < 500:
+            progress = (epoch - planned_epochs) / (500 - planned_epochs)
+            return 1.2 + (0.8 - 1.2) * progress  # 1.2 → 0.8
+        elif epoch < 575:
+            return 0.8
+        elif epoch < 650:
+            progress = (epoch - 575) / 75
+            return 0.8 * (1 - progress) + 1.2 * progress   # 0.8 → 1.2
         else:
             return 1.2
     
@@ -420,16 +422,17 @@ def get_smart_kd_schedule(planned_epochs: int):
             # Phase 4: KD-focused fine-tuning window (75 epochs)
             progress = (epoch - 375) / (450 - 375)
             return 0.7 + (1.4 - 0.7) * progress  # 0.7 → 1.4
-        elif epoch < 525:          # extended plateau
-            return 1.4
-        elif epoch < 600:          # gentle decay
-            progress = (epoch - 525) / (600 - 525)
-            return 1.4 * (1 - progress) + 0.6 * progress # 1.4 → 0.6
-        elif epoch < 700:          # optional second decay
-            progress = (epoch - 600) / (700 - 600)
-            return 0.6 * (1 - progress) + 0.3 * progress # 0.6 → 0.3
+        # inside kd_weight_fn
+        elif epoch < 525:
+            return 1.4                    # keep 1.4 for 35 more epochs (to 525)
+        elif epoch < 575:                 # new early decay window 525-575
+            progress = (epoch - 525) / 50
+            return 1.4 * (1 - progress) + 0.8 * progress   # 1.4 → 0.8
+        elif epoch < 650:                 # second decay 575-650
+            progress = (epoch - 575) / 75
+            return 0.8 * (1 - progress) + 0.5 * progress   # 0.8 → 0.5
         else:
-            return 0.3
+            return 0.5                    # fixed tail
     
     return kd_weight_fn
 
@@ -1126,8 +1129,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         improvement = (best_val_loss - val_loss) / best_val_loss * 100
                         logger.info(f"🎯 New best model! Improved by {improvement:.2f}% | Previous best: {best_val_loss:.4f} | New best: {val_loss:.4f}")
                         
+                        # Update the tracking variable BEFORE saving so that the file records the correct best value
+                        best_val_loss = val_loss
+
                         with torch.cuda.amp.autocast(enabled=False):
-                        # Save best model
+                            # Save best model with the *updated* best_val_loss
                             save_dict_fp32 = {
                                 'epoch': epoch,
                                 'model_state_dict': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
@@ -1135,21 +1141,20 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                                 'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
                                 'ema': ema.state_dict(),
                                 'val_loss': val_loss,
-                                'best_val_loss': best_val_loss,  # Save the best validation loss achieved so far
+                                'best_val_loss': best_val_loss,
                                 'config': config,
                             }
-                        
+
                         with CHECKPOINT_LOCK:
                             best_model_path = os.path.join(checkpoint_dir, f'best_model_{epoch+1}_fp32.pth')
                             torch.save(save_dict_fp32, best_model_path)
-                            logger.info(f"💾 Saved best model")
-                        
+                            logger.info("💾 Saved best model (updated best_val_loss)")
+
                         # Free memory after saving
                         del save_dict_fp32
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
                         
-                        best_val_loss = val_loss
                         last_best_epoch = epoch
                         
                         # Reset early stopping counter on improvement
