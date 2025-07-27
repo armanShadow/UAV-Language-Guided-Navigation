@@ -614,7 +614,7 @@ class AnsweringAgent(nn.Module):
                 
             return outputs
         else:
-            # Generation mode with memory-optimized spatial reasoning guidance
+            # Generation mode with spatial reasoning guidance and prompt engineering
             batch_size = encoder_hidden_states.size(0)
             device = encoder_hidden_states.device
             
@@ -622,25 +622,86 @@ class AnsweringAgent(nn.Module):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             
-            # Simplified spatial guidance to reduce memory usage
-            # Use T5's generate method with optimized parameters
+            # Apply spatial guidance prompt engineering
+            spatial_prompt = "Provide precise navigation with clock directions (1-12 o'clock), landmark colors and shapes, clear movement instructions. "
+            
+            # Tokenize spatial prompt
+            prompt_tokens = self.tokenizer(
+                spatial_prompt,
+                return_tensors="pt",
+                add_special_tokens=False,
+                padding=False,
+                truncation=False
+            ).to(device)
+            
+            # Prepare guided input by prepending spatial prompt
+            guided_input_ids = torch.cat([
+                prompt_tokens['input_ids'].repeat(batch_size, 1),
+                text_input['input_ids']
+            ], dim=1)
+            
+            guided_attention_mask = torch.cat([
+                prompt_tokens['attention_mask'].repeat(batch_size, 1),
+                text_input['attention_mask']
+            ], dim=1)
+            
+            # Re-encode with spatial prompt included for proper spatial reasoning
+            # This ensures the encoder hidden states include the spatial prompt context
+            guided_encoder_output = self.t5_model.encoder(
+                input_ids=guided_input_ids,
+                attention_mask=guided_attention_mask,
+                return_dict=True
+            )
+            
+            # Process the guided encoder output through our fusion pipeline
+            guided_text_features = guided_encoder_output.last_hidden_state
+            
+            # Apply cross-modal fusion with guided text features
+            guided_fused_features = self.fusion_module(
+                text_features=guided_text_features,
+                visual_features=visual_ctx_expanded,
+                text_mask=guided_attention_mask
+            )
+            
+            # Adapt the guided fused features for T5 decoder
+            guided_encoder_hidden_states = self.t5_adapter(guided_fused_features)
+            
+            # Prepare spatial keywords for enhanced reasoning
+            spatial_keywords = [
+                "o'clock", "clock", "direction", "building", "turn", "move", "go", 
+                "north", "south", "east", "west", "left", "right", "forward", "straight"
+            ]
+            
+            # Create forced word IDs for spatial vocabulary (memory efficient approach)
+            force_words_ids = []
+            for word in spatial_keywords:
+                try:
+                    word_ids = self.tokenizer.encode(word, add_special_tokens=False)
+                    if len(word_ids) == 1:  # Only single-token words for stability
+                        force_words_ids.append(word_ids)
+                except:
+                    continue
+            
+            # Enhanced spatial generation with improved parameters and prompt guidance
+            # Use T5's generate method with spatial prompt engineering
             generated_ids = self.t5_model.generate(
-                encoder_outputs=BaseModelOutput(last_hidden_state=encoder_hidden_states),
-                attention_mask=text_input["attention_mask"],  # Use original attention mask
-                max_new_tokens=48,       # Reduced for memory efficiency
-                min_length=5,            # Reduced minimum length
-                num_beams=2,             # Reduced beams for memory efficiency
+                encoder_outputs=BaseModelOutput(last_hidden_state=guided_encoder_hidden_states),
+                attention_mask=guided_attention_mask,  # Use guided attention mask with prompt
+                max_new_tokens=64,       # Increased for better spatial detail
+                min_length=12,           # Increased minimum for more complete answers
+                num_beams=3,             # Moderate beam search for better quality
                 do_sample=True,          # Enable sampling for diversity
                 temperature=0.7,         # Balanced temperature
                 top_p=0.85,              # Nucleus sampling
-                repetition_penalty=1.3,  # Repetition penalty
-                length_penalty=1.1,      # Length penalty
+                repetition_penalty=1.2,  # Moderate repetition penalty
+                length_penalty=1.1,      # Encourage complete responses
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
                 early_stopping=True,
                 no_repeat_ngram_size=3,  # Prevent repeated 3-grams
                 bad_words_ids=[[self.tokenizer.unk_token_id]],  # Avoid unknown tokens
                 forced_eos_token_id=self.tokenizer.eos_token_id,  # Ensure proper ending
+                force_words_ids=force_words_ids if force_words_ids else None,  # Force spatial vocabulary
                 remove_invalid_values=True  # Handle any invalid values gracefully
             )
             

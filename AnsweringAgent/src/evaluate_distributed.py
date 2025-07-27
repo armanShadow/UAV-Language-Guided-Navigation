@@ -341,6 +341,11 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                                     curriculum_ratio=0.0
                                 )
                                 generated_text = tokenizer.decode(generated_outputs["sequences"][0], skip_special_tokens=True)
+                                
+                                # Remove spatial prompt if it appears at the beginning
+                                spatial_prompt = "Provide precise navigation with clock directions (1-12 o'clock), landmark colors and shapes, clear movement instructions."
+                                if generated_text.startswith(spatial_prompt.strip()):
+                                    generated_text = generated_text[len(spatial_prompt.strip()):].strip()
                             except Exception as e:
                                 import traceback
                                 generated_text = f"Generation failed: {str(e)}"
