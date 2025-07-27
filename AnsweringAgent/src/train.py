@@ -252,10 +252,9 @@ def get_smart_contrastive_schedule(planned_epochs: int, max_epochs: int):
             return 1.5 * (1 - progress) + 0.8 * progress # 1.5 → 0.8 for 150 epochs
         elif epoch < 600:
             progress = (epoch - 525) / (600 - 525) # 525 is the end of the first plateau
-            return 0.8 * (1 - progress) + 0.3 * progress # 0.8 → 0.3
+            return 0.8 * (1 - progress) + 1.5 * progress # 0.8 → 1.5
         else:
-            progress = (epoch - 600) / (max_epochs - 600) # 600 is the end of the second plateau
-            return 0.3 * (1 - progress) + 1.2 * progress # 0.3 → 1.2
+            return 1.2
     
     return contrastive_weight_fn, ce_weight_fn
 
