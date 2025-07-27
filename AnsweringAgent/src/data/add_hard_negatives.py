@@ -891,6 +891,7 @@ def main():
                        help='Mining mode for hard negatives')
     args = parser.parse_args()
     
+    print(f"🚀 Using mining mode: {args.mining_mode}")
     # Set up GPU
     if torch.cuda.is_available():
         torch.cuda.set_device(args.gpu_id)
