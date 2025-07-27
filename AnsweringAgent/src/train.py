@@ -247,16 +247,18 @@ def get_smart_contrastive_schedule(planned_epochs: int, max_epochs: int):
             # Phase 3: HIGH CE for final fine-tuning
             progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
             return 0.8 + (1.2 - 0.8) * progress  # 0.8 → 1.2
-        elif epoch < 500:
-            progress = (epoch - planned_epochs) / (500 - planned_epochs)
-            return 1.2 + (0.8 - 1.2) * progress  # 1.2 → 0.8
         elif epoch < 575:
             return 0.8
         elif epoch < 650:
-            progress = (epoch - 575) / 75
-            return 0.8 * (1 - progress) + 1.2 * progress   # 0.8 → 1.2
+            # Keep CE modest while KD is still high
+            return 0.8
+        elif epoch < 750:
+            # Gentle polish: 0.8 → 1.0 over 100 epochs
+            progress = (epoch - 650) / 100
+            return 0.8 * (1 - progress) + 1.0 * progress   # 0.8 → 1.0
         else:
-            return 1.2
+            # Fix CE at 1.0 for the remainder of training (avoid over-fitting)
+            return 1.0
     
     return contrastive_weight_fn, ce_weight_fn
 
