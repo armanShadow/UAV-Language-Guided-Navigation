@@ -646,7 +646,7 @@ class AnsweringAgent(nn.Module):
             # Prepare forced words for spatial reasoning (based on validation pipeline patterns)
             spatial_keywords = [
                 "o'clock", "clock", "direction", "building", "turn", "move", "go", 
-                "north", "south", "east", "west", "left", "right", "forward", "straight"
+                "north", "south", "east", "west", "left", "right", "forward", "straight", 'backwards', 'road'
             ]
             
             # Create forced word IDs (only include words that exist in vocabulary)
