@@ -381,7 +381,7 @@ class HardNegativeMiner:
         best_visual_similarity = None
         
         # Tighter escalating thresholds for final run - more aggressive text separation
-        hardest_thresholds = [self.cosine_threshold, self.cosine_threshold + 0.06]
+        hardest_thresholds = [self.cosine_threshold, self.cosine_threshold + 0.1]
         
         for threshold in hardest_thresholds:
             for i, pos in enumerate(neighbor_indices):
@@ -432,7 +432,7 @@ class HardNegativeMiner:
         # Improved fallback: prefer higher visual similarity within diversity constraints
         if best_candidate is None:
             
-            relaxed_thresholds = [self.cosine_threshold, self.cosine_threshold + 0.06, self.cosine_threshold + 0.12]
+            relaxed_thresholds = [self.cosine_threshold, self.cosine_threshold + 0.1, self.cosine_threshold + 0.2]
             for threshold in relaxed_thresholds:
                 for i, pos in enumerate(neighbor_indices):
                     sample_idx = self.visual_indices[pos]
@@ -650,10 +650,6 @@ class HardNegativeMiner:
         print(f"  Hard negatives: {hard_count}, Diverse negatives: {diverse_count}")
         
         if negatives:
-            # Calculate phrase diversity
-            unique_phrases = set(data['negative_text_2'].lower().strip() for data in negatives.values())
-            diversity_ratio = len(unique_phrases) / len(negatives)
-            print(f"  Phrase diversity: {diversity_ratio:.3f} ({len(unique_phrases)}/{len(negatives)})")
             
             # Calculate answer length statistics
             answer_lengths = [len(data['negative_text_2']) for data in negatives.values()]
