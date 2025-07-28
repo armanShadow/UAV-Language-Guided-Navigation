@@ -127,8 +127,7 @@ class SimpleDistributedGeneration:
                 previous_views=previous_views,
                 destination_view=destination_view,
                 generate=True,
-                curriculum_ratio=0.0,
-                do_sample=False  # Fix for constrained generation
+                curriculum_ratio=0.0
             )
             
             # Decode generated text
