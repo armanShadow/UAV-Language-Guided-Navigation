@@ -44,14 +44,14 @@ class TrainingConfig:
     scheduler_factor: float = 0.5
     scheduler_patience: int = 20  # More patience for longer training
     scheduler_verbose: bool = True
-    gradient_accumulation_steps: int = 2  # Increased for effective larger batch
+    gradient_accumulation_steps: int = 3  # Increased from 2 to compensate for smaller batch
     # Early stopping parameters
     early_stopping: bool = True
     early_stopping_patience: int = 20  # Much more patience for long 3-phase training
     early_stopping_min_delta: float = 0.002  # Smaller delta for long training
     # Validation parameters
-    per_gpu_batch_size: int = 8  # Manageable batch size
-    per_gpu_batch_size_val: int = 8  
+    per_gpu_batch_size: int = 6  # Reduced from 8 for unfrozen decoder
+    per_gpu_batch_size_val: int = 6  # Reduced from 8 for unfrozen decoder
     train_chunk_size: int = 1000
     # Curriculum learning parameters - ADAPTED FOR UAV SPATIAL LEARNING
     curriculum_epochs: int = 120  # 30% of 400 planned epochs (align with Phase 1)

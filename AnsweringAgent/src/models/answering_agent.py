@@ -410,6 +410,16 @@ class AnsweringAgent(nn.Module):
         self.logger.info(f"Total trainable parameters: {trainable_params:,}")
         self.logger.info(f"Total T5 parameters: {total_params:,}")
         self.logger.info(f"T5 model: {trainable_params/total_params*100:.2f}% of parameters are trainable")
+        
+        # Detailed breakdown of trainable components
+        encoder_trainable = sum(p.numel() for n, p in self.t5_model.encoder.named_parameters() if p.requires_grad)
+        decoder_trainable = sum(p.numel() for n, p in self.t5_model.decoder.named_parameters() if p.requires_grad)
+        other_trainable = trainable_params - encoder_trainable - decoder_trainable
+        
+        self.logger.info(f"📊 Trainable breakdown:")
+        self.logger.info(f"  • Encoder (last 3 blocks): {encoder_trainable:,} parameters")
+        self.logger.info(f"  • Decoder (last 2 blocks + final norm): {decoder_trainable:,} parameters")
+        self.logger.info(f"  • Other modules (adapters, projections): {other_trainable:,} parameters")
        
     
     def forward(self, text_input: dict, current_view: torch.Tensor, 

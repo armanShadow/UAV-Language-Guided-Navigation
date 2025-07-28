@@ -889,6 +889,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     # Log and continue in case of batch failure
                     if rank == 0:
                         logger.error(f"❌ Error in batch {batch_idx}: {str(e)}")
+                        logger.error(f"📍 Full traceback: {traceback.format_exc()}")
+                        logger.error(f"💾 Memory usage: {log_gpu_memory()}")
                     
                     # Zero out gradients to avoid accumulation
                     optimizer.zero_grad(set_to_none=True)
