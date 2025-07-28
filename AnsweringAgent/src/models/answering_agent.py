@@ -690,7 +690,7 @@ class AnsweringAgent(nn.Module):
                 max_new_tokens=64,       # Increased for better spatial detail
                 min_length=12,           # Increased minimum for more complete answers
                 num_beams=3,             # Moderate beam search for better quality
-                do_sample=True,          # Enable sampling for diversity
+                do_sample=False if force_words_ids else True,  # Disable sampling for constrained generation
                 temperature=0.7,         # Balanced temperature
                 top_p=0.85,              # Nucleus sampling
                 repetition_penalty=1.2,  # Moderate repetition penalty
