@@ -673,14 +673,15 @@ class AnsweringAgent(nn.Module):
             ]
             
             # Create forced word IDs for spatial vocabulary (memory efficient approach)
-            force_words_ids = []
-            for word in spatial_keywords:
-                try:
-                    word_ids = self.tokenizer.encode(word, add_special_tokens=False)
-                    if len(word_ids) == 1:  # Only single-token words for stability
-                        force_words_ids.append(word_ids)
-                except:
-                    continue
+            # DISABLED: Forcing words seems to cause incoherent generation
+            # force_words_ids = []
+            # for word in spatial_keywords:
+            #     try:
+            #         word_ids = self.tokenizer.encode(word, add_special_tokens=False)
+            #         if len(word_ids) == 1:  # Only single-token words for stability
+            #             force_words_ids.append(word_ids)
+            #     except:
+            #         continue
             
             # Enhanced spatial generation with improved parameters and prompt guidance
             # Use T5's generate method with spatial prompt engineering
@@ -688,21 +689,18 @@ class AnsweringAgent(nn.Module):
                 encoder_outputs=BaseModelOutput(last_hidden_state=guided_encoder_hidden_states),
                 attention_mask=guided_attention_mask,  # Use guided attention mask with prompt
                 max_new_tokens=64,       # Increased for better spatial detail
-                min_length=12,           # Increased minimum for more complete answers
-                num_beams=3,             # Moderate beam search for better quality
-                do_sample=False if force_words_ids else True,  # Disable sampling for constrained generation
-                temperature=0.7,         # Balanced temperature
-                top_p=0.85,              # Nucleus sampling
-                repetition_penalty=1.2,  # Moderate repetition penalty
-                length_penalty=1.1,      # Encourage complete responses
+                min_length=8,            # Reduced minimum for more natural answers
+                num_beams=5,             # Increased beam search for better quality
+                do_sample=False,         # Always use deterministic generation for better quality
+                temperature=0.8,         # Slightly higher temperature for diversity
+                repetition_penalty=1.3,  # Higher repetition penalty to avoid repetition
+                length_penalty=0.8,      # Reduced length penalty for more natural length
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
                 early_stopping=True,
-                no_repeat_ngram_size=3,  # Prevent repeated 3-grams
-                bad_words_ids=[[self.tokenizer.unk_token_id]],  # Avoid unknown tokens
-                forced_eos_token_id=self.tokenizer.eos_token_id,  # Ensure proper ending
-                force_words_ids=force_words_ids if force_words_ids else None,  # Force spatial vocabulary
-                remove_invalid_values=True  # Handle any invalid values gracefully
+                no_repeat_ngram_size=2,  # Prevent repeated 2-grams
+                remove_invalid_values=True,  # Handle any invalid values gracefully
+                forced_eos_token_id=self.tokenizer.eos_token_id  # Ensure proper ending
             )
             
             return {
