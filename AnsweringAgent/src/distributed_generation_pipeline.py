@@ -240,76 +240,6 @@ class OptimizedDistributedGeneration:
             
             return batch_results
     
-    def run_generation(self, num_samples_per_split: int = 10, 
-                      splits: List[str] = None,
-                      batch_size: int = 4,
-                      show_samples: bool = True) -> Dict[str, List]:
-        """Run optimized generation on samples from each dataset split."""
-        if splits is None:
-            splits = ['train', 'val_seen', 'val_unseen']
-        
-        results = {}
-        
-        for split in splits:
-            if self.rank == 0:
-                self.logger.info(f"🚀 Processing {split} split across {self.world_size} GPUs...")
-                self.logger.info(f"   Target: {num_samples_per_split} samples per GPU")
-            
-            # Create dataset
-            dataset = AnsweringDataset(self.config, split=split, tokenizer=self.tokenizer)
-            
-            # Use DistributedSampler for proper distribution
-            sampler = DistributedSampler(
-                dataset, 
-                num_replicas=self.world_size, 
-                rank=self.rank,
-                shuffle=False
-            )
-            
-            dataloader = DataLoader(
-                dataset,
-                batch_size=batch_size,
-                sampler=sampler,
-                num_workers=2,
-                pin_memory=True
-            )
-            
-            # Generate answers for batches
-            split_results = []
-            samples_generated = 0
-            
-            for batch_idx, batch in enumerate(tqdm(dataloader, desc=f"Generating for {split} (GPU {self.rank})", disable=self.rank != 0)):
-                try:
-                    batch_results = self.generate_for_batch(batch, show_samples=(batch_idx == 0 and show_samples))
-                    split_results.extend(batch_results)
-                    samples_generated += len(batch_results)
-                    
-                    # Limit to requested number of samples
-                    if samples_generated >= num_samples_per_split:
-                        split_results = split_results[:num_samples_per_split]
-                        break
-                        
-                except Exception as e:
-                    if self.rank == 0:
-                        self.logger.error(f"❌ Error generating for batch {batch_idx}: {e}")
-                    self.generation_stats['failed_generations'] += batch_size
-                    continue
-            
-            results[split] = split_results
-            
-            if self.rank == 0:
-                # Calculate split-specific quality metrics
-                total_spatial_keywords = sum(r['quality_metrics']['spatial_keywords_count'] for r in split_results)
-                avg_length = sum(r['quality_metrics']['length'] for r in split_results) / len(split_results) if split_results else 0
-                clock_direction_usage = sum(1 for r in split_results if r['quality_metrics']['has_clock_direction']) / len(split_results) if split_results else 0
-                
-                self.logger.info(f"✅ {split} completed: {len(split_results)} samples")
-                self.logger.info(f"   Avg length: {avg_length:.1f} chars")
-                self.logger.info(f"   Total spatial keywords: {total_spatial_keywords}")
-                self.logger.info(f"   Clock direction usage: {clock_direction_usage:.1%}")
-        
-        return results
-    
     def print_comprehensive_results(self, results: Dict[str, List]):
         """Print comprehensive results with quality analysis."""
         if self.rank != 0:
@@ -367,18 +297,118 @@ class OptimizedDistributedGeneration:
             print(f"   ➡️  Movement Directions: {direction_usage:.1%}")
             print(f"   ✅ Completeness Score: {completeness:.2f}/1.0")
             
-            # Show a few sample generations
-            print(f"\n🔍 Sample Generations:")
-            for i, result in enumerate(split_results[:3]):  # Show first 3
-                print(f"     Sample {i+1}:")
-                print(f"       Q: {result['original_question'][:80]}...")
-                print(f"       A: {result['generated_answer'][:100]}...")
-                print(f"       Quality: {result['quality_metrics']['spatial_keywords_count']} keywords, "
-                      f"{result['quality_metrics']['length']} chars")
+            # Show detailed sample generations with exact target and generated answers
+            print(f"\n🔍 Detailed Sample Generations:")
+            for i, result in enumerate(split_results[:5]):  # Show first 5 samples
+                print(f"\n     === Sample {i+1} (ID: {result['sample_id']}) ===")
+                print(f"     ❓ QUESTION:")
+                print(f"        {result['original_question']}")
+                print(f"     ✅ TARGET ANSWER:")
+                print(f"        {result['original_answer']}")
+                print(f"     🤖 GENERATED ANSWER:")
+                print(f"        {result['generated_answer']}")
+                print(f"     📊 QUALITY METRICS:")
+                print(f"        - Length: {result['quality_metrics']['length']} chars")
+                print(f"        - Spatial Keywords: {result['quality_metrics']['spatial_keywords_count']}")
+                print(f"        - Has Clock Direction: {result['quality_metrics']['has_clock_direction']}")
+                print(f"        - Has Movement Direction: {result['quality_metrics']['has_direction']}")
+                print(f"        - Has Landmarks: {result['quality_metrics']['has_landmarks']}")
+                print(f"        - Completeness Score: {result['quality_metrics']['completeness_score']:.2f}")
+                print(f"        - Generation Time: {result['generation_time']:.3f}s")
                 print()
         
         print("✅ Optimized generation analysis completed!")
-        print(f"💡 Prompt engineering effectiveness: {total_spatial_keywords} spatial keywords used across {total_samples} samples")
+        print(f"💡 Prompt engineering effectiveness: {total_spatial_keywords} spatial keywords used across {len(all_results)} samples")
+        print(f"🎯 Average spatial keywords per sample: {total_spatial_keywords / len(all_results):.1f}" if all_results else "")
+
+    def run_generation(self, num_samples_per_split: int = 10, 
+                      splits: List[str] = None,
+                      batch_size: int = 4,
+                      show_samples: bool = True) -> Dict[str, List]:
+        """Run optimized generation on samples from each dataset split."""
+        if splits is None:
+            splits = ['train', 'val_seen', 'val_unseen']
+        
+        results = {}
+        
+        for split in splits:
+            if self.rank == 0:
+                self.logger.info(f"🚀 Processing {split} split across {self.world_size} GPUs...")
+                self.logger.info(f"   Target: {num_samples_per_split} samples per GPU")
+            
+            # Create dataset
+            dataset = AnsweringDataset(self.config, split=split, tokenizer=self.tokenizer)
+            
+            # Use DistributedSampler for proper distribution
+            sampler = DistributedSampler(
+                dataset, 
+                num_replicas=self.world_size, 
+                rank=self.rank,
+                shuffle=False
+            )
+            
+            dataloader = DataLoader(
+                dataset,
+                batch_size=batch_size,
+                sampler=sampler,
+                num_workers=2,
+                pin_memory=True
+            )
+            
+            # Generate answers for batches
+            split_results = []
+            samples_generated = 0
+            total_batches = len(dataloader)
+            
+            if self.rank == 0:
+                self.logger.info(f"   Processing {total_batches} batches...")
+            
+            for batch_idx, batch in enumerate(tqdm(dataloader, desc=f"Generating for {split} (GPU {self.rank})", disable=self.rank != 0)):
+                try:
+                    batch_results = self.generate_for_batch(batch, show_samples=(batch_idx == 0 and show_samples))
+                    
+                    # Add results but respect the sample limit
+                    for result in batch_results:
+                        if samples_generated < num_samples_per_split:
+                            split_results.append(result)
+                            samples_generated += 1
+                        else:
+                            break
+                    
+                    # Break if we've reached the target
+                    if samples_generated >= num_samples_per_split:
+                        if self.rank == 0:
+                            self.logger.info(f"   Reached target of {num_samples_per_split} samples, stopping...")
+                        break
+                        
+                except Exception as e:
+                    if self.rank == 0:
+                        self.logger.error(f"❌ Error generating for batch {batch_idx}: {e}")
+                    self.generation_stats['failed_generations'] += batch_size
+                    continue
+            
+            results[split] = split_results
+            
+            if self.rank == 0:
+                # Calculate split-specific quality metrics
+                total_spatial_keywords = sum(r['quality_metrics']['spatial_keywords_count'] for r in split_results)
+                avg_length = sum(r['quality_metrics']['length'] for r in split_results) / len(split_results) if split_results else 0
+                clock_direction_usage = sum(1 for r in split_results if r['quality_metrics']['has_clock_direction']) / len(split_results) if split_results else 0
+                
+                self.logger.info(f"✅ {split} completed: {len(split_results)} samples generated")
+                self.logger.info(f"   Avg length: {avg_length:.1f} chars")
+                self.logger.info(f"   Total spatial keywords: {total_spatial_keywords}")
+                self.logger.info(f"   Clock direction usage: {clock_direction_usage:.1%}")
+                
+                # Show a sample result
+                if split_results:
+                    sample = split_results[0]
+                    self.logger.info(f"📝 Sample from {split}:")
+                    self.logger.info(f"   Q: {sample['original_question'][:80]}...")
+                    self.logger.info(f"   Target: {sample['original_answer'][:60]}...")
+                    self.logger.info(f"   Generated: {sample['generated_answer'][:60]}...")
+        
+        return results
 
 def main():
     """Main optimized distributed generation function."""
