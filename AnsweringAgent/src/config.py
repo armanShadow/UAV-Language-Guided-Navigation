@@ -29,7 +29,7 @@ class ModelConfig:
 class TrainingConfig:      
     num_epochs: int = 3000  # Maximum epochs - early stopping determines actual end
     planned_epochs: int = 375  # 3-phase planning horizon  
-    learning_rate: float = 6e-5  # Slightly lower for stable UAV spatial learning convergence
+    learning_rate: float = 3e-5  # Slightly lower for stable UAV spatial learning convergence
     weight_decay: float = 0.008  # Moderate regularization for UAV feature preservation
     gradient_clip: float = 1.0
     warmup_steps: int = 1000  # Longer warmup for stability in long training

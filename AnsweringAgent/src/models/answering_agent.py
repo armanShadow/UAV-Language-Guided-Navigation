@@ -389,6 +389,20 @@ class AnsweringAgent(nn.Module):
         for idx in [-1, -2, -3]:
             for name, param in self.t5_model.encoder.block[idx].named_parameters():
                 param.requires_grad = True
+            
+            # UNFREEZE the last two decoder blocks to allow the language
+            # generation head to adapt to new encoder representations.
+            # This is a light‐weight alternative to fully unfreezing the
+            # decoder and keeps most of the pretrained knowledge intact while
+            # giving the model capacity to generate less generic answers.
+            for idx in [-1, -2]:
+                for name, param in self.t5_model.decoder.block[idx].named_parameters():
+                    param.requires_grad = True
+            
+            # Also unfreeze the decoder's final layer norm so that its output
+            # distribution can shift together with the newly trainable blocks.
+            for name, param in self.t5_model.decoder.final_layer_norm.named_parameters():
+                param.requires_grad = True
                 
         
         # Count our trainable parameters
