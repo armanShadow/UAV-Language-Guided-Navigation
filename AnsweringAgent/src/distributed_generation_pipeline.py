@@ -67,7 +67,13 @@ class SimpleDistributedGeneration:
         if rank == 0:
             self.logger = setup_logger('simple_distributed_generation', log_dir=self.config.log_dir)
         else:
-            self.logger = None
+            # Create a dummy logger for non-rank-0 processes
+            class DummyLogger:
+                def info(self, msg): pass
+                def warning(self, msg): pass
+                def error(self, msg): pass
+                def debug(self, msg): pass
+            self.logger = DummyLogger()
         
         # Load tokenizer
         self.tokenizer = T5Tokenizer.from_pretrained(
