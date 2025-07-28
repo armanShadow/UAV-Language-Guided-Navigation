@@ -63,8 +63,11 @@ class SimpleDistributedGeneration:
         self.world_size = world_size
         self.config = Config()
         
-        # Initialize logger
-        self.logger = setup_logger('simple_distributed_generation', log_dir=self.config.log_dir)
+        # Initialize logger only on rank 0
+        if rank == 0:
+            self.logger = setup_logger('simple_distributed_generation', log_dir=self.config.log_dir)
+        else:
+            self.logger = None
         
         # Load tokenizer
         self.tokenizer = T5Tokenizer.from_pretrained(
@@ -111,14 +114,15 @@ class SimpleDistributedGeneration:
             
             destination_view = batch['destination_image'].to(self.device, non_blocking=True) if 'destination_image' in batch else None
             
-            # Generate answers
+            # Generate answers with do_sample=False for constrained generation
             outputs = self.model(
                 text_input=text_input,
                 current_view=current_view,
                 previous_views=previous_views,
                 destination_view=destination_view,
                 generate=True,
-                curriculum_ratio=0.0
+                curriculum_ratio=0.0,
+                do_sample=False  # Fix for constrained generation
             )
             
             # Decode generated text
@@ -179,7 +183,8 @@ class SimpleDistributedGeneration:
                         break
                         
                 except Exception as e:
-                    self.logger.error(f"❌ Error generating for batch {batch_idx}: {e}")
+                    if self.rank == 0:
+                        self.logger.error(f"❌ Error generating for batch {batch_idx}: {e}")
                     continue
             
             results[split] = samples_generated
