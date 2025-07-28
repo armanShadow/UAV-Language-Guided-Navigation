@@ -51,7 +51,11 @@ class EMA:
     def update(self):
         for name, param in self.model.named_parameters():
             if param.requires_grad:
-                assert name in self.shadow
+                # Handle newly unfrozen parameters by adding them to shadow
+                if name not in self.shadow:
+                    self.shadow[name] = param.data.clone()
+                    continue
+                    
                 new_average = self.decay * self.shadow[name] + (1.0 - self.decay) * param.data
                 self.shadow[name] = new_average.clone()
     
@@ -59,7 +63,10 @@ class EMA:
         """Apply the EMA weights to the model for evaluation"""
         for name, param in self.model.named_parameters():
             if param.requires_grad:
-                assert name in self.shadow
+                # Handle newly unfrozen parameters by adding them to shadow
+                if name not in self.shadow:
+                    self.shadow[name] = param.data.clone()
+                    
                 self.backup[name] = param.data.cpu()  # Store backup on CPU to save GPU memory
                 param.data = self.shadow[name].clone()
     
@@ -67,7 +74,10 @@ class EMA:
         """Restore the original weights for training"""
         for name, param in self.model.named_parameters():
             if param.requires_grad:
-                assert name in self.backup
+                # Handle newly unfrozen parameters that might not have backup
+                if name not in self.backup:
+                    continue  # Skip if no backup exists (newly unfrozen parameter)
+                    
                 param.data = self.backup[name].to(param.device)  # Move from CPU back to GPU
         self.backup = {}
     
