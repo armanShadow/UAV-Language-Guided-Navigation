@@ -726,21 +726,21 @@ REQ_LEX = _FULL_LEX[:35]
 
 PRESETS: Dict[str, Dict] = {
     # Direction/Nearness focused
-    "precision_short_default": dict(
-        task_type="precision_short",
-        num_beams=5,
+    "default": dict(
+        task_type="attribute_complete",
+        num_beams=6,
         do_sample=False,
-        no_repeat_ngram_size=3,
-        repetition_penalty=1.25,
-        length_penalty=0.4,
-        min_new_tokens=3,
-        max_new_tokens=25,
+        no_repeat_ngram_size=4,
+        repetition_penalty=1.15,
+        length_penalty=1.15,
+        min_new_tokens=12,
+        max_new_tokens=60,
         early_stopping=True,
-        banned_phrases=BANNED,
-        bad_penalty=6.0,
+        bad_penalty=5.0,
+        req_boost=1.5,
     ),
     # Attribute + Direction
-    "attribute_complete_default": dict(
+    "attribute_complete": dict(
         task_type="attribute_complete",
         num_beams=6,
         do_sample=False,
@@ -755,50 +755,6 @@ PRESETS: Dict[str, Dict] = {
         bad_penalty=5.0,
         req_boost=1.5,
     ),
-    # A couple of simple variants for a tiny sweep
-    "precision_short_rp135": dict(
-        task_type="precision_short",
-        num_beams=5,
-        do_sample=False,
-        no_repeat_ngram_size=3,
-        repetition_penalty=1.35,
-        length_penalty=0.4,
-        min_new_tokens=3,
-        max_new_tokens=25,
-        early_stopping=True,
-        banned_phrases=BANNED,
-        bad_penalty=6.0,
-    ),
-    "attribute_complete_n4_rp135": dict(
-        task_type="attribute_complete",
-        num_beams=6,
-        do_sample=False,
-        no_repeat_ngram_size=4,
-        repetition_penalty=1.35,
-        length_penalty=1.10,
-        min_new_tokens=12,
-        max_new_tokens=60,
-        early_stopping=True,
-        banned_phrases=BANNED,
-        required_lexicons=REQ_LEX,
-        bad_penalty=5.0,
-        req_boost=1.5,
-    ),
-    "attribute_complete_v2": dict(
-    task_type="attribute_complete",
-    num_beams=6,
-    do_sample=False,
-    no_repeat_ngram_size=4,
-    repetition_penalty=1.25,    # ↑
-    length_penalty=1.1,
-    min_new_tokens=12,
-    max_new_tokens=60,
-    early_stopping=True,
-    banned_phrases=BANNED,
-    required_lexicons=REQ_LEX,
-    bad_penalty=5.0,
-    req_boost=1.8              # push required tokens harder
-),
 }
 
 
