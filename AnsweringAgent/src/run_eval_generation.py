@@ -852,6 +852,9 @@ def evaluate_split(
     hint_usage = {h: 0 for h in (hint_types or ['spatial','movement','landmark','navigation'])}
     hint_usage['none'] = 0
     
+    # Length tracking
+    total_length = 0  # Total character length of all generated answers
+    
     # Counter for showing examples (only show 2 per dataset)
     examples_shown = 0
     max_examples_to_show = 2
@@ -934,6 +937,9 @@ def evaluate_split(
 
         # total composite always present
         totals["total"] += sc["total"]
+        
+        # Track answer length
+        total_length += len(pred)
         n += 1
 
         # Per-sample print (concise) - only on rank 0 and only first 2 examples
@@ -968,6 +974,7 @@ def evaluate_split(
         "movement": _avg("movement"),
         "form": _avg("form"),
         "total": totals["total"] / n if n > 0 else 0.0,
+        "avg_length": total_length / n if n > 0 else 0.0,  # Average character length
     }
     results['hint_usage'] = hint_usage
     results['total_samples'] = n
@@ -982,12 +989,12 @@ def evaluate_split(
         total_samples_tensor = torch.tensor(n, dtype=torch.long, device=next(model.parameters()).device)
         totals_tensor = torch.tensor([
             totals['direction'], totals['yesno'], totals['attribute'], totals['landmark'], totals['movement'], totals['form'], totals['total'],
-            totals['bleu4'], totals['rouge_l'], totals['bertscore']
+            totals['bleu4'], totals['rouge_l'], totals['bertscore'], total_length
         ], dtype=torch.float32, device=next(model.parameters()).device)
         counts_tensor = torch.tensor([
             counts['direction'], counts['yesno'], counts['attribute'], counts['landmark'], counts['movement'], counts['form'],
             n,  # dummy count for total (not used, just for alignment)
-            counts['bleu4'], counts['rouge_l'], counts['bertscore']
+            counts['bleu4'], counts['rouge_l'], counts['bertscore'], n  # count for length
         ], dtype=torch.long, device=next(model.parameters()).device)
         
         # Gather from all ranks
@@ -1007,8 +1014,8 @@ def evaluate_split(
         # Calculate final averages across all GPUs
         if total_samples_all_gpus > 0:
             # Safe averages with per-metric counts
-            # totals_tensor: direction, yesno, attribute, landmark, movement, form, total, bleu4, rouge_l, bertscore (10 elements)
-            # counts_tensor: direction, yesno, attribute, landmark, movement, form, total_dummy, bleu4, rouge_l, bertscore (10 elements)
+            # totals_tensor: direction, yesno, attribute, landmark, movement, form, total, bleu4, rouge_l, bertscore, total_length (11 elements)
+            # counts_tensor: direction, yesno, attribute, landmark, movement, form, total_dummy, bleu4, rouge_l, bertscore, length_count (11 elements)
             results = {
                 'direction': (totals_all_gpus[0] / counts_all_gpus[0] if counts_all_gpus[0] > 0 else 0.0).item(),
                 'yesno': (totals_all_gpus[1] / counts_all_gpus[1] if counts_all_gpus[1] > 0 else 0.0).item(),
@@ -1020,6 +1027,7 @@ def evaluate_split(
                 'bleu4': (totals_all_gpus[7] / counts_all_gpus[7] if counts_all_gpus[7] > 0 else 0.0).item(),
                 'rouge_l': (totals_all_gpus[8] / counts_all_gpus[8] if counts_all_gpus[8] > 0 else 0.0).item(),
                 'bertscore': (totals_all_gpus[9] / counts_all_gpus[9] if counts_all_gpus[9] > 0 else 0.0).item(),
+                'avg_length': (totals_all_gpus[10] / counts_all_gpus[10] if counts_all_gpus[10] > 0 else 0.0).item(),
                 'total_samples': total_samples_all_gpus,
                 'hint_usage': hint_usage  # Include hint_usage in distributed results
             }
@@ -1038,6 +1046,7 @@ def evaluate_split(
             'bleu4': _avg('bleu4'),
             'rouge_l': _avg('rouge_l'),
             'bertscore': _avg('bertscore'),
+            'avg_length': total_length/n if n>0 else 0.0,
             'hint_usage': hint_usage,
             'total_samples': n,
         }
@@ -1054,6 +1063,7 @@ def evaluate_split(
         print(f"  BLEU-4    : {results['bleu4']:.3f}")
         print(f"  ROUGE-L   : {results['rouge_l']:.3f}")
         print(f"  BERTScore : {results['bertscore']:.3f}")
+        print(f"  Avg Length: {results['avg_length']:.1f} chars")
         print(f"  Hint Usage: {hint_usage}")
         print("=" * 80)
         print()
@@ -1291,6 +1301,7 @@ def save_evaluation_results(results: Dict, output_dir: str):
             print(f"    BLEU-4: {preset_results['bleu4']:.3f}")
             print(f"    ROUGE-L: {preset_results['rouge_l']:.3f}")
             print(f"    BERTScore: {preset_results['bertscore']:.3f}")
+            print(f"    Avg Length: {preset_results['avg_length']:.1f} chars")
             print(f"    Samples: {preset_results['total_samples']}")
             if 'hint_usage' in preset_results:
                 print(f"    Hint Usage: {preset_results['hint_usage']}")
