@@ -726,24 +726,21 @@ _FULL_LEX = sorted(list(COLOR_SET | MATERIAL_SET | SHAPE_SET | SPATIAL_SET | LAN
 REQ_LEX = _FULL_LEX[:35]
 
 PRESETS: Dict[str, Dict] = {
-    # Direction/Nearness focused
-    "default": dict(
-        task_type="attribute_complete",
-        num_beams=6,
+    # Conservative beam search
+    "conservative": dict(
+        task_type="precision_short",
+        num_beams=4,
         do_sample=False,
-        no_repeat_ngram_size=4,
-        repetition_penalty=1.15,
-        length_penalty=1.15,
-        min_new_tokens=12,
-        max_new_tokens=60,
+        repetition_penalty=1.1,
+        length_penalty=1.0,
+        min_new_tokens=8,
+        max_new_tokens=25,
         early_stopping=True,
-        bad_penalty=5.0,
-        req_boost=1.5,
     ),
-    # Attribute + Direction
-    "attribute_complete": dict(
+    # Aggressive beam search 
+    "aggressive": dict(
         task_type="attribute_complete",
-        num_beams=6,
+        num_beams=8,
         do_sample=False,
         no_repeat_ngram_size=4,
         repetition_penalty=1.15,
@@ -751,10 +748,6 @@ PRESETS: Dict[str, Dict] = {
         min_new_tokens=12,
         max_new_tokens=60,
         early_stopping=True,
-        banned_phrases=BANNED,
-        required_lexicons=REQ_LEX,
-        bad_penalty=5.0,
-        req_boost=1.5,
     ),
 }
 
@@ -874,9 +867,7 @@ def evaluate_split(
         n += 1
 
         # Per-sample print (concise) - only on rank 0 and only first 2 examples
-        seed = int(time.time() * 1000)
-        random.seed(seed)
-        if rank == 0 and examples_shown < max_examples_to_show and random.random() < 0.05:
+        if rank == 0 and examples_shown < max_examples_to_show and random.random() < 0.2:
             print(f"[{n}] Task={task_type} | Hint={display_hint}")
             print(f"Q: {truncate(current_question)}")
             print(f"GOLD: {truncate(gold)}")
@@ -983,8 +974,8 @@ def evaluate_split(
         print(f"  Form      : {results['form']:.3f}")
         print(f"  TOTAL     : {results['total']:.3f}")
         print(f"  Hint Usage: {hint_usage}")
-        print("=" * 80)
-        print()
+    print("=" * 80)
+    print()
 
     return results
 
