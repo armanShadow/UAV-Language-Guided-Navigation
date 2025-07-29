@@ -545,30 +545,31 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
                            device: torch.device = None, gen_model = None, use_hints: bool = False,
                            hint_types: List[str] = None, dataset: AnsweringDataset = None, **kwargs) -> Iterable[Tuple[str, str, str]]:
     """
-    Yield processed samples for the given split with 10% sampling and distributed processing.
+    Yield processed samples for the given split with distributed processing.
     Now processes entire batches like the working distributed_generation_pipeline.py.
     """
-    # Use pre-loaded dataset if provided, otherwise create new one
+    # Use pre-loaded dataset if provided, otherwise create new one and sample
     if dataset is None:
         dataset = AnsweringDataset(config, split=split, tokenizer=tokenizer)
-    
-    # Sample 10% of dataset indices
-    dataset_size = len(dataset)
-    sampled_indices = sample_dataset_indices(dataset_size, sample_ratio)
-    
-    # Create subset with sampled indices
-    sampled_dataset = Subset(dataset, sampled_indices)
+        # Sample 10% of dataset indices
+        dataset_size = len(dataset)
+        sampled_indices = sample_dataset_indices(dataset_size, sample_ratio)
+        # Create subset with sampled indices
+        dataset = Subset(dataset, sampled_indices)
+    else:
+        # Dataset is already pre-sampled, use as is
+        pass
     
     # Use DistributedSampler for proper distribution
     sampler = DistributedSampler(
-        sampled_dataset, 
+        dataset, 
         num_replicas=world_size, 
         rank=rank,
         shuffle=False
     )
     
     dataloader = DataLoader(
-        sampled_dataset,
+        dataset,
         batch_size=8,  # Increased from 4 to 8 for better efficiency
         sampler=sampler,
         num_workers=2,
@@ -948,6 +949,8 @@ def main():
                         help="Routing mode: question-only (fair) or oracle (uses gold; analysis only)")
     parser.add_argument("--use_hints", action="store_true",
                         help="Enable deterministic input hints")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for consistent sampling (default: 42)")
     args = parser.parse_args()
 
     # Setup environment
@@ -965,11 +968,12 @@ def main():
         if torch.cuda.is_available():
             print(f"CUDA Devices: {torch.cuda.device_count()}")
         print(f"Routing mode: {args.routing}  |  Hints: {args.use_hints}")
+        print(f"Random seed: {args.seed}")
         print()
 
-    # Set random seed for reproducibility
-    random.seed(int(time.time()))  # Use current timestamp for different seed each time
-    torch.manual_seed(int(time.time()))  # Use current timestamp for different seed each time
+    # Set consistent random seed for reproducibility
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
     # Load config and model
     config = Config()
@@ -1038,13 +1042,26 @@ def run_distributed(model: AnsweringAgent, tokenizer: T5Tokenizer, config: Confi
         print(f"\n📂 Loading datasets once for all evaluations...")
     
     datasets = {}
+    sampled_datasets = {}  # Store pre-sampled datasets for each split
+    
     for split in args.splits:
         if rank == 0:
             print(f"  Loading {split} dataset...")
-        datasets[split] = AnsweringDataset(config, split=split, tokenizer=tokenizer)
+        full_dataset = AnsweringDataset(config, split=split, tokenizer=tokenizer)
+        
+        # Sample 10% of dataset indices ONCE for this split
+        dataset_size = len(full_dataset)
+        sampled_indices = sample_dataset_indices(dataset_size, args.sample_ratio)
+        sampled_dataset = Subset(full_dataset, sampled_indices)
+        
+        datasets[split] = full_dataset
+        sampled_datasets[split] = sampled_dataset
+        
+        if rank == 0:
+            print(f"    Sampled {len(sampled_indices)} indices from {dataset_size} total samples")
     
     if rank == 0:
-        print(f"✅ All datasets loaded successfully!")
+        print(f"✅ All datasets loaded and sampled successfully!")
 
     # Evaluate on ALL specified splits with ALL presets
     for split in args.splits:
@@ -1066,7 +1083,7 @@ def run_distributed(model: AnsweringAgent, tokenizer: T5Tokenizer, config: Confi
                     use_hints=args.use_hints,
                     routing_mode=args.routing,
                     max_samples=args.max_samples,
-                    dataset=datasets[split],  # Pass the pre-loaded dataset
+                    dataset=sampled_datasets[split],  # Pass the pre-sampled dataset
                     is_distributed=is_distributed # Pass the is_distributed flag
                 )
                 
