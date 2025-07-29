@@ -539,9 +539,12 @@ def sample_dataset_indices(dataset_size: int, sample_ratio: float = 0.1) -> List
 # Dataset iterator for distributed evaluation
 # -------------------------
 def iter_dataset_distributed(split: str, config: Config, tokenizer, 
-                           sample_ratio: float = 0.1, rank: int = 0, world_size: int = 1) -> Iterable[Tuple[Dict, torch.Tensor, torch.Tensor, str, str]]:
+                           sample_ratio: float = 0.1, rank: int = 0, world_size: int = 1, 
+                           device: torch.device = None, gen_model = None, use_hints: bool = False,
+                           hint_types: List[str] = None, **kwargs) -> Iterable[Tuple[str, str, str]]:
     """
-    Yield samples for the given split with 10% sampling and distributed processing.
+    Yield processed samples for the given split with 10% sampling and distributed processing.
+    Now processes entire batches like the working distributed_generation_pipeline.py.
     """
     # Create dataset
     dataset = AnsweringDataset(config, split=split, tokenizer=tokenizer)
@@ -570,37 +573,58 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
     )
     
     for batch in dataloader:
-        # Process each sample in the batch
+        # Process the entire batch at once (like distributed_generation_pipeline.py)
         batch_size = batch['text_input']['input_ids'].size(0)
         
+        # Move entire batch to device
+        text_input = {k: v.to(device, non_blocking=True) for k, v in batch['text_input'].items()}
+        
+        # Handle separate encoding components
+        if 'first_instruction_input' in batch:
+            text_input['first_instruction_input'] = {k: v.to(device, non_blocking=True) for k, v in batch['first_instruction_input'].items()}
+        if 'current_question_input' in batch:
+            text_input['current_question_input'] = {k: v.to(device, non_blocking=True) for k, v in batch['current_question_input'].items()}
+        
+        # Add hints if requested
+        if use_hints:
+            # Process each sample in the batch to add hints
+            for i in range(batch_size):
+                # Get question for task type detection
+                question = tokenizer.decode(text_input['input_ids'][i], skip_special_tokens=True)
+                gold = tokenizer.decode(batch['text_label']['input_ids'][i], skip_special_tokens=True)
+                task_type = detect_task_type(question, gold, "question")
+                
+                # Choose hint type based on task
+                hint_type = "landmark" if task_type == "attribute_complete" else "spatial"
+                
+                # Add hint to the main text input
+                single_text_input = {
+                    'input_ids': text_input['input_ids'][i],
+                    'attention_mask': text_input['attention_mask'][i]
+                }
+                hinted = add_hint_to_text_input(tokenizer, single_text_input, hint_type)
+                text_input['input_ids'][i] = hinted['input_ids'].to(device)
+                text_input['attention_mask'][i] = hinted['attention_mask'].to(device)
+        
+        current_view = batch['current_view_image'].to(device, non_blocking=True)
+        previous_views = batch['previous_views_image'].to(device, non_blocking=True)
+        
+        # Generate for the entire batch
+        with torch.no_grad():
+            seq = gen_model.generate_answer(
+                text_input, current_view, previous_views,
+                task_type=kwargs.pop("task_type"),
+                **kwargs
+            )
+        
+        # Process each result in the batch
         for i in range(batch_size):
-            # Extract single sample from batch
-            text_input = {
-                'input_ids': batch['text_input']['input_ids'][i],
-                'attention_mask': batch['text_input']['attention_mask'][i]
-            }
-            
-            # Handle separate encoding components if available
-            if 'first_instruction_input' in batch:
-                text_input['first_instruction_input'] = {
-                    'input_ids': batch['first_instruction_input']['input_ids'][i],
-                    'attention_mask': batch['first_instruction_input']['attention_mask'][i]
-                }
-            
-            if 'current_question_input' in batch:
-                text_input['current_question_input'] = {
-                    'input_ids': batch['current_question_input']['input_ids'][i],
-                    'attention_mask': batch['current_question_input']['attention_mask'][i]
-                }
-            
-            current_view = batch['current_view_image'][i]
-            previous_views = batch['previous_views_image'][i]
-            
-            # Move tensors to CPU for decoding (tokenizer works on CPU)
-            question = tokenizer.decode(text_input['input_ids'], skip_special_tokens=True)
+            # Decode individual results
+            question = tokenizer.decode(text_input['input_ids'][i], skip_special_tokens=True)
             gold_answer = tokenizer.decode(batch['text_label']['input_ids'][i], skip_special_tokens=True)
+            pred = tokenizer.decode(seq[i], skip_special_tokens=True)
             
-            yield text_input, current_view, previous_views, question, gold_answer
+            yield question, gold_answer, pred
 
 
 # -------------------------
@@ -715,68 +739,29 @@ def evaluate_split(
     examples_shown = 0
     max_examples_to_show = 2
 
-    # Get distributed dataset iterator
-    dataset_iterator = iter_dataset_distributed(split, config, tokenizer, sample_ratio, rank, world_size)
+    # Get distributed dataset iterator with model and generation parameters
+    gen_model = model.module if isinstance(model, DDP) else model
+    
+    dataset_iterator = iter_dataset_distributed(
+        split, config, tokenizer, sample_ratio, rank, world_size,
+        device=next(gen_model.parameters()).device, gen_model=gen_model,
+        use_hints=use_hints, hint_types=hint_types,
+        **preset_kwargs
+    )
 
     # DDP support for model
-    gen_model = model.module if isinstance(model, DDP) else model
+    # gen_model = model.module if isinstance(model, DDP) else model  # Already set above
 
     for sample_idx, sample in enumerate(dataset_iterator):
-        text_input, cur_view, prev_views, question, gold = sample
+        question, gold, pred = sample
         task_type = detect_task_type(question, gold, routing_mode)
 
-        # Choose preset; if its task_type mismatches detection, override softly
-        kwargs = dict(preset_kwargs)
-        kwargs.setdefault("task_type", task_type)
-
-        hinted_text_input = text_input
+        # Add hint handling if needed (this is now done in the iterator)
+        hint_type = "landmark" if task_type == "attribute_complete" else "spatial"
         if use_hints:
-            # Choose deterministic hint by task type
-            hint_type = "landmark" if task_type == "attribute_complete" else "spatial"
-            hinted_text_input = add_hint_to_text_input(tokenizer, text_input, hint_type)
-            # Optional subfields
-            if 'first_instruction_input' in text_input:
-                hinted_text_input['first_instruction_input'] = add_hint_to_text_input(
-                    tokenizer, text_input['first_instruction_input'], hint_type
-                )
-            if 'current_question_input' in text_input:
-                hinted_text_input['current_question_input'] = add_hint_to_text_input(
-                    tokenizer, text_input['current_question_input'], hint_type
-                )
             hint_usage[hint_type] += 1
         else:
-            hint_type = 'none'
-            # hinted_text_input = text_input  # already set above
             hint_usage['none'] += 1
-
-        # Ensure tensors are on the correct device
-        # Move tensors to the same device as the model
-        model_device = next(gen_model.parameters()).device
-        hinted_text_input = to_device_text_input(hinted_text_input, device=model_device)
-        cur_view = cur_view.to(model_device)
-        prev_views = prev_views.to(model_device)
-        
-        # Debug: Print tensor shapes to understand the issue
-        if rank == 0 and n == 0:  # Only print for first sample on rank 0
-            print(f"DEBUG - cur_view shape: {cur_view.shape}")
-            print(f"DEBUG - prev_views shape: {prev_views.shape}")
-            print(f"DEBUG - hinted_text_input keys: {list(hinted_text_input.keys())}")
-            print(f"DEBUG - prev_views.size(0): {prev_views.size(0)}")
-            print(f"DEBUG - prev_views.size(1): {prev_views.size(1)}")
-            print(f"DEBUG - prev_views.size(2): {prev_views.size(2)}")
-            print(f"DEBUG - prev_views.size(3): {prev_views.size(3)}")
-            print(f"DEBUG - prev_views.size(4): {prev_views.size(4)}")
-        
-        # Simplified tensor handling - let the model handle the shapes naturally
-        # The dataset provides tensors in the correct format, just ensure they're on the right device
-
-        with torch.no_grad():
-            seq = gen_model.generate_answer(
-                hinted_text_input, cur_view, prev_views,
-                task_type=kwargs.pop("task_type"),
-                **kwargs
-            )
-        pred = tokenizer.decode(seq[0], skip_special_tokens=True)
 
         # Clean generated text (remove hint if present)
         for hint in HINT_TAGS.values():
