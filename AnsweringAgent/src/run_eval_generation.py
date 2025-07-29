@@ -4,7 +4,6 @@ import re
 import random
 import time
 import json
-import time
 import argparse
 from transformers import T5Tokenizer
 from typing import Dict, Iterable, Tuple, Optional, List
@@ -12,6 +11,11 @@ from torch.utils.data import DataLoader, DistributedSampler, Subset
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
+
+# NLP evaluation metrics
+from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+from rouge_score import rouge_scorer
+from bert_score import score as bert_score
 
 # Import your model class
 from models.answering_agent import AnsweringAgent
@@ -366,6 +370,44 @@ def movement_score(pred: str, gold: str) -> float:
 
     return match_cnt / len(gold_movements)
 
+def calculate_bleu4(pred: str, gold: str) -> float:
+    """Calculate BLEU-4 score between prediction and gold."""
+    try:
+        # Tokenize into words
+        pred_tokens = pred.lower().split()
+        gold_tokens = gold.lower().split()
+        
+        # Calculate BLEU-4 with smoothing
+        smoothing = SmoothingFunction().method1
+        bleu_score = sentence_bleu([gold_tokens], pred_tokens, smoothing_function=smoothing)
+        return bleu_score
+    except Exception as e:
+        print(f"BLEU calculation error: {e}")
+        return 0.0
+
+def calculate_rouge_l(pred: str, gold: str) -> float:
+    """Calculate ROUGE-L F1 score between prediction and gold."""
+    try:
+        # Initialize ROUGE scorer
+        scorer = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=True)
+        
+        # Calculate ROUGE-L
+        scores = scorer.score(gold, pred)
+        return scores['rougeL'].fmeasure
+    except Exception as e:
+        print(f"ROUGE calculation error: {e}")
+        return 0.0
+
+def calculate_bertscore(pred: str, gold: str) -> float:
+    """Calculate BERTScore F1 between prediction and gold."""
+    try:
+        # Calculate BERTScore
+        P, R, F1 = bert_score([pred], [gold], lang='en', verbose=False)
+        return F1.mean().item()
+    except Exception as e:
+        print(f"BERTScore calculation error: {e}")
+        return 0.0
+
 def composite_score(pred: str, gold: str, task_type: str = "precision_short", 
                    banned_phrases: List[str] = None) -> Dict[str, float]:
     """Compute composite score with unified metrics across all tasks."""
@@ -430,6 +472,11 @@ def composite_score(pred: str, gold: str, task_type: str = "precision_short",
 
     total_score = sum(weighted_scores) / total_weight if total_weight > 0 else 0.0
     
+    # Calculate NLP metrics
+    bleu4_score = calculate_bleu4(pred, gold)
+    rouge_l_score = calculate_rouge_l(pred, gold)
+    bertscore_f1 = calculate_bertscore(pred, gold)
+    
     return {
         "direction": dir_score,
         "yesno": yn_score,
@@ -437,7 +484,10 @@ def composite_score(pred: str, gold: str, task_type: str = "precision_short",
         "landmark": landmark_score_val,
         "movement": movement_score_val,
         "form": form_score,
-        "total": total_score
+        "total": total_score,
+        "bleu4": bleu4_score,
+        "rouge_l": rouge_l_score,
+        "bertscore": bertscore_f1
     }
 
 # Split task-type detectors
@@ -749,6 +799,30 @@ PRESETS: Dict[str, Dict] = {
         max_new_tokens=60,
         early_stopping=True,
     ),
+    "more_aggressive": dict(
+        task_type="attribute_complete",
+        num_beams=8,
+        do_sample=False,
+        no_repeat_ngram_size=4,
+        repetition_penalty=1.2,
+        length_penalty=0.7,
+        min_new_tokens=12,
+        max_new_tokens=70,
+        early_stopping=True,
+    ),
+    # Sampling-based generation
+    "diverse": dict(
+        task_type="attribute_complete",
+        num_beams=1,
+        do_sample=True,
+        top_k=50,
+        top_p=0.9,
+        temperature=0.8,
+        repetition_penalty=1.15,
+        min_new_tokens=10,
+        max_new_tokens=50,
+        early_stopping=True,
+    ),
 }
 
 
@@ -785,8 +859,8 @@ def evaluate_split(
 
     # Counters
     n = 0  # total samples processed (for reporting)
-    totals = {"direction": 0.0, "yesno": 0.0, "attribute": 0.0, "landmark": 0.0, "movement": 0.0, "form": 0.0, "total": 0.0}
-    counts = {"direction": 0, "yesno": 0, "attribute": 0, "landmark": 0, "movement": 0, "form": 0}  # per-metric denom
+    totals = {"direction": 0.0, "yesno": 0.0, "attribute": 0.0, "landmark": 0.0, "movement": 0.0, "form": 0.0, "total": 0.0, "bleu4": 0.0, "rouge_l": 0.0, "bertscore": 0.0}
+    counts = {"direction": 0, "yesno": 0, "attribute": 0, "landmark": 0, "movement": 0, "form": 0, "bleu4": 0, "rouge_l": 0, "bertscore": 0}  # per-metric denom
     hint_usage = {h: 0 for h in (hint_types or ['spatial','movement','landmark','navigation'])}
     hint_usage['none'] = 0
     
@@ -862,6 +936,14 @@ def evaluate_split(
             totals["movement"] += sc["movement"]
             counts["movement"] += 1
 
+        # NLP metrics (always relevant)
+        totals["bleu4"] += sc["bleu4"]
+        counts["bleu4"] += 1
+        totals["rouge_l"] += sc["rouge_l"]
+        counts["rouge_l"] += 1
+        totals["bertscore"] += sc["bertscore"]
+        counts["bertscore"] += 1
+
         # total composite always present
         totals["total"] += sc["total"]
         n += 1
@@ -873,6 +955,7 @@ def evaluate_split(
             print(f"GOLD: {truncate(gold)}")
             print(f"PRED: {truncate(pred)}")
             print(f"Scores: dir={sc['direction']:.2f}  yn={sc['yesno']:.2f}  attr={sc['attribute']:.2f}  land={sc['landmark']:.2f}  mov={sc['movement']:.2f}  form={sc['form']:.2f}  total={sc['total']:.2f}")
+            print(f"NLP: BLEU4={sc['bleu4']:.3f}  ROUGE-L={sc['rouge_l']:.3f}  BERTScore={sc['bertscore']:.3f}")
             print("-" * 80)
             examples_shown += 1
 
@@ -910,10 +993,12 @@ def evaluate_split(
         # Create tensors for aggregation (totals and counts)
         total_samples_tensor = torch.tensor(n, dtype=torch.long, device=next(model.parameters()).device)
         totals_tensor = torch.tensor([
-            totals['direction'], totals['yesno'], totals['attribute'], totals['landmark'], totals['movement'], totals['form'], totals['total']
+            totals['direction'], totals['yesno'], totals['attribute'], totals['landmark'], totals['movement'], totals['form'], totals['total'],
+            totals['bleu4'], totals['rouge_l'], totals['bertscore']
         ], dtype=torch.float32, device=next(model.parameters()).device)
         counts_tensor = torch.tensor([
-            counts['direction'], counts['yesno'], counts['attribute'], counts['landmark'], counts['movement'], counts['form']
+            counts['direction'], counts['yesno'], counts['attribute'], counts['landmark'], counts['movement'], counts['form'],
+            counts['bleu4'], counts['rouge_l'], counts['bertscore']
         ], dtype=torch.long, device=next(model.parameters()).device)
         
         # Gather from all ranks
@@ -933,9 +1018,9 @@ def evaluate_split(
         # Calculate final averages across all GPUs
         if total_samples_all_gpus > 0:
             # Safe averages with per-metric counts
-            avg_dir, avg_yn, avg_attr, avg_land, avg_mov, avg_form = [
+            avg_dir, avg_yn, avg_attr, avg_land, avg_mov, avg_form, avg_bleu4, avg_rouge_l, avg_bertscore = [
                 (totals_all_gpus[i] / counts_all_gpus[i] if counts_all_gpus[i] > 0 else 0.0).item()
-                for i in range(6)
+                for i in range(9)
             ]
             results = {
                 'direction': avg_dir,
@@ -945,6 +1030,9 @@ def evaluate_split(
                 'movement': avg_mov,
                 'form': avg_form,
                 'total': (totals_all_gpus[6] / total_samples_all_gpus).item() if total_samples_all_gpus>0 else 0.0,
+                'bleu4': avg_bleu4,
+                'rouge_l': avg_rouge_l,
+                'bertscore': avg_bertscore,
                 'total_samples': total_samples_all_gpus,
                 'hint_usage': hint_usage  # Include hint_usage in distributed results
             }
@@ -960,6 +1048,9 @@ def evaluate_split(
             'movement': _avg('movement'),
             'form': _avg('form'),
             'total': totals['total']/n if n>0 else 0.0,
+            'bleu4': _avg('bleu4'),
+            'rouge_l': _avg('rouge_l'),
+            'bertscore': _avg('bertscore'),
             'hint_usage': hint_usage,
             'total_samples': n,
         }
@@ -973,9 +1064,12 @@ def evaluate_split(
         print(f"  Movement  : {results['movement']:.3f}")
         print(f"  Form      : {results['form']:.3f}")
         print(f"  TOTAL     : {results['total']:.3f}")
+        print(f"  BLEU-4    : {results['bleu4']:.3f}")
+        print(f"  ROUGE-L   : {results['rouge_l']:.3f}")
+        print(f"  BERTScore : {results['bertscore']:.3f}")
         print(f"  Hint Usage: {hint_usage}")
-    print("=" * 80)
-    print()
+        print("=" * 80)
+        print()
 
     return results
 
@@ -1201,6 +1295,9 @@ def save_evaluation_results(results: Dict, output_dir: str):
             print(f"    Landmark: {preset_results['landmark']:.3f}")
             print(f"    Movement: {preset_results['movement']:.3f}")
             print(f"    Form: {preset_results['form']:.3f}")
+            print(f"    BLEU-4: {preset_results['bleu4']:.3f}")
+            print(f"    ROUGE-L: {preset_results['rouge_l']:.3f}")
+            print(f"    BERTScore: {preset_results['bertscore']:.3f}")
             print(f"    Samples: {preset_results['total_samples']}")
             if 'hint_usage' in preset_results:
                 print(f"    Hint Usage: {preset_results['hint_usage']}")
