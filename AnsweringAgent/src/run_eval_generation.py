@@ -1021,6 +1021,7 @@ def evaluate_split(
         ], dtype=torch.float32, device=next(model.parameters()).device)
         counts_tensor = torch.tensor([
             counts['direction'], counts['yesno'], counts['attribute'], counts['landmark'], counts['movement'], counts['form'],
+            n,  # dummy count for total (not used, just for alignment)
             counts['bleu4'], counts['rouge_l'], counts['bertscore']
         ], dtype=torch.long, device=next(model.parameters()).device)
         
@@ -1041,7 +1042,8 @@ def evaluate_split(
         # Calculate final averages across all GPUs
         if total_samples_all_gpus > 0:
             # Safe averages with per-metric counts
-            # Tensor order: direction, yesno, attribute, landmark, movement, form, total, bleu4, rouge_l, bertscore
+            # totals_tensor: direction, yesno, attribute, landmark, movement, form, total, bleu4, rouge_l, bertscore (10 elements)
+            # counts_tensor: direction, yesno, attribute, landmark, movement, form, total_dummy, bleu4, rouge_l, bertscore (10 elements)
             results = {
                 'direction': (totals_all_gpus[0] / counts_all_gpus[0] if counts_all_gpus[0] > 0 else 0.0).item(),
                 'yesno': (totals_all_gpus[1] / counts_all_gpus[1] if counts_all_gpus[1] > 0 else 0.0).item(),
