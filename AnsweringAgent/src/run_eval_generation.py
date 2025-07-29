@@ -804,10 +804,10 @@ PRESETS: Dict[str, Dict] = {
         task_type="precision_short",
         num_beams=4,
         do_sample=False,
-        repetition_penalty=1.2,
+        repetition_penalty=1.1,
         length_penalty=0.8,
         min_new_tokens=8,
-        max_new_tokens=60,
+        max_new_tokens=70,
         early_stopping=True,
     ),
     # Aggressive beam search 
