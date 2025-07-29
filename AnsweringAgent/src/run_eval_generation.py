@@ -241,7 +241,7 @@ def yesno_score(pred: str, gold: str) -> float:
     # Determine gold answer type
     gold_ans = gold_yesno(gold)
     if gold_ans is None:
-        return 0.5  # Neutral score for non-yes/no questions
+        return 0.0  # Return 0 for non-yes/no questions
     
     # Determine prediction answer type
     pred_ans = None
@@ -268,23 +268,21 @@ def attribute_score(pred: str, gold: str) -> float:
     pred_shapes = pred_features.get('shapes', [])
     gold_shapes = gold_features.get('shapes', [])
     
-    # Score colors
-    if gold_colors and pred_colors:
-        color_match = len(set(pred_colors) & set(gold_colors)) / len(set(gold_colors))
-    elif not gold_colors and not pred_colors:
-        color_match = 1.0
-    else:
-        color_match = 0.0
-    
-    # Score shapes
-    if gold_shapes and pred_shapes:
-        shape_match = len(set(pred_shapes) & set(gold_shapes)) / len(set(gold_shapes))
-    elif not gold_shapes and not pred_shapes:
-        shape_match = 1.0
-    else:
-        shape_match = 0.0
-    
-    return (color_match + shape_match) / 2
+    scores = []
+    # colours
+    if gold_colors:
+        if pred_colors:
+            scores.append(len(set(pred_colors) & set(gold_colors)) / len(set(gold_colors)))
+        else:
+            scores.append(0.0)
+    # shapes
+    if gold_shapes:
+        if pred_shapes:
+            scores.append(len(set(pred_shapes) & set(gold_shapes)) / len(set(gold_shapes)))
+        else:
+            scores.append(0.0)
+
+    return sum(scores) / len(scores) if scores else 0.0
 
 def landmark_score(pred: str, gold: str) -> float:
     """Score landmark accuracy between prediction and gold using enhanced spatial parsing."""
@@ -295,9 +293,11 @@ def landmark_score(pred: str, gold: str) -> float:
     pred_landmarks = pred_features.get('landmarks', [])
     gold_landmarks = gold_features.get('landmarks', [])
     
-    if not gold_landmarks and not pred_landmarks:
-        return 1.0  # Both don't have landmarks
-    if not gold_landmarks or not pred_landmarks:
+    # Return 0 if gold has no landmarks
+    if not gold_landmarks:
+        return 0.0
+    
+    if not pred_landmarks:
         return 0.0
     
     # Create combined strings for multi-word landmark detection
@@ -337,36 +337,30 @@ def movement_score(pred: str, gold: str) -> float:
     pred_movements = pred_features.get('movement_verbs', [])
     gold_movements = gold_features.get('movement_verbs', [])
     
-    if not gold_movements and not pred_movements:
-        return 1.0  # Both don't have movement verbs
-    if not gold_movements or not pred_movements:
+    # If gold has no movement verbs, score is 0 by definition
+    if not gold_movements:
         return 0.0
-    
-    # Synonym-based matching for movement verbs
-    synonym_matches = 0
-    total_movements = len(gold_movements)
-    
-    for gold_movement in gold_movements:
-        # Check direct match first
-        if gold_movement.lower() in [m.lower() for m in pred_movements]:
-            synonym_matches += 1
-            continue
-        
-        # Check synonym groups
-        synonyms = SPATIAL_FEATURES['movement_verbs']['synonyms']
-        for base_movement, synonym_list in synonyms.items():
-            if gold_movement.lower() in [syn.lower() for syn in synonym_list]:
-                for pred_movement in pred_movements:
-                    if pred_movement.lower() in [syn.lower() for syn in synonym_list]:
-                        synonym_matches += 1
-                        break
-                break
-    
-    return synonym_matches / total_movements if total_movements > 0 else 0.0
+
+    if not pred_movements:
+        return 0.0
+
+    match_cnt = 0
+    for g in gold_movements:
+        if g.lower() in [p.lower() for p in pred_movements]:
+            match_cnt += 1
+        else:
+            # synonym check
+            for syn_list in SPATIAL_FEATURES['movement_verbs']['synonyms'].values():
+                if g.lower() in [s.lower() for s in syn_list]:
+                    if any(p.lower() in [s.lower() for s in syn_list] for p in pred_movements):
+                        match_cnt += 1
+                    break
+
+    return match_cnt / len(gold_movements)
 
 def composite_score(pred: str, gold: str, task_type: str = "precision_short", 
                    banned_phrases: List[str] = None) -> Dict[str, float]:
-    """Compute composite score with multiple metrics using enhanced spatial parsing."""
+    """Compute composite score with unified metrics across all tasks."""
     if banned_phrases is None:
         banned_phrases = []
     
@@ -377,7 +371,7 @@ def composite_score(pred: str, gold: str, task_type: str = "precision_short",
             form_penalty = 1.0
             break
     
-    # Calculate individual scores
+    # Calculate individual scores (unified across all tasks)
     dir_score = direction_score(pred, gold)
     yn_score = yesno_score(pred, gold)
     attr_score = attribute_score(pred, gold)
@@ -386,14 +380,24 @@ def composite_score(pred: str, gold: str, task_type: str = "precision_short",
     
     # Form score (inverse of penalty)
     form_score = 1.0 - form_penalty
-    
-    # Composite score based on task type
-    if task_type == "attribute_complete":
-        # Include all scores for comprehensive evaluation
-        total_score = (dir_score + yn_score + attr_score + landmark_score_val + movement_score_val + form_score) / 6
-    else:  # precision_short
-        # Focus on direction, yes/no, and form for precision tasks
-        total_score = (dir_score + yn_score + form_score) / 3
+
+    sub_scores = [dir_score, form_score]  # always present
+
+    # Include yes/no only if the gold question is yes/no
+    if gold_yesno(gold) is not None:
+        sub_scores.append(yn_score)
+
+    # include attribute / landmark / movement only if gold contains them
+    if extract_spatial_features(gold).get('colors') or extract_spatial_features(gold).get('shapes'):
+        sub_scores.append(attr_score)
+
+    if extract_spatial_features(gold).get('landmarks'):
+        sub_scores.append(landmark_score_val)
+
+    if extract_spatial_features(gold).get('movement_verbs'):
+        sub_scores.append(movement_score_val)
+
+    total_score = sum(sub_scores) / len(sub_scores)
     
     return {
         "direction": dir_score,
@@ -407,17 +411,23 @@ def composite_score(pred: str, gold: str, task_type: str = "precision_short",
 
 # Split task-type detectors
 def detect_task_type_question_only(question: str) -> str:
+    """Decide task type using *only* the question text (fair routing)."""
     q = question.lower()
-    attr_kw = [
-        "color","colour","shape","look like","appearance",
-        "c shaped","c-shaped","rectangular","rectangle",
-        "square","round","circle","basketball court","roof",
-    ]
-    if any(k in q for k in attr_kw):
+
+    # ── Attribute cues ───────────────────────────────────────────
+    if re.search(r"\b(what|which)\s+(does|do|is)\s+(the\s+)?destination.*(look|colour|color|shape)", q):
         return "attribute_complete"
-    dir_kw = ["which direction","go to","head to","turn to","o'clock","clock"]
-    if any(k in q for k in dir_kw):
+    if re.search(r"\b(color|colour|shape|look like|appearance|c\s*-?shaped|rectangular|rectangle|square|round|circle|basketball court|roof)\b", q):
+        return "attribute_complete"
+
+    # ── Direction cues ───────────────────────────────────────────
+    if re.search(r"\b(which|what)\s+direction\b", q):
         return "precision_short"
+    if re.search(r"\b\d+\s*o'?clock\b", q):
+        return "precision_short"
+    if re.search(r"\b(north|south|east|west|left|right|forward|backward)\b", q):
+        return "precision_short"
+
     return "precision_short"
 
 def detect_task_type_oracle(question: str, gold: str) -> str:
@@ -441,16 +451,7 @@ def detect_task_type(question: str, gold: str, mode: str) -> str:
     if mode == "oracle":
         return detect_task_type_oracle(question, gold)
     return detect_task_type_question_only(question)
-# -------------------------
-# Generation presets (text-mode sweep)
-# -------------------------
-BANNED = [
-    "Yes, fate is in your field of vision",
-    "Yes, your destination is in your field of view",
-]
 
-REQ_LEX = ["gray","grey","brown","red","blue","white","black",
-           "square","rectangular","rectangle","c-shaped","circle","round"]
 
 # Helper to move tensors to device
 def to_device_text_input(d: Dict, device: torch.device) -> Dict:
@@ -642,8 +643,50 @@ BANNED = [
     "Yes, your destination is in your field of view",
 ]
 
-REQ_LEX = ["gray","grey","brown","red","blue","white","black",
-           "square","rectangular","rectangle","c-shaped","circle","round"]
+# 1. add near the top
+# ──────────────────────────────────────────────────────────────
+#  Expanded lexical feature sets (quick manual expansion + sparse
+#  sampling of training data revealed frequent extra tokens)      
+# ──────────────────────────────────────────────────────────────
+
+COLOR_SET = {
+    # basic
+    "gray","grey","brown","red","blue","green","white","black",
+    # extra from data
+    "sand","yellow","orange","pink","purple","beige"
+}
+
+SHAPE_SET = {
+    "square","rectangular","rectangle","round","circle",
+    "triangular","hexagonal","octagonal",
+    "l-shaped","u-shaped","c-shaped","cylindrical",
+    "dome","arch","irregular"
+}
+
+MATERIAL_SET = {
+    "metal","concrete","glass","brick","wooden",
+    "steel","asphalt","stone","tile"
+}
+
+SPATIAL_SET = {
+    "north","south","east","west",
+    "northwest","northeast","southwest","southeast",
+    "left","right","forward","backward","ahead","behind"
+}
+
+LANDMARK_SET = {
+    "building","structure","road","street","highway","house",
+    "parking","lot","bridge","tower","river","runway"
+}
+
+MOVEMENT_SET = {
+    "turn","move","go","head","fly","navigate",
+    "proceed","advance","reverse","pivot"
+}
+
+# unified required lexicon capped to 35 tokens (sorted for reproducibility)
+_FULL_LEX = sorted(list(COLOR_SET | MATERIAL_SET | SHAPE_SET | SPATIAL_SET | LANDMARK_SET | MOVEMENT_SET))
+REQ_LEX = _FULL_LEX[:35]
 
 PRESETS: Dict[str, Dict] = {
     # Direction/Nearness focused
@@ -726,6 +769,7 @@ def evaluate_split(
     routing_mode: str = "question",
     max_samples: Optional[int] = None,
     dataset: AnsweringDataset = None, # Added dataset parameter
+    is_distributed: bool = False, # Added is_distributed parameter
 ) -> Dict[str, float]:
     """
     Evaluate split with distributed processing and hint tags.
@@ -735,7 +779,7 @@ def evaluate_split(
         hint_types = ['spatial', 'movement', 'landmark', 'navigation']
     if rank == 0:
         print("=" * 80)
-        print(f"SPLIT: {split} | PRESET: {preset_name} | 10% SAMPLING")
+        print(f"SPLIT: {split} | PRESET: {preset_name} | {sample_ratio*100}% SAMPLING")
         print("-" * 80)
 
     n = 0
@@ -818,8 +862,51 @@ def evaluate_split(
     results['hint_usage'] = hint_usage
     results['total_samples'] = n
 
+    # Wait for all GPUs to finish and aggregate results
+    if is_distributed:
+        # Gather results from all ranks
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        
+        # Create tensors for aggregation
+        total_samples_tensor = torch.tensor(n, dtype=torch.long, device=next(model.parameters()).device)
+        totals_tensor = torch.tensor([totals[k] for k in ['direction', 'yesno', 'attribute', 'landmark', 'movement', 'form', 'total']], 
+                                   dtype=torch.float32, device=next(model.parameters()).device)
+        
+        # Gather from all ranks
+        gathered_samples = [torch.zeros_like(total_samples_tensor) for _ in range(world_size)]
+        gathered_totals = [torch.zeros_like(totals_tensor) for _ in range(world_size)]
+        
+        dist.all_gather(gathered_samples, total_samples_tensor)
+        dist.all_gather(gathered_totals, totals_tensor)
+        
+        # Aggregate results from all GPUs
+        total_samples_all_gpus = sum([s.item() for s in gathered_samples])
+        totals_all_gpus = torch.stack(gathered_totals).sum(dim=0)
+        
+        # Calculate final averages across all GPUs
+        if total_samples_all_gpus > 0:
+            final_totals = totals_all_gpus / total_samples_all_gpus
+            results = {
+                'direction': final_totals[0].item(),
+                'yesno': final_totals[1].item(),
+                'attribute': final_totals[2].item(),
+                'landmark': final_totals[3].item(),
+                'movement': final_totals[4].item(),
+                'form': final_totals[5].item(),
+                'total': final_totals[6].item(),
+                'total_samples': total_samples_all_gpus
+            }
+        else:
+            results = {}
+    else:
+        # Single GPU case - use local results
+        results = {k: v/n for k, v in totals.items()}
+        results['hint_usage'] = hint_usage
+        results['total_samples'] = n
+
     if rank == 0:
-        print(f"SUMMARY  (n={n})")
+        print(f"SUMMARY  (n={results['total_samples']})")
         print(f"  Direction : {results['direction']:.3f}")
         print(f"  Yes/No    : {results['yesno']:.3f}")
         print(f"  Attribute : {results['attribute']:.3f}")
@@ -932,6 +1019,9 @@ def run_distributed(model: AnsweringAgent, tokenizer: T5Tokenizer, config: Confi
     """Run distributed evaluation with hint tags - all splits and presets in one execution."""
     all_results = {}
     
+    # Determine if we're in distributed mode
+    is_distributed = dist.is_initialized() if 'dist' in globals() else False
+    
     if rank == 0:
         print(f"\n🚀 Running ALL evaluations in single execution")
         print(f"📊 Splits: {args.splits}")
@@ -939,6 +1029,7 @@ def run_distributed(model: AnsweringAgent, tokenizer: T5Tokenizer, config: Confi
         print(f"🔧 Sample ratio: {args.sample_ratio}")
         print(f"💡 Hints enabled: {args.use_hints}")
         print(f"🔄 Routing mode: {args.routing}")
+        print(f"🌐 Distributed: {is_distributed} (World Size: {world_size})")
         print("=" * 80)
 
     # Load ALL datasets once at the beginning
@@ -974,7 +1065,8 @@ def run_distributed(model: AnsweringAgent, tokenizer: T5Tokenizer, config: Confi
                     use_hints=args.use_hints,
                     routing_mode=args.routing,
                     max_samples=args.max_samples,
-                    dataset=datasets[split]  # Pass the pre-loaded dataset
+                    dataset=datasets[split],  # Pass the pre-loaded dataset
+                    is_distributed=is_distributed # Pass the is_distributed flag
                 )
                 
                 if results:  # Only add if we got results
