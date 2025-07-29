@@ -30,6 +30,15 @@ import os
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
 
+# Suppress transformers logging
+import logging
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
+logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
+
+# Suppress BERTScore logging
+logging.getLogger("bert_score").setLevel(logging.ERROR)
+
 # -------------------------
 # Lightweight detection helpers
 # -------------------------
@@ -408,11 +417,15 @@ def calculate_rouge_l(pred: str, gold: str) -> float:
 def calculate_bertscore(pred: str, gold: str) -> float:
     """Calculate BERTScore F1 between prediction and gold."""
     try:
+        # Skip BERTScore if environment variable is set to disable it
+        if os.environ.get('DISABLE_BERTSCORE', 'false').lower() == 'true':
+            return 0.0
+            
         # Calculate BERTScore with verbose=False and CPU to avoid GPU conflicts
         P, R, F1 = bert_score([pred], [gold], lang='en', verbose=False, device='cpu')
         return F1.mean().item()
     except Exception as e:
-        print(f"BERTScore calculation error: {e}")
+        # If BERTScore fails, return 0 instead of printing error
         return 0.0
 
 def composite_score(pred: str, gold: str, task_type: str = "precision_short", 
@@ -1109,10 +1122,16 @@ def main():
                         help="Enable deterministic input hints")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for consistent sampling (default: 42)")
+    parser.add_argument("--disable_bertscore", action="store_true",
+                        help="Disable BERTScore calculation to avoid warnings")
     args = parser.parse_args()
 
     # Setup environment
     setup_environment()
+    
+    # Disable BERTScore if requested
+    if args.disable_bertscore:
+        os.environ['DISABLE_BERTSCORE'] = 'true'
 
     # Setup distributed training
     is_distributed, rank, world_size = setup_distributed()
