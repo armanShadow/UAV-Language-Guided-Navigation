@@ -1041,21 +1041,18 @@ def evaluate_split(
         # Calculate final averages across all GPUs
         if total_samples_all_gpus > 0:
             # Safe averages with per-metric counts
-            avg_dir, avg_yn, avg_attr, avg_land, avg_mov, avg_form, avg_bleu4, avg_rouge_l, avg_bertscore = [
-                (totals_all_gpus[i] / counts_all_gpus[i] if counts_all_gpus[i] > 0 else 0.0).item()
-                for i in range(9)
-            ]
+            # Tensor order: direction, yesno, attribute, landmark, movement, form, total, bleu4, rouge_l, bertscore
             results = {
-                'direction': avg_dir,
-                'yesno': avg_yn,
-                'attribute': avg_attr,
-                'landmark': avg_land,
-                'movement': avg_mov,
-                'form': avg_form,
+                'direction': (totals_all_gpus[0] / counts_all_gpus[0] if counts_all_gpus[0] > 0 else 0.0).item(),
+                'yesno': (totals_all_gpus[1] / counts_all_gpus[1] if counts_all_gpus[1] > 0 else 0.0).item(),
+                'attribute': (totals_all_gpus[2] / counts_all_gpus[2] if counts_all_gpus[2] > 0 else 0.0).item(),
+                'landmark': (totals_all_gpus[3] / counts_all_gpus[3] if counts_all_gpus[3] > 0 else 0.0).item(),
+                'movement': (totals_all_gpus[4] / counts_all_gpus[4] if counts_all_gpus[4] > 0 else 0.0).item(),
+                'form': (totals_all_gpus[5] / counts_all_gpus[5] if counts_all_gpus[5] > 0 else 0.0).item(),
                 'total': (totals_all_gpus[6] / total_samples_all_gpus).item() if total_samples_all_gpus>0 else 0.0,
-                'bleu4': avg_bleu4,
-                'rouge_l': avg_rouge_l,
-                'bertscore': avg_bertscore,
+                'bleu4': (totals_all_gpus[7] / counts_all_gpus[7] if counts_all_gpus[7] > 0 else 0.0).item(),
+                'rouge_l': (totals_all_gpus[8] / counts_all_gpus[8] if counts_all_gpus[8] > 0 else 0.0).item(),
+                'bertscore': (totals_all_gpus[9] / counts_all_gpus[9] if counts_all_gpus[9] > 0 else 0.0).item(),
                 'total_samples': total_samples_all_gpus,
                 'hint_usage': hint_usage  # Include hint_usage in distributed results
             }
