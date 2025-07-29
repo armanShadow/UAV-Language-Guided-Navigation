@@ -874,7 +874,9 @@ def evaluate_split(
         n += 1
 
         # Per-sample print (concise) - only on rank 0 and only first 2 examples
-        if rank == 0 and examples_shown < max_examples_to_show and random.random(time.time() * 1000) < 0.2:
+        seed = int(time.time() * 1000)
+        random.seed(seed)
+        if rank == 0 and examples_shown < max_examples_to_show and random.random() < 0.2:
             print(f"[{n}] Task={task_type} | Hint={display_hint}")
             print(f"Q: {truncate(current_question)}")
             print(f"GOLD: {truncate(gold)}")
