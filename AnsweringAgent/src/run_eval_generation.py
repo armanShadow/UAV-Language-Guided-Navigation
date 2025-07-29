@@ -592,7 +592,7 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
         current_view = batch['current_view_image'].squeeze(0)
         previous_views = batch['previous_views_image'].squeeze(0)
         
-        # Get original question and answer text
+        # Move tensors to CPU for decoding (tokenizer works on CPU)
         question = tokenizer.decode(text_input['input_ids'], skip_special_tokens=True)
         gold_answer = tokenizer.decode(batch['text_label']['input_ids'].squeeze(0), skip_special_tokens=True)
         
@@ -746,9 +746,11 @@ def evaluate_split(
             hint_usage['none'] += 1
 
         # Ensure tensors are on the correct device
-        hinted_text_input = to_device_text_input(hinted_text_input, device=torch.device(cur_view.device))
-        cur_view = cur_view.to(cur_view.device)
-        prev_views = prev_views.to(prev_views.device)
+        # Move tensors to the same device as the model
+        model_device = next(gen_model.parameters()).device
+        hinted_text_input = to_device_text_input(hinted_text_input, device=model_device)
+        cur_view = cur_view.to(model_device)
+        prev_views = prev_views.to(model_device)
 
         with torch.no_grad():
             seq = gen_model.generate_answer(
