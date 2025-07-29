@@ -426,7 +426,8 @@ class AnsweringAgent(nn.Module):
                 previous_views: torch.Tensor, labels: torch.Tensor = None, generate: bool = False,
                 destination_view: Optional[torch.Tensor] = None, curriculum_ratio: float = 0.0,
                 positive_input: Optional[dict] = None, positive_input_2: Optional[dict] = None, 
-                negative_input: Optional[dict] = None, negative_input_2: Optional[dict] = None) -> Dict:
+                negative_input: Optional[dict] = None, negative_input_2: Optional[dict] = None,
+                **generation_kwargs) -> Dict:
         """
         Forward pass of the model.
         
@@ -638,27 +639,34 @@ class AnsweringAgent(nn.Module):
                 
             return outputs
         else:
-            # Generation mode - clean and simple approach
-            # Remove complex spatial prompt engineering that's causing gibberish
-            
+            # -----------------------
+            # GENERATION MODE
+            # -----------------------
+
             # Memory optimization
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            
-            # Use the already-processed encoder hidden states directly
-            # No need for complex re-encoding or spatial prompts
+
+            # Default generation settings – can be overridden via **generation_kwargs
+            default_gen_args = {
+                "max_new_tokens": 32,
+                "min_length": 5,
+                "num_beams": 3,
+                "do_sample": False,
+                "repetition_penalty": 1.1,
+                "length_penalty": 1.0,
+                "pad_token_id": self.tokenizer.pad_token_id,
+                "eos_token_id": self.tokenizer.eos_token_id,
+                "early_stopping": True,
+            }
+
+            # Update defaults with any user-provided overrides
+            default_gen_args.update(generation_kwargs)
+
             generated_ids = self.t5_model.generate(
                 encoder_outputs=BaseModelOutput(last_hidden_state=encoder_hidden_states),
                 attention_mask=text_input["attention_mask"],
-                max_new_tokens=32,       # Shorter for more focused answers
-                min_length=5,            # Very minimal length requirement
-                num_beams=3,             # Simple beam search
-                do_sample=False,         # Deterministic generation
-                repetition_penalty=1.1,  # Minimal repetition penalty
-                length_penalty=1.0,      # No length bias
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-                early_stopping=True
+                **default_gen_args,
             )
             
             return {
@@ -669,22 +677,17 @@ class AnsweringAgent(nn.Module):
     
             
     def generate_answer(self, text_input: dict, current_view: torch.Tensor, 
-                       previous_views: torch.Tensor, max_new_tokens: int = 64, **generation_kwargs) -> torch.Tensor:
+                       previous_views: torch.Tensor, **generation_kwargs) -> torch.Tensor:
         """
-        Generate answer text with flexible parameters.
-        
-        Args:
-            text_input: Dictionary with input_ids and attention_mask
-            current_view: Current visual input [batch_size, channels, height, width] 
-            previous_views: Previous visual inputs [batch_size, num_prev, channels, height, width]
-            max_new_tokens: Maximum new tokens to generate
-            **generation_kwargs: Additional generation parameters
-            
-        Returns:
-            Generated token IDs [batch_size, seq_len]
+        Convenience wrapper that forwards generation_kwargs to the underlying
+        T5 generate call via the modified forward().
         """
-        # Forward pass in generation mode
+
         with torch.no_grad():
-            outputs = self.forward(text_input, current_view, previous_views, generate=True)
-            
+            outputs = self.forward(
+                text_input, current_view, previous_views,
+                generate=True,
+                **generation_kwargs,
+            )
+
         return outputs["sequences"]
