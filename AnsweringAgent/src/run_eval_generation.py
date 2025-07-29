@@ -612,10 +612,15 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
         
         # Generate for the entire batch
         with torch.no_grad():
+            # Get task_type safely from kwargs
+            task_type = kwargs.get("task_type", "precision_short")
+            # Remove task_type from kwargs to avoid passing it twice
+            generation_kwargs = {k: v for k, v in kwargs.items() if k != "task_type"}
+            
             seq = gen_model.generate_answer(
                 text_input, current_view, previous_views,
-                task_type=kwargs.pop("task_type"),
-                **kwargs
+                task_type=task_type,
+                **generation_kwargs
             )
         
         # Process each result in the batch
