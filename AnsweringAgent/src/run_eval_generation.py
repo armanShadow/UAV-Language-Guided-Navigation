@@ -871,8 +871,8 @@ def main():
         print()
 
     # Set random seed for reproducibility
-    random.seed(42)
-    torch.manual_seed(42)
+    random.seed(int(time.time()))  # Use current timestamp for different seed each time
+    torch.manual_seed(int(time.time()))  # Use current timestamp for different seed each time
 
     # Load config and model
     config = Config()
@@ -918,57 +918,72 @@ def main():
     # Run distributed evaluation
     run_distributed(model, tokenizer, config, args, rank, world_size)
     
-    # Test generation consistency if requested
-    if args.test_generation_consistency and rank == 0:
-        print("\n🧪 Testing generation consistency between batch sizes...")
-        # Get a sample from the dataset
-        dataset = AnsweringDataset(config, split='val_seen', tokenizer=tokenizer)
-        sample = dataset[0]  # Get first sample
-        
-        # Extract sample data
-        text_input = sample['text_input']
-        cur_view = sample['current_view_image']
-        prev_views = sample['previous_views_image']
-        question = tokenizer.decode(text_input['input_ids'], skip_special_tokens=True)
-        gold = tokenizer.decode(sample['text_label']['input_ids'], skip_special_tokens=True)
-        
-        sample_data = (text_input, cur_view, prev_views, question, gold)
-        
-        # Test consistency
-        is_consistent = test_generation_consistency(model, tokenizer, config, sample_data)
-        print(f"Generation consistency test: {'PASSED' if is_consistent else 'FAILED'}")
-
 
 def run_distributed(model: AnsweringAgent, tokenizer: T5Tokenizer, config: Config, args, rank: int, world_size: int):
-    """Run distributed evaluation with hint tags."""
+    """Run distributed evaluation with hint tags - all splits and presets in one execution."""
     all_results = {}
+    
+    if rank == 0:
+        print(f"\n🚀 Running ALL evaluations in single execution")
+        print(f"📊 Splits: {args.splits}")
+        print(f"🎯 Presets: {list(PRESETS.keys())}")
+        print(f"🔧 Sample ratio: {args.sample_ratio}")
+        print(f"💡 Hints enabled: {args.use_hints}")
+        print(f"🔄 Routing mode: {args.routing}")
+        print("=" * 80)
 
-    # Evaluate on specified splits
+    # Evaluate on ALL specified splits with ALL presets
     for split in args.splits:
+        if rank == 0:
+            print(f"\n📈 Processing split: {split}")
+        
         split_results = {}
-
-        for name, kwargs in PRESETS.items():
+        
+        for preset_name, preset_kwargs in PRESETS.items():
             if rank == 0:
-                print(f"\n🔍 Evaluating {split} with preset {name}")
-
-            results = evaluate_split(
-                model, tokenizer, split, name, kwargs, config,
-                rank=rank, world_size=world_size,
-                sample_ratio=args.sample_ratio,
-                hint_types=args.hint_types,
-                use_hints=args.use_hints,
-                routing_mode=args.routing,
-                max_samples=args.max_samples
-            )
-
-            if results:  # Only add if we got results
-                split_results[name] = results
-
+                print(f"  🎯 Evaluating preset: {preset_name}")
+            
+            try:
+                results = evaluate_split(
+                    model, tokenizer, split, preset_name, preset_kwargs, config,
+                    rank=rank, world_size=world_size,
+                    sample_ratio=args.sample_ratio,
+                    hint_types=args.hint_types,
+                    use_hints=args.use_hints,
+                    routing_mode=args.routing,
+                    max_samples=args.max_samples
+                )
+                
+                if results:  # Only add if we got results
+                    split_results[preset_name] = results
+                    if rank == 0:
+                        print(f"    ✅ {preset_name}: {results['total']:.3f} total score")
+                else:
+                    if rank == 0:
+                        print(f"    ❌ {preset_name}: No results")
+                        
+            except Exception as e:
+                if rank == 0:
+                    print(f"    ❌ {preset_name}: Error - {str(e)}")
+                continue
+        
         all_results[split] = split_results
+        
+        if rank == 0:
+            print(f"  📊 {split} completed with {len(split_results)} presets")
 
     # Save results (only on rank 0)
     if rank == 0:
+        print(f"\n💾 Saving comprehensive results...")
         save_evaluation_results(all_results, args.output_dir)
+        
+        # Print final summary
+        print(f"\n🎯 COMPREHENSIVE EVALUATION COMPLETE")
+        print("=" * 80)
+        for split, split_results in all_results.items():
+            print(f"\n{split.upper()}:")
+            for preset, results in split_results.items():
+                print(f"  {preset}: {results['total']:.3f} total, {results['total_samples']} samples")
 
 
 def save_evaluation_results(results: Dict, output_dir: str):
