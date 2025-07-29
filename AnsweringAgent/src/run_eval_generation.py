@@ -22,12 +22,19 @@ from utils.logger import setup_logger
 # Lightweight detection helpers
 # -------------------------
 YES_TOKENS = {
+    # basic affirmatives
     "yes", "yeah", "yep", "affirmative",
+    # camera‐visibility affirmatives
     "in your field of view", "in your field of vision",
+    "you can see it", "you can see the destination", "visible", "in sight",
 }
+
 NO_TOKENS = {
+    # basic negatives
     "no", "nope", "negative",
+    # camera‐visibility negatives
     "not in your field of view", "not in your field of vision",
+    "cannot see", "can't see", "not visible", "out of sight",
 }
 
 # Enhanced spatial feature definitions (inspired by validation_pipeline.py)
@@ -669,6 +676,7 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
 BANNED = [
     "Yes, fate is in your field of vision",
     "Yes, your destination is in your field of view",
+    'You, can see it',
 ]
 
 # 1. add near the top
@@ -776,6 +784,21 @@ PRESETS: Dict[str, Dict] = {
         bad_penalty=5.0,
         req_boost=1.5,
     ),
+    "attribute_complete_v2": dict(
+    task_type="attribute_complete",
+    num_beams=6,
+    do_sample=False,
+    no_repeat_ngram_size=4,
+    repetition_penalty=1.25,    # ↑
+    length_penalty=1.1,
+    min_new_tokens=12,
+    max_new_tokens=60,
+    early_stopping=True,
+    banned_phrases=BANNED,
+    required_lexicons=REQ_LEX,
+    bad_penalty=5.0,
+    req_boost=1.8              # push required tokens harder
+),
 }
 
 
