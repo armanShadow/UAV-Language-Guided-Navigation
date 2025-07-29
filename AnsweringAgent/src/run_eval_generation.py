@@ -783,8 +783,10 @@ def evaluate_split(
         print(f"SPLIT: {split} | PRESET: {preset_name} | {sample_ratio*100}% SAMPLING")
         print("-" * 80)
 
-    n = 0
+    # Counters
+    n = 0  # total samples processed (for reporting)
     totals = {"direction": 0.0, "yesno": 0.0, "attribute": 0.0, "landmark": 0.0, "movement": 0.0, "form": 0.0, "total": 0.0}
+    counts = {"direction": 0, "yesno": 0, "attribute": 0, "landmark": 0, "movement": 0, "form": 0}  # per-metric denom
     hint_usage = {h: 0 for h in (hint_types or ['spatial','movement','landmark','navigation'])}
     hint_usage['none'] = 0
     
@@ -835,9 +837,32 @@ def evaluate_split(
             banned_phrases=BANNED
         )
 
-        # Accumulate
-        for k in totals:
-            totals[k] += sc[k]
+        # Accumulate totals and counts – only count relevant metrics
+        totals["direction"] += sc["direction"]; counts["direction"] += 1  # always relevant
+        totals["form"] += sc["form"]; counts["form"] += 1               # always relevant
+
+        # yes/no relevance
+        if gold_yesno(gold) is not None:
+            totals["yesno"] += sc["yesno"]
+            counts["yesno"] += 1
+
+        # attribute relevance
+        gold_feats = extract_spatial_features(gold)
+        if gold_feats.get('colors') or gold_feats.get('shapes'):
+            totals["attribute"] += sc["attribute"]
+            counts["attribute"] += 1
+
+        # landmark relevance
+        if gold_feats.get('landmarks'):
+            totals["landmark"] += sc["landmark"]
+            counts["landmark"] += 1
+
+        # movement relevance
+        if gold_feats.get('movement_verbs'):
+            totals["movement"] += sc["movement"]
+            counts["movement"] += 1
+
+        # total composite always present
         n += 1
 
         # Per-sample print (concise) - only on rank 0 and only first 2 examples
@@ -858,8 +883,20 @@ def evaluate_split(
             print("No samples found.")
         return {}
 
-    # Calculate averages
-    results = {k: v/n for k, v in totals.items()}
+    # Helper to compute safe average
+    def _avg(metric):
+        return totals[metric] / counts[metric] if counts[metric] > 0 else 0.0
+
+    # Calculate averages using relevant denominators
+    results = {
+        "direction": _avg("direction"),
+        "yesno": _avg("yesno"),
+        "attribute": _avg("attribute"),
+        "landmark": _avg("landmark"),
+        "movement": _avg("movement"),
+        "form": _avg("form"),
+        "total": totals["total"] / n if n > 0 else 0.0,
+    }
     results['hint_usage'] = hint_usage
     results['total_samples'] = n
 
@@ -869,33 +906,44 @@ def evaluate_split(
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         
-        # Create tensors for aggregation
+        # Create tensors for aggregation (totals and counts)
         total_samples_tensor = torch.tensor(n, dtype=torch.long, device=next(model.parameters()).device)
-        totals_tensor = torch.tensor([totals[k] for k in ['direction', 'yesno', 'attribute', 'landmark', 'movement', 'form', 'total']], 
-                                   dtype=torch.float32, device=next(model.parameters()).device)
+        totals_tensor = torch.tensor([
+            totals['direction'], totals['yesno'], totals['attribute'], totals['landmark'], totals['movement'], totals['form'], totals['total']
+        ], dtype=torch.float32, device=next(model.parameters()).device)
+        counts_tensor = torch.tensor([
+            counts['direction'], counts['yesno'], counts['attribute'], counts['landmark'], counts['movement'], counts['form']
+        ], dtype=torch.long, device=next(model.parameters()).device)
         
         # Gather from all ranks
         gathered_samples = [torch.zeros_like(total_samples_tensor) for _ in range(world_size)]
         gathered_totals = [torch.zeros_like(totals_tensor) for _ in range(world_size)]
+        gathered_counts = [torch.zeros_like(counts_tensor) for _ in range(world_size)]
         
         dist.all_gather(gathered_samples, total_samples_tensor)
         dist.all_gather(gathered_totals, totals_tensor)
+        dist.all_gather(gathered_counts, counts_tensor)
         
         # Aggregate results from all GPUs
         total_samples_all_gpus = sum([s.item() for s in gathered_samples])
         totals_all_gpus = torch.stack(gathered_totals).sum(dim=0)
+        counts_all_gpus = torch.stack(gathered_counts).sum(dim=0)
         
         # Calculate final averages across all GPUs
         if total_samples_all_gpus > 0:
-            final_totals = totals_all_gpus / total_samples_all_gpus
+            # Safe averages with per-metric counts
+            avg_dir, avg_yn, avg_attr, avg_land, avg_mov, avg_form = [
+                (totals_all_gpus[i] / counts_all_gpus[i] if counts_all_gpus[i] > 0 else 0.0).item()
+                for i in range(6)
+            ]
             results = {
-                'direction': final_totals[0].item(),
-                'yesno': final_totals[1].item(),
-                'attribute': final_totals[2].item(),
-                'landmark': final_totals[3].item(),
-                'movement': final_totals[4].item(),
-                'form': final_totals[5].item(),
-                'total': final_totals[6].item(),
+                'direction': avg_dir,
+                'yesno': avg_yn,
+                'attribute': avg_attr,
+                'landmark': avg_land,
+                'movement': avg_mov,
+                'form': avg_form,
+                'total': (totals_all_gpus[6] / total_samples_all_gpus).item() if total_samples_all_gpus>0 else 0.0,
                 'total_samples': total_samples_all_gpus,
                 'hint_usage': hint_usage  # Include hint_usage in distributed results
             }
@@ -903,9 +951,17 @@ def evaluate_split(
             results = {}
     else:
         # Single GPU case - use local results
-        results = {k: v/n for k, v in totals.items()}
-        results['hint_usage'] = hint_usage
-        results['total_samples'] = n
+        results = {
+            'direction': _avg('direction'),
+            'yesno': _avg('yesno'),
+            'attribute': _avg('attribute'),
+            'landmark': _avg('landmark'),
+            'movement': _avg('movement'),
+            'form': _avg('form'),
+            'total': totals['total']/n if n>0 else 0.0,
+            'hint_usage': hint_usage,
+            'total_samples': n,
+        }
 
     if rank == 0:
         print(f"SUMMARY  (n={results['total_samples']})")
@@ -1162,4 +1218,8 @@ def run(model: AnsweringAgent, tokenizer: T5Tokenizer):
 
 if __name__ == "__main__":
     # If you prefer, replace with your actual initialization and then call run(model, tokenizer)
+    from transformers import T5Tokenizer
+    tok = T5Tokenizer.from_pretrained("t5-small")
+    lengths = [ len(tok(gold)["input_ids"]) for gold in dataset.raw_gold_answers ]
+    print("95th-percentile:", sorted(lengths)[int(0.95*len(lengths))])    
     main()
