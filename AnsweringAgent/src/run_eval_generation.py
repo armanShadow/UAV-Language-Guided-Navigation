@@ -895,7 +895,8 @@ def evaluate_split(
                 'movement': final_totals[4].item(),
                 'form': final_totals[5].item(),
                 'total': final_totals[6].item(),
-                'total_samples': total_samples_all_gpus
+                'total_samples': total_samples_all_gpus,
+                'hint_usage': hint_usage  # Include hint_usage in distributed results
             }
         else:
             results = {}
@@ -1127,7 +1128,10 @@ def save_evaluation_results(results: Dict, output_dir: str):
             print(f"    Movement: {preset_results['movement']:.3f}")
             print(f"    Form: {preset_results['form']:.3f}")
             print(f"    Samples: {preset_results['total_samples']}")
-            print(f"    Hint Usage: {preset_results['hint_usage']}")
+            if 'hint_usage' in preset_results:
+                print(f"    Hint Usage: {preset_results['hint_usage']}")
+            else:
+                print(f"    Hint Usage: Not available")
 
 
 def run(model: AnsweringAgent, tokenizer: T5Tokenizer):
