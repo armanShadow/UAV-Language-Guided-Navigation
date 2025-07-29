@@ -11,11 +11,8 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 
-# Import your model class and the scoring utils you appended
-from models.answering_agent import (
-    AnsweringAgent,
-    composite_score, direction_score, yesno_score, attribute_score,
-)
+# Import your model class
+from models.answering_agent import AnsweringAgent
 from config import Config
 from data.dataset import AnsweringDataset
 from utils.logger import setup_logger
@@ -32,14 +29,380 @@ NO_TOKENS = {
     "not in your field of view", "not in your field of vision",
 }
 
-COLOR_SET = {"gray","grey","brown","red","blue","green","white","black","sand"}
-SHAPE_SET = {"square","rectangular","rectangle","c-shaped","c shape","circle","round"}
+# Enhanced spatial feature definitions (inspired by validation_pipeline.py)
+SPATIAL_FEATURES = {
+    'directions': {
+        'regex_patterns': [
+            r'\d+\s*o\'?clock', r'one\s+o\'?clock', r'two\s+o\'?clock', r'three\s+o\'?clock', 
+            r'four\s+o\'?clock', r'five\s+o\'?clock', r'six\s+o\'?clock', r'seven\s+o\'?clock',
+            r'eight\s+o\'?clock', r'nine\s+o\'?clock', r'ten\s+o\'?clock', r'eleven\s+o\'?clock',
+            r'twelve\s+o\'?clock'
+        ],
+        'string_patterns': [
+            'north', 'south', 'east', 'west', 
+            'northwest', 'northeast', 'southwest', 'southeast',
+            'northern', 'southern', 'eastern', 'western',
+            'northeastern', 'northwestern', 'southeastern', 'southwestern',
+            'left', 'right', 'forward', 'ahead', 'straight', 'backwards', 'backward', 'reverse'
+        ],
+        'synonyms': {
+            'forward': ['forward', 'ahead', 'straight', 'front'],
+            'backward': ['backward', 'backwards', 'reverse', 'back', 'behind'],
+            'left': ['left', 'port'],
+            'right': ['right', 'starboard'],
+            'north': ['north', 'northern', 'northward'],
+            'south': ['south', 'southern', 'southward'],
+            'east': ['east', 'eastern', 'eastward'],
+            'west': ['west', 'western', 'westward'],
+            'northeast': ['northeast', 'northeastern', 'north-east'],
+            'northwest': ['northwest', 'northwestern', 'north-west'],
+            'southeast': ['southeast', 'southeastern', 'south-east'],
+            'southwest': ['southwest', 'southwestern', 'south-west']
+        }
+    },
+    'landmarks': {
+        'string_patterns': [
+            'building', 'structure', 'road', 'street', 'highway', 'house',
+            'parking', 'lot', 'area', 'destination', 'target', 'goal', 'construction', 'edifice'
+        ],
+        'synonyms': {
+            'building': ['building', 'structure', 'house', 'edifice', 'construction'],
+            'road': ['road', 'street', 'highway', 'path'],
+            'destination': ['destination', 'target', 'goal', 'endpoint']
+        }
+    },
+    'colors': {
+        'string_patterns': ["gray", "grey", "brown", "red", "blue", "green", "white", "black", "sand"]
+    },
+    'shapes': {
+        'string_patterns': ["square", "rectangular", "rectangle", "c-shaped", "c shape", "circle", "round"]
+    },
+    'movement_verbs': {
+        'string_patterns': ['move', 'go', 'turn', 'head', 'fly', 'navigate', 'reverse', 'pivot', 'proceed', 'advance'],
+        'synonyms': {
+            'move': ['move', 'go', 'head', 'proceed', 'travel', 'navigate', 'advance'],
+            'turn': ['turn', 'rotate', 'pivot', 'swing', 'veer'],
+            'reverse': ['reverse', 'back', 'backwards', 'backward'],
+            'fly': ['fly', 'soar', 'hover', 'pilot']
+        }
+    }
+}
+
+# Clock number mappings for equivalence checking
+CLOCK_MAPPINGS = {
+    '1': ['1', 'one'], '2': ['2', 'two'], '3': ['3', 'three'], '4': ['4', 'four'],
+    '5': ['5', 'five'], '6': ['6', 'six'], '7': ['7', 'seven'], '8': ['8', 'eight'],
+    '9': ['9', 'nine'], '10': ['10', 'ten'], '11': ['11', 'eleven'], '12': ['12', 'twelve']
+}
 
 def gold_yesno(gold: str) -> Optional[bool]:
     gl = gold.lower()
     if any(t in gl for t in YES_TOKENS): return True
     if any(t in gl for t in NO_TOKENS):  return False
     return None
+
+def extract_spatial_features(text: str) -> Dict[str, List[str]]:
+    """Extract spatial features from text using enhanced parsing."""
+    text_lower = text.lower()
+    features = {}
+    
+    for category, category_data in SPATIAL_FEATURES.items():
+        found_features = []
+        
+        # Process regex patterns
+        if 'regex_patterns' in category_data:
+            for pattern in category_data['regex_patterns']:
+                matches = re.findall(pattern, text_lower)
+                found_features.extend(matches)
+        
+        # Process string patterns
+        if 'string_patterns' in category_data:
+            for pattern in category_data['string_patterns']:
+                if re.search(r'\b' + re.escape(pattern) + r'\b', text_lower):
+                    found_features.append(pattern)
+        
+        if found_features:
+            features[category] = list(set(found_features))
+    
+    return features
+
+def extract_clock_hour(direction_text: str) -> Optional[str]:
+    """Extract clock hour from direction text."""
+    # Match numeric clock (e.g., "5 o'clock")
+    numeric_match = re.search(r'(\d+)\s*o\'?clock', direction_text.lower())
+    if numeric_match:
+        return numeric_match.group(1)
+    
+    # Match word form clock (e.g., "five o'clock")
+    for hour, variants in CLOCK_MAPPINGS.items():
+        for variant in variants:
+            if re.search(rf'\b{variant}\s+o\'?clock', direction_text.lower()):
+                return hour
+    return None
+
+def find_direction_synonym_match(orig_dir: str, para_dirs: List[str]) -> bool:
+    """Find if original direction has synonym match in paraphrase directions."""
+    synonyms = SPATIAL_FEATURES['directions']['synonyms']
+    
+    # Normalize the original direction
+    orig_dir_lower = orig_dir.lower()
+    
+    # Check direct match first
+    for para_dir in para_dirs:
+        if orig_dir_lower == para_dir.lower():
+            return True
+    
+    # Check synonym groups
+    for base_dir, synonym_list in synonyms.items():
+        if orig_dir_lower in [syn.lower() for syn in synonym_list]:
+            for para_dir in para_dirs:
+                para_dir_lower = para_dir.lower()
+                # Check if paraphrase direction is in the same synonym group
+                if para_dir_lower in [syn.lower() for syn in synonym_list]:
+                    return True
+                # Check if paraphrase direction contains the synonym (for "northeastern direction" cases)
+                if any(syn.lower() in para_dir_lower for syn in synonym_list):
+                    return True
+    
+    return False
+
+def find_landmark_synonym_match(orig_landmark: str, para_landmarks: List[str]) -> bool:
+    """Find if original landmark has synonym match in paraphrase landmarks."""
+    synonyms = SPATIAL_FEATURES['landmarks']['synonyms']
+    
+    for base_landmark, synonym_list in synonyms.items():
+        if orig_landmark.lower() in synonym_list:
+            for para_landmark in para_landmarks:
+                if any(syn in para_landmark.lower() for syn in synonym_list):
+                    return True
+    return False
+
+# -------------------------
+# Scoring functions
+# -------------------------
+def direction_score(pred: str, gold: str) -> float:
+    """Score direction accuracy between prediction and gold using enhanced spatial parsing."""
+    # Extract spatial features using enhanced parsing
+    pred_features = extract_spatial_features(pred)
+    gold_features = extract_spatial_features(gold)
+    
+    pred_dirs = pred_features.get('directions', [])
+    gold_dirs = gold_features.get('directions', [])
+    
+    if not gold_dirs and not pred_dirs:
+        return 1.0  # Both don't have directions
+    if not gold_dirs or not pred_dirs:
+        return 0.0
+    
+    # Extract clock hours for comparison
+    pred_clock_hours = set()
+    gold_clock_hours = set()
+    
+    for direction in pred_dirs:
+        clock_hour = extract_clock_hour(direction)
+        if clock_hour:
+            pred_clock_hours.add(clock_hour)
+    
+    for direction in gold_dirs:
+        clock_hour = extract_clock_hour(direction)
+        if clock_hour:
+            gold_clock_hours.add(clock_hour)
+    
+    # Clock direction similarity
+    if gold_clock_hours and pred_clock_hours:
+        # Both have clock directions - compare them
+        clock_similarity = 1.0 if pred_clock_hours == gold_clock_hours else 0.0
+    elif not gold_clock_hours and not pred_clock_hours:
+        # Neither has clock directions - no clock information to compare
+        clock_similarity = 0.0
+    else:
+        # One has clock directions, other doesn't - different
+        clock_similarity = 0.0
+    
+    # Synonym-based similarity for other directions
+    synonym_matches = 0
+    total_directions = len(gold_dirs)
+    
+    for gold_dir in gold_dirs:
+        if find_direction_synonym_match(gold_dir, pred_dirs):
+            synonym_matches += 1
+    
+    synonym_similarity = synonym_matches / total_directions if total_directions > 0 else 0.0
+    
+    # Combined similarity
+    return max(clock_similarity, synonym_similarity)
+
+def yesno_score(pred: str, gold: str) -> float:
+    """Score yes/no accuracy between prediction and gold."""
+    pred_lower = pred.lower()
+    gold_lower = gold.lower()
+    
+    # Determine gold answer type
+    gold_ans = gold_yesno(gold)
+    if gold_ans is None:
+        return 0.5  # Neutral score for non-yes/no questions
+    
+    # Determine prediction answer type
+    pred_ans = None
+    if any(t in pred_lower for t in YES_TOKENS):
+        pred_ans = True
+    elif any(t in pred_lower for t in NO_TOKENS):
+        pred_ans = False
+    
+    if pred_ans is None:
+        return 0.0  # No clear yes/no in prediction
+    
+    return 1.0 if pred_ans == gold_ans else 0.0
+
+def attribute_score(pred: str, gold: str) -> float:
+    """Score attribute accuracy between prediction and gold using enhanced spatial parsing."""
+    # Extract spatial features using enhanced parsing
+    pred_features = extract_spatial_features(pred)
+    gold_features = extract_spatial_features(gold)
+    
+    # Extract colors and shapes
+    pred_colors = pred_features.get('colors', [])
+    gold_colors = gold_features.get('colors', [])
+    
+    pred_shapes = pred_features.get('shapes', [])
+    gold_shapes = gold_features.get('shapes', [])
+    
+    # Score colors
+    if gold_colors and pred_colors:
+        color_match = len(set(pred_colors) & set(gold_colors)) / len(set(gold_colors))
+    elif not gold_colors and not pred_colors:
+        color_match = 1.0
+    else:
+        color_match = 0.0
+    
+    # Score shapes
+    if gold_shapes and pred_shapes:
+        shape_match = len(set(pred_shapes) & set(gold_shapes)) / len(set(gold_shapes))
+    elif not gold_shapes and not pred_shapes:
+        shape_match = 1.0
+    else:
+        shape_match = 0.0
+    
+    return (color_match + shape_match) / 2
+
+def landmark_score(pred: str, gold: str) -> float:
+    """Score landmark accuracy between prediction and gold using enhanced spatial parsing."""
+    # Extract spatial features using enhanced parsing
+    pred_features = extract_spatial_features(pred)
+    gold_features = extract_spatial_features(gold)
+    
+    pred_landmarks = pred_features.get('landmarks', [])
+    gold_landmarks = gold_features.get('landmarks', [])
+    
+    if not gold_landmarks and not pred_landmarks:
+        return 1.0  # Both don't have landmarks
+    if not gold_landmarks or not pred_landmarks:
+        return 0.0
+    
+    # Create combined strings for multi-word landmark detection
+    pred_combined = ' '.join(sorted(pred_landmarks)).lower()
+    gold_combined = ' '.join(sorted(gold_landmarks)).lower()
+    
+    # Check for exact match first (handles "parking lot" cases)
+    if pred_combined == gold_combined:
+        return 1.0
+    
+    # Check for multi-word landmark combinations
+    pred_compound = pred_combined.replace(' ', '')
+    gold_compound = gold_combined.replace(' ', '')
+    if pred_compound == gold_compound:
+        return 1.0
+    
+    # Check if one is subset of other (e.g., "lot" in "parking lot")
+    if pred_combined in gold_combined or gold_combined in pred_combined:
+        return 0.8  # High similarity for subset matches
+    
+    # Traditional synonym-based matching
+    synonym_matches = 0
+    total_landmarks = len(gold_landmarks)
+    
+    for gold_landmark in gold_landmarks:
+        if find_landmark_synonym_match(gold_landmark, pred_landmarks):
+            synonym_matches += 1
+    
+    return synonym_matches / total_landmarks if total_landmarks > 0 else 0.0
+
+def movement_score(pred: str, gold: str) -> float:
+    """Score movement verb accuracy between prediction and gold using enhanced spatial parsing."""
+    # Extract spatial features using enhanced parsing
+    pred_features = extract_spatial_features(pred)
+    gold_features = extract_spatial_features(gold)
+    
+    pred_movements = pred_features.get('movement_verbs', [])
+    gold_movements = gold_features.get('movement_verbs', [])
+    
+    if not gold_movements and not pred_movements:
+        return 1.0  # Both don't have movement verbs
+    if not gold_movements or not pred_movements:
+        return 0.0
+    
+    # Synonym-based matching for movement verbs
+    synonym_matches = 0
+    total_movements = len(gold_movements)
+    
+    for gold_movement in gold_movements:
+        # Check direct match first
+        if gold_movement.lower() in [m.lower() for m in pred_movements]:
+            synonym_matches += 1
+            continue
+        
+        # Check synonym groups
+        synonyms = SPATIAL_FEATURES['movement_verbs']['synonyms']
+        for base_movement, synonym_list in synonyms.items():
+            if gold_movement.lower() in [syn.lower() for syn in synonym_list]:
+                for pred_movement in pred_movements:
+                    if pred_movement.lower() in [syn.lower() for syn in synonym_list]:
+                        synonym_matches += 1
+                        break
+                break
+    
+    return synonym_matches / total_movements if total_movements > 0 else 0.0
+
+def composite_score(pred: str, gold: str, task_type: str = "precision_short", 
+                   banned_phrases: List[str] = None) -> Dict[str, float]:
+    """Compute composite score with multiple metrics using enhanced spatial parsing."""
+    if banned_phrases is None:
+        banned_phrases = []
+    
+    # Check for banned phrases
+    form_penalty = 0.0
+    for phrase in banned_phrases:
+        if phrase.lower() in pred.lower():
+            form_penalty = 1.0
+            break
+    
+    # Calculate individual scores
+    dir_score = direction_score(pred, gold)
+    yn_score = yesno_score(pred, gold)
+    attr_score = attribute_score(pred, gold)
+    landmark_score_val = landmark_score(pred, gold)
+    movement_score_val = movement_score(pred, gold)
+    
+    # Form score (inverse of penalty)
+    form_score = 1.0 - form_penalty
+    
+    # Composite score based on task type
+    if task_type == "attribute_complete":
+        # Include all scores for comprehensive evaluation
+        total_score = (dir_score + yn_score + attr_score + landmark_score_val + movement_score_val + form_score) / 6
+    else:  # precision_short
+        # Focus on direction, yes/no, and form for precision tasks
+        total_score = (dir_score + yn_score + form_score) / 3
+    
+    return {
+        "direction": dir_score,
+        "yesno": yn_score,
+        "attribute": attr_score,
+        "landmark": landmark_score_val,
+        "movement": movement_score_val,
+        "form": form_score,
+        "total": total_score
+    }
 
 # Split task-type detectors
 def detect_task_type_question_only(question: str) -> str:
@@ -323,7 +686,7 @@ def evaluate_split(
         print("-" * 80)
 
     n = 0
-    totals = {"direction": 0.0, "yesno": 0.0, "attribute": 0.0, "form": 0.0, "total": 0.0}
+    totals = {"direction": 0.0, "yesno": 0.0, "attribute": 0.0, "landmark": 0.0, "movement": 0.0, "form": 0.0, "total": 0.0}
     hint_usage = {h: 0 for h in (hint_types or ['spatial','movement','landmark','navigation'])}
     hint_usage['none'] = 0
 
@@ -397,7 +760,7 @@ def evaluate_split(
             print(f"Q: {truncate(question)}")
             print(f"GOLD: {truncate(gold)}")
             print(f"PRED: {truncate(pred)}")
-            print(f"Scores: dir={sc['direction']:.2f}  yn={sc['yesno']:.2f}  attr={sc['attribute']:.2f}  form={sc['form']:.2f}  total={sc['total']:.2f}")
+            print(f"Scores: dir={sc['direction']:.2f}  yn={sc['yesno']:.2f}  attr={sc['attribute']:.2f}  land={sc['landmark']:.2f}  mov={sc['movement']:.2f}  form={sc['form']:.2f}  total={sc['total']:.2f}")
             print("-" * 80)
 
         if max_samples and n >= max_samples:
@@ -418,6 +781,8 @@ def evaluate_split(
         print(f"  Direction : {results['direction']:.3f}")
         print(f"  Yes/No    : {results['yesno']:.3f}")
         print(f"  Attribute : {results['attribute']:.3f}")
+        print(f"  Landmark  : {results['landmark']:.3f}")
+        print(f"  Movement  : {results['movement']:.3f}")
         print(f"  Form      : {results['form']:.3f}")
         print(f"  TOTAL     : {results['total']:.3f}")
         print(f"  Hint Usage: {hint_usage}")
@@ -575,6 +940,8 @@ def save_evaluation_results(results: Dict, output_dir: str):
             print(f"    Direction: {preset_results['direction']:.3f}")
             print(f"    Yes/No: {preset_results['yesno']:.3f}")
             print(f"    Attribute: {preset_results['attribute']:.3f}")
+            print(f"    Landmark: {preset_results['landmark']:.3f}")
+            print(f"    Movement: {preset_results['movement']:.3f}")
             print(f"    Form: {preset_results['form']:.3f}")
             print(f"    Samples: {preset_results['total_samples']}")
             print(f"    Hint Usage: {preset_results['hint_usage']}")
