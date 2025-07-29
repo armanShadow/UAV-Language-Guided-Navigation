@@ -421,8 +421,11 @@ def calculate_bertscore(pred: str, gold: str) -> float:
         if os.environ.get('DISABLE_BERTSCORE', 'false').lower() == 'true':
             return 0.0
             
-        # Calculate BERTScore with verbose=False and CPU to avoid GPU conflicts
-        P, R, F1 = bert_score([pred], [gold], lang='en', verbose=False, device='cpu')
+        # Use GPU if available, otherwise CPU
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
+        # Calculate BERTScore with verbose=False
+        P, R, F1 = bert_score([pred], [gold], lang='en', verbose=False, device=device)
         return F1.mean().item()
     except Exception as e:
         # If BERTScore fails, return 0 instead of printing error
