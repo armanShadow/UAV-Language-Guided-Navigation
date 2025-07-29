@@ -101,10 +101,25 @@ SPATIAL_FEATURES = {
         }
     },
     'colors': {
-        'string_patterns': ["gray", "grey", "brown", "red", "blue", "green", "white", "black", "sand"]
+        'string_patterns': ["gray", "grey", "brown", "red", "blue", "green", "white", "black", "sand", "yellow", "orange", "pink", "purple", "beige"],
+        'synonyms': {
+            'gray': ['gray', 'grey'],
+            'grey': ['grey', 'gray'],
+        }
     },
     'shapes': {
-        'string_patterns': ["square", "rectangular", "rectangle", "c-shaped", "c shape", "circle", "round"]
+        'string_patterns': ["square", "rectangular", "rectangle", "c-shaped", "c shape", "circle", "round", "triangular", "hexagonal", "octagonal", "l-shaped", "u-shaped", "cylindrical", "dome", "arch", "irregular"],
+        'synonyms': {
+            'rectangular': ['rectangular', 'rectangle'],
+            'rectangle': ['rectangle', 'rectangular'],
+            'square': ['square'],
+            'round': ['round', 'circle'],
+            'circle': ['circle', 'round'],
+            'c-shaped': ['c-shaped', 'c shape'],
+            'c shape': ['c shape', 'c-shaped'],
+            'l-shaped': ['l-shaped', 'l shape'],
+            'u-shaped': ['u-shaped', 'u shape'],            
+        }
     },
     'movement_verbs': {
         'string_patterns': ['move', 'go', 'turn', 'head', 'fly', 'navigate', 'reverse', 'pivot', 'proceed', 'advance'],
@@ -130,6 +145,30 @@ def gold_yesno(gold: str) -> Optional[bool]:
     if any(t in gl for t in NO_TOKENS):  return False
     return None
 
+def normalize_features(features: List[str], category: str) -> List[str]:
+    """Normalize features using synonym mappings."""
+    if category not in SPATIAL_FEATURES or 'synonyms' not in SPATIAL_FEATURES[category]:
+        return features
+    
+    synonyms = SPATIAL_FEATURES[category]['synonyms']
+    normalized = []
+    
+    for feature in features:
+        # Find the canonical form (first synonym in each group)
+        canonical = None
+        for canonical_form, synonym_list in synonyms.items():
+            if feature.lower() in [syn.lower() for syn in synonym_list]:
+                canonical = canonical_form
+                break
+        
+        if canonical:
+            normalized.append(canonical)
+        else:
+            # If no synonym found, keep original
+            normalized.append(feature)
+    
+    return list(set(normalized))  # Remove duplicates
+
 def extract_spatial_features(text: str) -> Dict[str, List[str]]:
     """Extract spatial features from text using enhanced parsing."""
     text_lower = text.lower()
@@ -151,7 +190,9 @@ def extract_spatial_features(text: str) -> Dict[str, List[str]]:
                     found_features.append(pattern)
         
         if found_features:
-            features[category] = list(set(found_features))
+            # Normalize features using synonyms
+            normalized_features = normalize_features(found_features, category)
+            features[category] = normalized_features
     
     return features
 
@@ -285,11 +326,11 @@ def yesno_score(pred: str, gold: str) -> float:
 
 def attribute_score(pred: str, gold: str) -> float:
     """Score attribute accuracy between prediction and gold using enhanced spatial parsing."""
-    # Extract spatial features using enhanced parsing
+    # Extract spatial features using enhanced parsing (already normalized)
     pred_features = extract_spatial_features(pred)
     gold_features = extract_spatial_features(gold)
     
-    # Extract colors and shapes
+    # Extract colors and shapes (already normalized by extract_spatial_features)
     pred_colors = pred_features.get('colors', [])
     gold_colors = gold_features.get('colors', [])
     
@@ -300,13 +341,17 @@ def attribute_score(pred: str, gold: str) -> float:
     # colours
     if gold_colors:
         if pred_colors:
-            scores.append(len(set(pred_colors) & set(gold_colors)) / len(set(gold_colors)))
+            # Use set intersection since features are already normalized
+            intersection = set(pred_colors) & set(gold_colors)
+            scores.append(len(intersection) / len(set(gold_colors)))
         else:
             scores.append(0.0)
     # shapes
     if gold_shapes:
         if pred_shapes:
-            scores.append(len(set(pred_shapes) & set(gold_shapes)) / len(set(gold_shapes)))
+            # Use set intersection since features are already normalized
+            intersection = set(pred_shapes) & set(gold_shapes)
+            scores.append(len(intersection) / len(set(gold_shapes)))
         else:
             scores.append(0.0)
 
