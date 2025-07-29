@@ -364,12 +364,14 @@ def composite_score(pred: str, gold: str, task_type: str = "precision_short",
     if banned_phrases is None:
         banned_phrases = []
     
-    # Check for banned phrases
+    # Check for banned phrases - only apply penalty if gold doesn't contain them
     form_penalty = 0.0
     for phrase in banned_phrases:
         if phrase.lower() in pred.lower():
-            form_penalty = 1.0
-            break
+            # Only penalize if the gold answer doesn't contain this phrase
+            if phrase.lower() not in gold.lower():
+                form_penalty = 1.0
+                break
     
     # Calculate individual scores (unified across all tasks)
     dir_score = direction_score(pred, gold)
@@ -381,23 +383,44 @@ def composite_score(pred: str, gold: str, task_type: str = "precision_short",
     # Form score (inverse of penalty)
     form_score = 1.0 - form_penalty
 
-    sub_scores = [dir_score, form_score]  # always present
+    # Define weights for different metrics (higher = more important)
+    weights = {
+        'direction': 1.0,    # Most important for navigation
+        'attribute': 0.8,    # Very important for landmark identification
+        'landmark': 0.7,     # Important for navigation
+        'movement': 0.7,     # Important for instructions
+        'yesno': 0.6,        # Standard importance
+        'form': 0.5,         # Least important (just avoids banned phrases)
+    }
+    
+    # Build weighted score components
+    weighted_scores = []
+    total_weight = 0.0
+    
+    # Always include direction and form
+    weighted_scores.append(weights['direction'] * dir_score)
+    weighted_scores.append(weights['form'] * form_score)
+    total_weight += weights['direction'] + weights['form']
 
     # Include yes/no only if the gold question is yes/no
     if gold_yesno(gold) is not None:
-        sub_scores.append(yn_score)
+        weighted_scores.append(weights['yesno'] * yn_score)
+        total_weight += weights['yesno']
 
     # include attribute / landmark / movement only if gold contains them
     if extract_spatial_features(gold).get('colors') or extract_spatial_features(gold).get('shapes'):
-        sub_scores.append(attr_score)
+        weighted_scores.append(weights['attribute'] * attr_score)
+        total_weight += weights['attribute']
 
     if extract_spatial_features(gold).get('landmarks'):
-        sub_scores.append(landmark_score_val)
+        weighted_scores.append(weights['landmark'] * landmark_score_val)
+        total_weight += weights['landmark']
 
     if extract_spatial_features(gold).get('movement_verbs'):
-        sub_scores.append(movement_score_val)
+        weighted_scores.append(weights['movement'] * movement_score_val)
+        total_weight += weights['movement']
 
-    total_score = sum(sub_scores) / len(sub_scores)
+    total_score = sum(weighted_scores) / total_weight if total_weight > 0 else 0.0
     
     return {
         "direction": dir_score,
