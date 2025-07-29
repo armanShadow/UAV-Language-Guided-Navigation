@@ -1115,10 +1115,6 @@ def run_distributed(model: AnsweringAgent, tokenizer: T5Tokenizer, config: Confi
         sampled_datasets[split] = sampled_dataset
         
         if rank == 0:
-            from transformers import T5Tokenizer
-            tok = T5Tokenizer.from_pretrained("t5-small")
-            lengths = [ len(tok(gold)["input_ids"]) for gold in full_dataset.raw_gold_answers ]
-            print("95th-percentile:", sorted(lengths)[int(0.95*len(lengths))])    
             print(f"    Sampled {len(sampled_indices)} indices from {dataset_size} total samples")
     
     if rank == 0:
