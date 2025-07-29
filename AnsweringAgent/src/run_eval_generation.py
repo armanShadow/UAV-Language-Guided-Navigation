@@ -802,7 +802,7 @@ PRESETS: Dict[str, Dict] = {
     # Conservative beam search
     "conservative": dict(
         task_type="precision_short",
-        num_beams=6,
+        num_beams=4,
         do_sample=False,
         repetition_penalty=1.1,
         length_penalty=0.4,
@@ -1006,10 +1006,29 @@ def evaluate_split(
         dist.all_gather(gathered_totals, totals_tensor)
         dist.all_gather(gathered_counts, counts_tensor)
         
+        # Gather hint usage from all ranks
+        hint_usage_tensor = torch.tensor([
+            hint_usage.get('spatial', 0), hint_usage.get('movement', 0), 
+            hint_usage.get('landmark', 0), hint_usage.get('navigation', 0), 
+            hint_usage.get('none', 0)
+        ], dtype=torch.long, device=next(model.parameters()).device)
+        gathered_hint_usage = [torch.zeros_like(hint_usage_tensor) for _ in range(world_size)]
+        dist.all_gather(gathered_hint_usage, hint_usage_tensor)
+        
         # Aggregate results from all GPUs
         total_samples_all_gpus = sum([s.item() for s in gathered_samples])
         totals_all_gpus = torch.stack(gathered_totals).sum(dim=0)
         counts_all_gpus = torch.stack(gathered_counts).sum(dim=0)
+        
+        # Aggregate hint usage from all GPUs
+        hint_usage_all_gpus = torch.stack(gathered_hint_usage).sum(dim=0)
+        aggregated_hint_usage = {
+            'spatial': hint_usage_all_gpus[0].item(),
+            'movement': hint_usage_all_gpus[1].item(),
+            'landmark': hint_usage_all_gpus[2].item(),
+            'navigation': hint_usage_all_gpus[3].item(),
+            'none': hint_usage_all_gpus[4].item()
+        }
         
         # Calculate final averages across all GPUs
         if total_samples_all_gpus > 0:
@@ -1029,7 +1048,7 @@ def evaluate_split(
                 'bertscore': (totals_all_gpus[9] / counts_all_gpus[9] if counts_all_gpus[9] > 0 else 0.0).item(),
                 'avg_length': (totals_all_gpus[10] / counts_all_gpus[10] if counts_all_gpus[10] > 0 else 0.0).item(),
                 'total_samples': total_samples_all_gpus,
-                'hint_usage': hint_usage  # Include hint_usage in distributed results
+                'hint_usage': aggregated_hint_usage  # Include aggregated hint_usage in distributed results
             }
         else:
             results = {}
