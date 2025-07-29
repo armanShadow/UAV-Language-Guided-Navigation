@@ -595,6 +595,7 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
             for i in range(batch_size):
                 # Get question for task type detection
                 question = tokenizer.decode(text_input['input_ids'][i], skip_special_tokens=True)
+                current_question = tokenizer.decode(batch['current_question_input']['input_ids'][i], skip_special_tokens=True)
                 gold = tokenizer.decode(batch['text_label']['input_ids'][i], skip_special_tokens=True)
                 task_type = detect_task_type(question, gold, "question")
                 
@@ -629,11 +630,11 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
         # Process each result in the batch
         for i in range(batch_size):
             # Decode individual results
-            question = tokenizer.decode(text_input['input_ids'][i], skip_special_tokens=True)
+            unified_context = tokenizer.decode(text_input['input_ids'][i], skip_special_tokens=True)
             gold_answer = tokenizer.decode(batch['text_label']['input_ids'][i], skip_special_tokens=True)
             pred = tokenizer.decode(seq[i], skip_special_tokens=True)
             
-            yield question, gold_answer, pred
+            yield unified_context, gold_answer, pred, current_question
 
 
 # -------------------------
@@ -813,8 +814,8 @@ def evaluate_split(
     # gen_model = model.module if isinstance(model, DDP) else model  # Already set above
 
     for sample_idx, sample in enumerate(dataset_iterator):
-        question, gold, pred = sample
-        task_type = detect_task_type(question, gold, routing_mode)
+        unified_context, gold, pred, current_question = sample
+        task_type = detect_task_type(current_question, gold, routing_mode)
 
         # Determine hint type and usage
         hint_type = "landmark" if task_type == "attribute_complete" else "spatial"
@@ -866,9 +867,9 @@ def evaluate_split(
         n += 1
 
         # Per-sample print (concise) - only on rank 0 and only first 2 examples
-        if rank == 0 and examples_shown < max_examples_to_show:
+        if rank == 0 and examples_shown < max_examples_to_show and random.random() < 0.2:
             print(f"[{n}] Task={task_type} | Hint={display_hint}")
-            print(f"Q: {truncate(question)}")
+            print(f"Q: {truncate(current_question)}")
             print(f"GOLD: {truncate(gold)}")
             print(f"PRED: {truncate(pred)}")
             print(f"Scores: dir={sc['direction']:.2f}  yn={sc['yesno']:.2f}  attr={sc['attribute']:.2f}  land={sc['landmark']:.2f}  mov={sc['movement']:.2f}  form={sc['form']:.2f}  total={sc['total']:.2f}")
