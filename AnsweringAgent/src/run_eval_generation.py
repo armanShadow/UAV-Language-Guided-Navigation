@@ -542,13 +542,14 @@ def sample_dataset_indices(dataset_size: int, sample_ratio: float = 0.1) -> List
 def iter_dataset_distributed(split: str, config: Config, tokenizer, 
                            sample_ratio: float = 0.1, rank: int = 0, world_size: int = 1, 
                            device: torch.device = None, gen_model = None, use_hints: bool = False,
-                           hint_types: List[str] = None, **kwargs) -> Iterable[Tuple[str, str, str]]:
+                           hint_types: List[str] = None, dataset: AnsweringDataset = None, **kwargs) -> Iterable[Tuple[str, str, str]]:
     """
     Yield processed samples for the given split with 10% sampling and distributed processing.
     Now processes entire batches like the working distributed_generation_pipeline.py.
     """
-    # Create dataset
-    dataset = AnsweringDataset(config, split=split, tokenizer=tokenizer)
+    # Use pre-loaded dataset if provided, otherwise create new one
+    if dataset is None:
+        dataset = AnsweringDataset(config, split=split, tokenizer=tokenizer)
     
     # Sample 10% of dataset indices
     dataset_size = len(dataset)
@@ -724,6 +725,7 @@ def evaluate_split(
     use_hints: bool = False,
     routing_mode: str = "question",
     max_samples: Optional[int] = None,
+    dataset: AnsweringDataset = None, # Added dataset parameter
 ) -> Dict[str, float]:
     """
     Evaluate split with distributed processing and hint tags.
@@ -748,10 +750,15 @@ def evaluate_split(
     # Get distributed dataset iterator with model and generation parameters
     gen_model = model.module if isinstance(model, DDP) else model
     
+    # Use pre-loaded dataset if provided, otherwise create new one
+    if dataset is None:
+        dataset = AnsweringDataset(config, split=split, tokenizer=tokenizer)
+    
     dataset_iterator = iter_dataset_distributed(
         split, config, tokenizer, sample_ratio, rank, world_size,
         device=next(gen_model.parameters()).device, gen_model=gen_model,
         use_hints=use_hints, hint_types=hint_types,
+        dataset=dataset,  # Pass the dataset to the iterator
         **preset_kwargs
     )
 
@@ -932,6 +939,19 @@ def run_distributed(model: AnsweringAgent, tokenizer: T5Tokenizer, config: Confi
         print(f"🔄 Routing mode: {args.routing}")
         print("=" * 80)
 
+    # Load ALL datasets once at the beginning
+    if rank == 0:
+        print(f"\n📂 Loading datasets once for all evaluations...")
+    
+    datasets = {}
+    for split in args.splits:
+        if rank == 0:
+            print(f"  Loading {split} dataset...")
+        datasets[split] = AnsweringDataset(config, split=split, tokenizer=tokenizer)
+    
+    if rank == 0:
+        print(f"✅ All datasets loaded successfully!")
+
     # Evaluate on ALL specified splits with ALL presets
     for split in args.splits:
         if rank == 0:
@@ -951,7 +971,8 @@ def run_distributed(model: AnsweringAgent, tokenizer: T5Tokenizer, config: Confi
                     hint_types=args.hint_types,
                     use_hints=args.use_hints,
                     routing_mode=args.routing,
-                    max_samples=args.max_samples
+                    max_samples=args.max_samples,
+                    dataset=datasets[split]  # Pass the pre-loaded dataset
                 )
                 
                 if results:  # Only add if we got results
