@@ -4,6 +4,7 @@ import re
 import random
 import time
 import json
+import time
 import argparse
 from transformers import T5Tokenizer
 from typing import Dict, Iterable, Tuple, Optional, List
@@ -676,7 +677,7 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
 BANNED = [
     "Yes, fate is in your field of vision",
     "Yes, your destination is in your field of view",
-    'You, can see it',
+    'You can see it',
 ]
 
 # 1. add near the top
@@ -873,7 +874,7 @@ def evaluate_split(
         n += 1
 
         # Per-sample print (concise) - only on rank 0 and only first 2 examples
-        if rank == 0 and examples_shown < max_examples_to_show and random.random() < 0.2:
+        if rank == 0 and examples_shown < max_examples_to_show and random.random(time.time() * 1000) < 0.2:
             print(f"[{n}] Task={task_type} | Hint={display_hint}")
             print(f"Q: {truncate(current_question)}")
             print(f"GOLD: {truncate(gold)}")
