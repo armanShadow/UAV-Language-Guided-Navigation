@@ -802,12 +802,12 @@ PRESETS: Dict[str, Dict] = {
     # Conservative beam search
     "conservative": dict(
         task_type="precision_short",
-        num_beams=4,
+        num_beams=2,
         do_sample=False,
         repetition_penalty=1.1,
         length_penalty=1.0,
         min_new_tokens=8,
-        max_new_tokens=50,
+        max_new_tokens=60,
         early_stopping=True,
     ),
     # Aggressive beam search 
