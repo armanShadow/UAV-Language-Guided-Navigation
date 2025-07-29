@@ -807,45 +807,10 @@ PRESETS: Dict[str, Dict] = {
         repetition_penalty=1.1,
         length_penalty=1.0,
         min_new_tokens=8,
-        max_new_tokens=25,
-        early_stopping=True,
-    ),
-    # Aggressive beam search 
-    "aggressive": dict(
-        task_type="attribute_complete",
-        num_beams=8,
-        do_sample=False,
-        no_repeat_ngram_size=4,
-        repetition_penalty=1.15,
-        length_penalty=1.15,
-        min_new_tokens=12,
-        max_new_tokens=60,
-        early_stopping=True,
-    ),
-    "more_aggressive": dict(
-        task_type="attribute_complete",
-        num_beams=8,
-        do_sample=False,
-        no_repeat_ngram_size=4,
-        repetition_penalty=1.2,
-        length_penalty=0.7,
-        min_new_tokens=12,
-        max_new_tokens=70,
-        early_stopping=True,
-    ),
-    # Sampling-based generation
-    "diverse": dict(
-        task_type="attribute_complete",
-        num_beams=1,
-        do_sample=True,
-        top_k=50,
-        top_p=0.9,
-        temperature=0.8,
-        repetition_penalty=1.15,
-        min_new_tokens=10,
         max_new_tokens=50,
         early_stopping=True,
     ),
+    # Aggressive beam search 
 }
 
 
