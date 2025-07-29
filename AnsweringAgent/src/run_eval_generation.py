@@ -570,14 +570,31 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
     )
     
     for batch in dataloader:
-        # Extract single sample from batch
-        text_input = batch['text_input']
-        current_view = batch['current_view_image']
-        previous_views = batch['previous_views_image']
+        # Extract single sample from batch (batch_size=1, so take first element)
+        text_input = {
+            'input_ids': batch['text_input']['input_ids'].squeeze(0),
+            'attention_mask': batch['text_input']['attention_mask'].squeeze(0)
+        }
+        
+        # Handle separate encoding components if available
+        if 'first_instruction_input' in batch:
+            text_input['first_instruction_input'] = {
+                'input_ids': batch['first_instruction_input']['input_ids'].squeeze(0),
+                'attention_mask': batch['first_instruction_input']['attention_mask'].squeeze(0)
+            }
+        
+        if 'current_question_input' in batch:
+            text_input['current_question_input'] = {
+                'input_ids': batch['current_question_input']['input_ids'].squeeze(0),
+                'attention_mask': batch['current_question_input']['attention_mask'].squeeze(0)
+            }
+        
+        current_view = batch['current_view_image'].squeeze(0)
+        previous_views = batch['previous_views_image'].squeeze(0)
         
         # Get original question and answer text
         question = tokenizer.decode(text_input['input_ids'], skip_special_tokens=True)
-        gold_answer = tokenizer.decode(batch['text_label']['input_ids'], skip_special_tokens=True)
+        gold_answer = tokenizer.decode(batch['text_label']['input_ids'].squeeze(0), skip_special_tokens=True)
         
         yield text_input, current_view, previous_views, question, gold_answer
 
@@ -689,6 +706,10 @@ def evaluate_split(
     totals = {"direction": 0.0, "yesno": 0.0, "attribute": 0.0, "landmark": 0.0, "movement": 0.0, "form": 0.0, "total": 0.0}
     hint_usage = {h: 0 for h in (hint_types or ['spatial','movement','landmark','navigation'])}
     hint_usage['none'] = 0
+    
+    # Counter for showing examples (only show 2 per dataset)
+    examples_shown = 0
+    max_examples_to_show = 2
 
     # Get distributed dataset iterator
     dataset_iterator = iter_dataset_distributed(split, config, tokenizer, sample_ratio, rank, world_size)
@@ -754,14 +775,15 @@ def evaluate_split(
             totals[k] += sc[k]
         n += 1
 
-        # Per-sample print (concise) - only on rank 0
-        if rank == 0:
+        # Per-sample print (concise) - only on rank 0 and only first 2 examples
+        if rank == 0 and examples_shown < max_examples_to_show:
             print(f"[{n}] Task={task_type} | Hint={hint_type}")
             print(f"Q: {truncate(question)}")
             print(f"GOLD: {truncate(gold)}")
             print(f"PRED: {truncate(pred)}")
             print(f"Scores: dir={sc['direction']:.2f}  yn={sc['yesno']:.2f}  attr={sc['attribute']:.2f}  land={sc['landmark']:.2f}  mov={sc['movement']:.2f}  form={sc['form']:.2f}  total={sc['total']:.2f}")
             print("-" * 80)
+            examples_shown += 1
 
         if max_samples and n >= max_samples:
             break
