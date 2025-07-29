@@ -1126,64 +1126,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 if rank == 0:
                     logger.info(f"📋 Validation Loss: {val_loss:.4f}")
                     
-                    # Generate a single sample to monitor answer quality
-                    try:
-                        # Get one sample from validation loader
-                        sample_batch = next(iter(val_loader))
-                        
-                        # Prepare the sample
-                        sample_text_input = {k: v[:1].to(device, non_blocking=True) for k, v in sample_batch['text_input'].items()}
-                        if 'first_instruction_input' in sample_batch:
-                            sample_text_input['first_instruction_input'] = {k: v[:1].to(device, non_blocking=True) for k, v in sample_batch['first_instruction_input'].items()}
-                        if 'current_question_input' in sample_batch:
-                            sample_text_input['current_question_input'] = {k: v[:1].to(device, non_blocking=True) for k, v in sample_batch['current_question_input'].items()}
-                        
-                        sample_current_view = sample_batch['current_view_image'][:1].to(device, non_blocking=True)
-                        sample_previous_views = sample_batch['previous_views_image'][:1].to(device, non_blocking=True)
-                        
-                        # Apply EMA for consistent generation
-                        ema.apply_shadow()
-                        
-                        with torch.no_grad():
-                            # Generate answer
-                            generation_outputs = model(
-                                sample_text_input,
-                                sample_current_view, 
-                                sample_previous_views,
-                                generate=True
-                            )
-                            
-                            generated_ids = generation_outputs["sequences"]
-                            
-                            # Decode the generated answer
-                            generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
-                            
-                            # Decode the target answer for comparison
-                            target_ids = sample_batch['text_label']['input_ids'][0]
-                            target_text = tokenizer.decode(target_ids, skip_special_tokens=True)
-                            
-                            # Decode the input question for context
-                            input_ids = sample_batch['text_input']['input_ids'][0]
-                            input_text = tokenizer.decode(input_ids, skip_special_tokens=True)
-                            
-                            # Log the sample
-                            logger.info(f"🎯 SAMPLE GENERATION (Epoch {epoch+1}):")
-                            logger.info(f"❓ Question: {input_text[-200:]}")  # Last 200 chars to avoid long logs
-                            logger.info(f"✅ Target: {target_text}")
-                            logger.info(f"🤖 Generated: {generated_text}")
-                            logger.info(f"📏 Length: {len(generated_text)} chars")
-                        
-                        # Restore original weights
-                        ema.restore()
-                        
-                    except Exception as e:
-                        logger.warning(f"⚠️ Sample generation failed: {str(e)}")
-                        # Make sure to restore EMA weights even if generation fails
-                        try:
-                            ema.restore()
-                        except:
-                            pass
-                    
                     # Check if this is the best model so far (only compare to best, not previous)
                     if val_loss < best_val_loss * (1 - config.training.early_stopping_min_delta):
                         improvement = (best_val_loss - val_loss) / best_val_loss * 100
