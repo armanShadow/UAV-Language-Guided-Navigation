@@ -563,40 +563,44 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
     
     dataloader = DataLoader(
         sampled_dataset,
-        batch_size=1,  # Process one sample at a time for evaluation
+        batch_size=8,  # Increased from 4 to 8 for better efficiency
         sampler=sampler,
         num_workers=2,
         pin_memory=True
     )
     
     for batch in dataloader:
-        # Extract single sample from batch (batch_size=1, so take first element)
-        text_input = {
-            'input_ids': batch['text_input']['input_ids'].squeeze(0),
-            'attention_mask': batch['text_input']['attention_mask'].squeeze(0)
-        }
+        # Process each sample in the batch
+        batch_size = batch['text_input']['input_ids'].size(0)
         
-        # Handle separate encoding components if available
-        if 'first_instruction_input' in batch:
-            text_input['first_instruction_input'] = {
-                'input_ids': batch['first_instruction_input']['input_ids'].squeeze(0),
-                'attention_mask': batch['first_instruction_input']['attention_mask'].squeeze(0)
+        for i in range(batch_size):
+            # Extract single sample from batch
+            text_input = {
+                'input_ids': batch['text_input']['input_ids'][i],
+                'attention_mask': batch['text_input']['attention_mask'][i]
             }
-        
-        if 'current_question_input' in batch:
-            text_input['current_question_input'] = {
-                'input_ids': batch['current_question_input']['input_ids'].squeeze(0),
-                'attention_mask': batch['current_question_input']['attention_mask'].squeeze(0)
-            }
-        
-        current_view = batch['current_view_image'].squeeze(0)
-        previous_views = batch['previous_views_image'].squeeze(0)
-        
-        # Move tensors to CPU for decoding (tokenizer works on CPU)
-        question = tokenizer.decode(text_input['input_ids'], skip_special_tokens=True)
-        gold_answer = tokenizer.decode(batch['text_label']['input_ids'].squeeze(0), skip_special_tokens=True)
-        
-        yield text_input, current_view, previous_views, question, gold_answer
+            
+            # Handle separate encoding components if available
+            if 'first_instruction_input' in batch:
+                text_input['first_instruction_input'] = {
+                    'input_ids': batch['first_instruction_input']['input_ids'][i],
+                    'attention_mask': batch['first_instruction_input']['attention_mask'][i]
+                }
+            
+            if 'current_question_input' in batch:
+                text_input['current_question_input'] = {
+                    'input_ids': batch['current_question_input']['input_ids'][i],
+                    'attention_mask': batch['current_question_input']['attention_mask'][i]
+                }
+            
+            current_view = batch['current_view_image'][i]
+            previous_views = batch['previous_views_image'][i]
+            
+            # Move tensors to CPU for decoding (tokenizer works on CPU)
+            question = tokenizer.decode(text_input['input_ids'], skip_special_tokens=True)
+            gold_answer = tokenizer.decode(batch['text_label']['input_ids'][i], skip_special_tokens=True)
+            
+            yield text_input, current_view, previous_views, question, gold_answer
 
 
 # -------------------------
@@ -922,6 +926,26 @@ def main():
 
     # Run distributed evaluation
     run_distributed(model, tokenizer, config, args, rank, world_size)
+    
+    # Test generation consistency if requested
+    if args.test_generation_consistency and rank == 0:
+        print("\n🧪 Testing generation consistency between batch sizes...")
+        # Get a sample from the dataset
+        dataset = AnsweringDataset(config, split='val_seen', tokenizer=tokenizer)
+        sample = dataset[0]  # Get first sample
+        
+        # Extract sample data
+        text_input = sample['text_input']
+        cur_view = sample['current_view_image']
+        prev_views = sample['previous_views_image']
+        question = tokenizer.decode(text_input['input_ids'], skip_special_tokens=True)
+        gold = tokenizer.decode(sample['text_label']['input_ids'], skip_special_tokens=True)
+        
+        sample_data = (text_input, cur_view, prev_views, question, gold)
+        
+        # Test consistency
+        is_consistent = test_generation_consistency(model, tokenizer, config, sample_data)
+        print(f"Generation consistency test: {'PASSED' if is_consistent else 'FAILED'}")
 
 
 def run_distributed(model: AnsweringAgent, tokenizer: T5Tokenizer, config: Config, args, rank: int, world_size: int):
