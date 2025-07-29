@@ -23,6 +23,13 @@ from config import Config
 from data.dataset import AnsweringDataset
 from utils.logger import setup_logger
 
+# Suppress warnings for cleaner output
+import warnings
+warnings.filterwarnings("ignore")
+import os
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
+
 # -------------------------
 # Lightweight detection helpers
 # -------------------------
@@ -401,8 +408,8 @@ def calculate_rouge_l(pred: str, gold: str) -> float:
 def calculate_bertscore(pred: str, gold: str) -> float:
     """Calculate BERTScore F1 between prediction and gold."""
     try:
-        # Calculate BERTScore
-        P, R, F1 = bert_score([pred], [gold], lang='en', verbose=False)
+        # Calculate BERTScore with verbose=False and CPU to avoid GPU conflicts
+        P, R, F1 = bert_score([pred], [gold], lang='en', verbose=False, device='cpu')
         return F1.mean().item()
     except Exception as e:
         print(f"BERTScore calculation error: {e}")
