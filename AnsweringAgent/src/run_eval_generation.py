@@ -769,12 +769,14 @@ def evaluate_split(
         question, gold, pred = sample
         task_type = detect_task_type(question, gold, routing_mode)
 
-        # Add hint handling if needed (this is now done in the iterator)
+        # Determine hint type and usage
         hint_type = "landmark" if task_type == "attribute_complete" else "spatial"
         if use_hints:
             hint_usage[hint_type] += 1
+            display_hint = hint_type  # Show hint type when actually using hints
         else:
             hint_usage['none'] += 1
+            display_hint = 'none'  # Show 'none' when not using hints
 
         # Clean generated text (remove hint if present)
         for hint in HINT_TAGS.values():
@@ -795,7 +797,7 @@ def evaluate_split(
 
         # Per-sample print (concise) - only on rank 0 and only first 2 examples
         if rank == 0 and examples_shown < max_examples_to_show:
-            print(f"[{n}] Task={task_type} | Hint={hint_type}")
+            print(f"[{n}] Task={task_type} | Hint={display_hint}")
             print(f"Q: {truncate(question)}")
             print(f"GOLD: {truncate(gold)}")
             print(f"PRED: {truncate(pred)}")
