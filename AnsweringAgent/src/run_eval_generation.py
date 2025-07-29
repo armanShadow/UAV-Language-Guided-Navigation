@@ -751,6 +751,12 @@ def evaluate_split(
         hinted_text_input = to_device_text_input(hinted_text_input, device=model_device)
         cur_view = cur_view.to(model_device)
         prev_views = prev_views.to(model_device)
+        
+        # Add batch dimension if missing (model expects 4D tensors)
+        if cur_view.dim() == 3:
+            cur_view = cur_view.unsqueeze(0)  # Add batch dimension
+        if prev_views.dim() == 3:
+            prev_views = prev_views.unsqueeze(0)  # Add batch dimension
 
         with torch.no_grad():
             seq = gen_model.generate_answer(
