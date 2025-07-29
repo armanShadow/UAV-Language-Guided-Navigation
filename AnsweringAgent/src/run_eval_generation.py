@@ -597,7 +597,7 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
                 question = tokenizer.decode(text_input['input_ids'][i], skip_special_tokens=True)
                 current_question = tokenizer.decode(batch['current_question_input']['input_ids'][i], skip_special_tokens=True)
                 gold = tokenizer.decode(batch['text_label']['input_ids'][i], skip_special_tokens=True)
-                task_type = detect_task_type(question, gold, "question")
+                task_type = detect_task_type(current_question, gold, "question")
                 
                 # Choose hint type based on task
                 hint_type = "landmark" if task_type == "attribute_complete" else "spatial"
@@ -633,6 +633,9 @@ def iter_dataset_distributed(split: str, config: Config, tokenizer,
             unified_context = tokenizer.decode(text_input['input_ids'][i], skip_special_tokens=True)
             gold_answer = tokenizer.decode(batch['text_label']['input_ids'][i], skip_special_tokens=True)
             pred = tokenizer.decode(seq[i], skip_special_tokens=True)
+            
+            # Extract current question from the batch
+            current_question = tokenizer.decode(batch['current_question_input']['input_ids'][i], skip_special_tokens=True)
             
             yield unified_context, gold_answer, pred, current_question
 
