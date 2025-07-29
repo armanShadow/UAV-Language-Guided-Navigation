@@ -867,6 +867,7 @@ def evaluate_split(
             counts["movement"] += 1
 
         # total composite always present
+        totals["total"] += sc["total"]
         n += 1
 
         # Per-sample print (concise) - only on rank 0 and only first 2 examples
