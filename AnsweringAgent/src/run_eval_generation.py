@@ -752,12 +752,6 @@ def evaluate_split(
         cur_view = cur_view.to(model_device)
         prev_views = prev_views.to(model_device)
         
-        # Add batch dimension if missing (model expects 4D tensors)
-        if cur_view.dim() == 3:
-            cur_view = cur_view.unsqueeze(0)  # Add batch dimension
-        if prev_views.dim() == 3:
-            prev_views = prev_views.unsqueeze(0)  # Add batch dimension
-        
         # Debug: Print tensor shapes to understand the issue
         if rank == 0 and n == 0:  # Only print for first sample on rank 0
             print(f"DEBUG - cur_view shape: {cur_view.shape}")
@@ -769,17 +763,8 @@ def evaluate_split(
             print(f"DEBUG - prev_views.size(3): {prev_views.size(3)}")
             print(f"DEBUG - prev_views.size(4): {prev_views.size(4)}")
         
-        # Ensure previous_views has correct shape for the model
-        # Dataset returns [num_views, channels, height, width], model expects [batch, num_views, channels, height, width]
-        if prev_views.dim() == 4 and prev_views.size(0) == 1:  # [1, num_views, channels, height, width]
-            # This is already correct shape from dataset
-            pass
-        elif prev_views.dim() == 4 and prev_views.size(1) == 3:  # [batch, channels, height, width] - single view
-            # This is a single view, we need to add the views dimension
-            prev_views = prev_views.unsqueeze(1)  # [batch, 1, channels, height, width]
-        elif prev_views.dim() == 3:  # [channels, height, width] - single view without batch
-            # Add both batch and views dimensions
-            prev_views = prev_views.unsqueeze(0).unsqueeze(0)  # [1, 1, channels, height, width]
+        # Simplified tensor handling - let the model handle the shapes naturally
+        # The dataset provides tensors in the correct format, just ensure they're on the right device
 
         with torch.no_grad():
             seq = gen_model.generate_answer(
