@@ -707,6 +707,11 @@ def test_matching_logic():
                             current_q_ids = formatted_sample['current_question_input']['input_ids']
                             decoded_current_q = tokenizer.decode(current_q_ids, skip_special_tokens=True)
                             print(f"  Decoded current question: {decoded_current_q}")
+                        
+                        # Decode the current answer (text_label)
+                        text_label_ids = formatted_sample['text_label']
+                        decoded_current_answer = tokenizer.decode(text_label_ids, skip_special_tokens=True)
+                        print(f"  Decoded current answer: {decoded_current_answer}")
                             
                     except Exception as e:
                         print(f"  Error decoding formatted sample: {e}")
@@ -719,6 +724,206 @@ def test_matching_logic():
             
     except Exception as e:
         print(f"❌ Error in matching logic test: {e}")
+        import traceback
+        traceback.print_exc()
+
+def test_detailed_matching_analysis():
+    """Test detailed analysis of the matching process to identify issues"""
+    print("\n🔍 Testing detailed matching analysis...")
+    
+    try:
+        # Import the actual generator class
+        from generate_avdn_with_agent import AVDNGeneratorWithAgent
+        from transformers import T5Tokenizer
+        
+        config = Config()
+        
+        # Set up required components for the generator
+        tokenizer = T5Tokenizer.from_pretrained('t5-base')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Create a dummy logger for testing
+        class DummyLogger:
+            def info(self, msg):
+                print(f"[INFO] {msg}")
+            def warning(self, msg):
+                print(f"[WARNING] {msg}")
+            def error(self, msg):
+                print(f"[ERROR] {msg}")
+        
+        # Create a dummy model for testing
+        model = AnsweringAgent(config, tokenizer=tokenizer, logger=DummyLogger())
+        model.to(device)
+        
+        # Set up directories
+        avdn_data_dir = "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations"
+        output_dir = "test_output"
+        
+        # Create generator instance
+        generator = AVDNGeneratorWithAgent(
+            config=config,
+            tokenizer=tokenizer,
+            model=model,
+            avdn_data_dir=avdn_data_dir,
+            output_dir=output_dir,
+            device=device
+        )
+        
+        # Load datasets
+        avdn_data = load_avdn_dataset('val_seen')
+        preprocessed_json = generator.load_preprocessed_json('val_seen')
+        dataset = AnsweringDataset(config, split='val_seen')
+        
+        print(f"✅ Loaded AVDN dataset: {len(avdn_data)} samples")
+        print(f"✅ Loaded preprocessed JSON: {len(preprocessed_json)} episodes")
+        print(f"✅ Loaded formatted dataset: {len(dataset)} samples")
+        
+        # Analyze the matching process step by step
+        print("\n🔍 Analyzing matching process for problematic samples...")
+        
+        # Test the specific problematic case
+        avdn_sample = avdn_data[1]  # The problematic sample
+        print(f"\n{'='*80}")
+        print(f"🎯 ANALYZING PROBLEMATIC AVDN SAMPLE 1")
+        print(f"{'='*80}")
+        
+        print(f"\n🔴 AVDN SAMPLE 1:")
+        print(f"  Map: {avdn_sample.get('map_name', 'N/A')}")
+        print(f"  Route Index: {avdn_sample.get('route_index', 'N/A')}")
+        print(f"  Instructions: {avdn_sample.get('instructions', 'N/A')}")
+        
+        # Parse AVDN instructions
+        instructions = avdn_sample.get('instructions', '')
+        if '[QUE]' in instructions and '[INS]' in instructions:
+            que_start = instructions.find('[QUE]')
+            ins_start = instructions.find('[INS]')
+            question = instructions[que_start+5:ins_start].strip()
+            instruction = instructions[ins_start+5:].strip()
+            print(f"  📝 Question: {question}")
+            print(f"  📝 Instruction: {instruction}")
+            print(f"  📝 Turn Type: Q&A Turn")
+        elif '[INS]' in instructions:
+            instruction = instructions.replace('[INS]', '').strip()
+            print(f"  📝 First Instruction: {instruction}")
+            print(f"  📝 Question: None")
+            print(f"  📝 Turn Type: First Instruction")
+        else:
+            print(f"  📝 Unrecognized format: {instructions}")
+        
+        # Show what the matching algorithm is doing
+        print(f"\n🔍 MATCHING ALGORITHM ANALYSIS:")
+        
+        # Extract clean instruction (as done in the algorithm)
+        if '[INS]' in instructions:
+            clean_instruction = instructions.replace('[INS]', '').strip().lower()
+        elif '[QUE]' in instructions and '[INS]' in instructions:
+            parts = instructions.split('[INS]')
+            if len(parts) > 1:
+                clean_instruction = parts[1].strip().lower()
+            else:
+                clean_instruction = instructions.strip().lower()
+        else:
+            clean_instruction = instructions.strip().lower()
+        
+        print(f"  Clean instruction: {clean_instruction}")
+        
+        # Show what the algorithm is looking for
+        map_name = avdn_sample.get('map_name', '')
+        key = f"{map_name}_{clean_instruction}"
+        print(f"  Looking for key: {key}")
+        
+        # Show the matched formatted sample
+        if 1 < len(dataset):
+            formatted_sample = dataset[1]  # The matched sample
+            print(f"\n🟢 MATCHED FORMATTED SAMPLE 1:")
+            
+            try:
+                # Decode formatted sample
+                text_input_ids = formatted_sample['text_input']['input_ids']
+                decoded_text = tokenizer.decode(text_input_ids, skip_special_tokens=True)
+                print(f"  Decoded text input: {decoded_text[:200]}...")
+                
+                if 'first_instruction_input' in formatted_sample:
+                    first_ins_ids = formatted_sample['first_instruction_input']['input_ids']
+                    decoded_first_ins = tokenizer.decode(first_ins_ids, skip_special_tokens=True)
+                    print(f"  Decoded first instruction: {decoded_first_ins}")
+                
+                if 'current_question_input' in formatted_sample:
+                    current_q_ids = formatted_sample['current_question_input']['input_ids']
+                    decoded_current_q = tokenizer.decode(current_q_ids, skip_special_tokens=True)
+                    print(f"  Decoded current question: {decoded_current_q}")
+                
+                # Decode the current answer (text_label)
+                text_label_ids = formatted_sample['text_label']
+                decoded_current_answer = tokenizer.decode(text_label_ids, skip_special_tokens=True)
+                print(f"  Decoded current answer: {decoded_current_answer}")
+                    
+            except Exception as e:
+                print(f"  Error decoding formatted sample: {e}")
+        
+        # Show the problem
+        print(f"\n❌ PROBLEM IDENTIFIED:")
+        print(f"  AVDN Sample: First Instruction (no question)")
+        print(f"  Formatted Sample: Subsequent Turn (has question)")
+        print(f"  ❌ These should NOT match!")
+        print(f"  ❌ The matching algorithm only looks at instruction text similarity")
+        print(f"  ❌ It doesn't consider dialog turn structure")
+        
+        print(f"\n{'='*80}")
+        
+        # Test the correct matching logic
+        print(f"\n🔍 TESTING CORRECT MATCHING LOGIC:")
+        
+        # For AVDN sample 2 (which has a question)
+        if len(avdn_data) > 2:
+            avdn_sample_2 = avdn_data[2]
+            print(f"\n🔴 AVDN SAMPLE 2:")
+            print(f"  Map: {avdn_sample_2.get('map_name', 'N/A')}")
+            print(f"  Instructions: {avdn_sample_2.get('instructions', 'N/A')}")
+            
+            # Parse AVDN instructions
+            instructions_2 = avdn_sample_2.get('instructions', '')
+            if '[QUE]' in instructions_2 and '[INS]' in instructions_2:
+                que_start = instructions_2.find('[QUE]')
+                ins_start = instructions_2.find('[INS]')
+                question_2 = instructions_2[que_start+5:ins_start].strip()
+                instruction_2 = instructions_2[ins_start+5:].strip()
+                print(f"  📝 Question: {question_2}")
+                print(f"  📝 Instruction: {instruction_2}")
+                print(f"  📝 Turn Type: Q&A Turn")
+                
+                # Show what the correct matching should be
+                print(f"\n✅ CORRECT MATCHING SHOULD BE:")
+                print(f"  AVDN Question ↔ Formatted Current Question")
+                print(f"  AVDN Instruction ↔ Formatted Current Answer")
+                
+                # Find a formatted sample with matching question
+                for i in range(min(5, len(dataset))):
+                    formatted_sample_i = dataset[i]
+                    if 'current_question_input' in formatted_sample_i:
+                        current_q_ids = formatted_sample_i['current_question_input']['input_ids']
+                        decoded_current_q = tokenizer.decode(current_q_ids, skip_special_tokens=True)
+                        
+                        # Check if questions are similar
+                        if any(word in decoded_current_q.lower() for word in question_2.lower().split()[:3]):
+                            print(f"\n🟢 POTENTIAL CORRECT MATCH (Sample {i}):")
+                            print(f"  AVDN Question: {question_2}")
+                            print(f"  Formatted Question: {decoded_current_q}")
+                            
+                            # Show the current answer
+                            text_label_ids = formatted_sample_i['text_label']
+                            decoded_current_answer = tokenizer.decode(text_label_ids, skip_special_tokens=True)
+                            print(f"  Formatted Answer: {decoded_current_answer}")
+                            
+                            print(f"  ✅ This is the correct matching logic!")
+                            break
+            else:
+                print(f"  📝 Not a Q&A turn")
+        
+        print(f"\n{'='*80}")
+        
+    except Exception as e:
+        print(f"❌ Error in detailed matching analysis: {e}")
         import traceback
         traceback.print_exc()
 
@@ -736,6 +941,9 @@ if __name__ == "__main__":
     
     # Test matching logic
     test_matching_logic()
+    
+    # Test detailed matching analysis
+    test_detailed_matching_analysis()
     
     # Test Answering Agent generation
     test_answering_agent_generation()
