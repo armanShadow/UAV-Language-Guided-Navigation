@@ -251,14 +251,14 @@ class AVDNGeneratorWithAgent:
         return data
     
     def create_avdn_to_preprocessed_mapping(self, avdn_data: List[Dict], preprocessed_json: List[Dict]) -> Dict[int, int]:
-        """Create mapping from AVDN indices to preprocessed dataset indices using exact episode metadata."""
-        print("Creating AVDN to preprocessed dataset mapping using exact episode metadata...")
+        """Create simple mapping based on exact map name and answer matching."""
+        print("Creating AVDN to preprocessed dataset mapping using simple map+answer matching...")
         
         mapping = {}
         
         # Parse preprocessed episodes and create flattened turn index
         preprocessed_turns = []
-        episode_map = {}  # episode_id -> {turn_id: index}
+        map_to_turns = {}  # map_name -> [turn_indices]
         
         for episode in preprocessed_json:
             episode_id = episode.get('episode_id', '')
@@ -268,7 +268,7 @@ class AVDNGeneratorWithAgent:
                 continue
                 
             map_name = episode.get('map_name', '')
-            episode_map[episode_id] = {}
+            first_instruction = episode.get('first_instruction', '').strip()
             
             # Process each dialog turn in the episode
             for dialog in episode.get('dialogs', []):
@@ -287,102 +287,99 @@ class AVDNGeneratorWithAgent:
                     'turn_id': turn_id,
                     'answer': answer,
                     'question': question,
+                    'first_instruction': first_instruction,
                     'preprocessed_index': len(preprocessed_turns)
                 }
                 preprocessed_turns.append(turn_data)
-                episode_map[episode_id][turn_id] = len(preprocessed_turns) - 1
-        
-        print(f"Found {len(preprocessed_turns)} non-augmented dialog turns in {len(episode_map)} episodes")
-        
-        # Parse AVDN data to group by trajectory and understand the structure
-        avdn_trajectories = {}  # map_name -> {trajectory_id -> [turns]}
-        
-        for i, avdn_sample in enumerate(avdn_data):
-            map_name = avdn_sample['map_name']
-            route_index = avdn_sample['route_index']
-            
-            # route_index format is "trajectory_turn" (e.g., "3_1", "0_2")
-            route_parts = route_index.split('_')
-            if len(route_parts) >= 2:
-                trajectory_id = route_parts[0]
-                turn_id = int(route_parts[1])
                 
-                if map_name not in avdn_trajectories:
-                    avdn_trajectories[map_name] = {}
-                if trajectory_id not in avdn_trajectories[map_name]:
-                    avdn_trajectories[map_name][trajectory_id] = []
-                
-                avdn_trajectories[map_name][trajectory_id].append({
-                    'avdn_index': i,
-                    'turn_id': turn_id,
-                    'sample': avdn_sample,
-                    'route_index': route_index
-                })
-            else:
-                print(f"Warning: Unexpected route_index format: {route_index}")
-                continue
+                # Group by map name for easy lookup
+                if map_name not in map_to_turns:
+                    map_to_turns[map_name] = []
+                map_to_turns[map_name].append(len(preprocessed_turns) - 1)
         
-        # Create a trajectory mapping for each map
-        # AVDN trajectories don't directly correspond to processed episode IDs
-        trajectory_mapping = {}  # map_name -> {avdn_trajectory_id -> processed_episode_id}
-        
-        for map_name in avdn_trajectories:
-            trajectory_mapping[map_name] = {}
-            avdn_traj_ids = sorted(avdn_trajectories[map_name].keys())
-            
-            # Find all processed episodes for this map
-            map_episodes = [ep_id for ep_id in episode_map.keys() if ep_id.startswith(f"{map_name}_")]
-            map_episodes.sort()
-            
-            print(f"Map {map_name}: AVDN trajectories {avdn_traj_ids} -> Processed episodes {map_episodes}")
-            
-            # Create mapping based on order (not direct ID match)
-            for i, avdn_traj_id in enumerate(avdn_traj_ids):
-                if i < len(map_episodes):
-                    processed_episode_id = map_episodes[i]
-                    trajectory_mapping[map_name][avdn_traj_id] = processed_episode_id
-                    print(f"  Trajectory mapping: {avdn_traj_id} -> {processed_episode_id}")
+        print(f"Found {len(preprocessed_turns)} non-augmented dialog turns across {len(map_to_turns)} maps")
         
         matched_count = 0
+        qa_samples_count = 0
         
-        # Now match using the trajectory mapping
-        for map_name, trajectories in avdn_trajectories.items():
-            for avdn_traj_id, turns in trajectories.items():
-                # Sort turns by turn_id
-                turns.sort(key=lambda x: x['turn_id'])
+        # Process each AVDN sample
+        for i, avdn_sample in enumerate(avdn_data):
+            instruction = avdn_sample['instructions']
+            map_name = avdn_sample['map_name']
+            
+            # Only process entries with both question and answer (not first instructions)
+            if '[QUE]' not in instruction or '[INS]' not in instruction:
+                continue  # Skip first instructions
                 
-                # Get corresponding processed episode
-                if (map_name in trajectory_mapping and 
-                    avdn_traj_id in trajectory_mapping[map_name]):
-                    
-                    processed_episode_id = trajectory_mapping[map_name][avdn_traj_id]
-                    
-                    if processed_episode_id in episode_map:
-                        # Match turns within the episode
-                        for turn_data in turns:
-                            avdn_index = turn_data['avdn_index']
-                            turn_id = turn_data['turn_id']
-                            
-                            if turn_id in episode_map[processed_episode_id]:
-                                preprocessed_index = episode_map[processed_episode_id][turn_id]
-                                mapping[avdn_index] = preprocessed_index
-                                matched_count += 1
-                                
-                                if matched_count <= 5:  # Debug first few matches
-                                    prep_turn_data = preprocessed_turns[preprocessed_index]
-                                    print(f"✅ Match {matched_count}: AVDN[{avdn_index}] {map_name}_traj{avdn_traj_id}_turn{turn_id} ({turn_data['route_index']}) -> Preprocessed[{preprocessed_index}] {prep_turn_data['episode_id']}_turn{prep_turn_data['turn_id']}")
-                                    print(f"   Answer preview: {prep_turn_data['answer'][:50]}...")
-                            else:
-                                if matched_count <= 5:
-                                    print(f"❌ No turn {turn_id} found in episode {processed_episode_id}")
-                    else:
-                        if matched_count <= 5:
-                            print(f"❌ Episode {processed_episode_id} not found in episode_map")
+            qa_samples_count += 1
+            
+            # Extract question and answer from AVDN instruction
+            que_start = instruction.find('[QUE]')
+            ins_start = instruction.find('[INS]')
+            avdn_question = instruction[que_start+5:ins_start].strip()
+            avdn_answer = instruction[ins_start+5:].strip()
+            
+            # Get first instruction from pre_dialogs
+            avdn_first_instruction = ""
+            if avdn_sample.get('pre_dialogs') and len(avdn_sample['pre_dialogs']) > 0:
+                first_dialog = avdn_sample['pre_dialogs'][0]
+                if '[INS]' in first_dialog:
+                    avdn_first_instruction = first_dialog.replace('[INS]', '').strip()
                 else:
-                    if matched_count <= 5:
-                        print(f"❌ No trajectory mapping found for {map_name}_traj{avdn_traj_id}")
+                    avdn_first_instruction = first_dialog.strip()
+            
+            # Find all processed turns for this map
+            if map_name not in map_to_turns:
+                if matched_count < 5:
+                    print(f"❌ No processed data found for map {map_name}")
+                continue
+            
+            # Look for exact answer match
+            best_match = None
+            for turn_idx in map_to_turns[map_name]:
+                turn_data = preprocessed_turns[turn_idx]
+                
+                # Check if answers match exactly (case-insensitive)
+                if turn_data['answer'].lower().strip() == avdn_answer.lower().strip():
+                    # Sanity check: verify first instruction and question match
+                    first_instruction_match = (turn_data['first_instruction'].lower().strip() == 
+                                             avdn_first_instruction.lower().strip())
+                    question_match = (turn_data['question'].lower().strip() == 
+                                    avdn_question.lower().strip())
+                    
+                    if first_instruction_match and question_match:
+                        best_match = turn_idx
+                        break
+                    elif matched_count < 5:
+                        print(f"⚠️  Answer match found but sanity check failed for AVDN[{i}]:")
+                        print(f"   First instruction match: {first_instruction_match}")
+                        print(f"   Question match: {question_match}")
+            
+            if best_match is not None:
+                mapping[i] = best_match
+                matched_count += 1
+                
+                if matched_count <= 10:  # Debug first few matches
+                    turn_data = preprocessed_turns[best_match]
+                    print(f"✅ Match {matched_count}: AVDN[{i}] map:{map_name} -> Preprocessed[{best_match}] {turn_data['episode_id']}")
+                    print(f"   Answer: {avdn_answer[:50]}...")
+                    print(f"   Question: {avdn_question[:50]}...")
+            else:
+                if matched_count < 5:
+                    print(f"❌ No exact answer match found for AVDN[{i}] map:{map_name}")
+                    print(f"   Looking for answer: {avdn_answer[:50]}...")
         
-        print(f"Successfully mapped {matched_count}/{len(avdn_data)} AVDN samples using exact episode metadata")
+        total_qa_samples = qa_samples_count
+        skipped_samples = total_qa_samples - matched_count
+        
+        print(f"\n📊 Simple Mapping Summary:")
+        print(f"🔍 Q&A samples to process: {total_qa_samples}/{len(avdn_data)} total samples")
+        print(f"✅ Successfully matched: {matched_count}/{total_qa_samples} Q&A samples ({matched_count/total_qa_samples*100:.1f}%)")
+        print(f"⚠️  No match found: {skipped_samples} Q&A samples ({skipped_samples/total_qa_samples*100:.1f}%)")
+        
+        # Store preprocessed_turns for later use
+        self.preprocessed_turns = preprocessed_turns
+        
         return mapping
     
     def process_avdn_sample(self, avdn_sample: Dict, formatted_dataset: AnsweringDataset, mapping: Dict[int, int], avdn_index: int) -> Dict:
@@ -415,8 +412,9 @@ class AVDNGeneratorWithAgent:
                 print(f"Error accessing mapped formatted sample {mapping[avdn_index]}: {e}")
         
         if matching_sample is None:
-            # If no mapping found, skip this sample
-            print(f"No mapping found for AVDN sample {avdn_index} ({map_name}_{route_index}), skipping")
+            # If no mapping found, skip this sample (return original unchanged)
+            if avdn_index < 10:  # Only log first few skipped samples to avoid spam
+                print(f"⚠️  No mapping found for AVDN sample {avdn_index} ({map_name}_{route_index}), keeping original")
             return avdn_sample  # Return original sample unchanged
         
         # Get visual features from formatted sample
@@ -479,25 +477,7 @@ class AVDNGeneratorWithAgent:
         # Create mapping between AVDN and preprocessed datasets using metadata
         mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, preprocessed_json)
         
-        # Store preprocessed turns for later access
-        self.preprocessed_turns = []
-        for episode in preprocessed_json:
-            episode_id = episode.get('episode_id', '')
-            if 'aug_pattern' in episode_id:
-                continue
-            map_name = episode.get('map_name', '')
-            for dialog in episode.get('dialogs', []):
-                turn_id = dialog.get('turn_id', 0)
-                if turn_id == 0:
-                    continue
-                turn_data = {
-                    'episode_id': episode_id,
-                    'map_name': map_name,
-                    'turn_id': turn_id,
-                    'answer': dialog.get('answer', ''),
-                    'question': dialog.get('question', '')
-                }
-                self.preprocessed_turns.append(turn_data)
+        # preprocessed_turns already stored in mapping function
         
         # Apply sampling if requested
         if sample_ratio < 1.0:
@@ -510,63 +490,112 @@ class AVDNGeneratorWithAgent:
             avdn_data = avdn_data[:max_samples]
             print(f"Limited to {max_samples} samples")
         
-        # Process samples
-        processed_data = []
+        # Group AVDN samples by episode for proper dialog history management
+        avdn_episodes = {}  # episode_key -> [samples]
+        for i, sample in enumerate(avdn_data):
+            map_name = sample['map_name']
+            route_index = sample['route_index']
+            
+            # Create episode key from map and trajectory
+            route_parts = route_index.split('_')
+            if len(route_parts) >= 2:
+                trajectory_id = route_parts[0]
+                turn_id = int(route_parts[1])
+                episode_key = f"{map_name}_{trajectory_id}"
+                
+                if episode_key not in avdn_episodes:
+                    avdn_episodes[episode_key] = []
+                
+                avdn_episodes[episode_key].append({
+                    'original_index': i,
+                    'turn_id': turn_id,
+                    'sample': sample.copy()
+                })
+        
+        # Sort turns within each episode
+        for episode_key in avdn_episodes:
+            avdn_episodes[episode_key].sort(key=lambda x: x['turn_id'])
+        
+        print(f"Organized {len(avdn_data)} samples into {len(avdn_episodes)} episodes")
+        
+        # Process samples episode by episode to maintain dialog history
+        processed_data = [None] * len(avdn_data)  # Maintain original order
         all_scores = []
         successful_generations = 0
-        total_samples = len(avdn_data)
         
-        for i, avdn_sample in enumerate(tqdm(avdn_data, desc=f"Processing {split}")):
-            try:
-                processed_sample = self.process_avdn_sample(avdn_sample, formatted_dataset, mapping, i)
+        for episode_key, episode_turns in tqdm(avdn_episodes.items(), desc=f"Processing {split} episodes"):
+            generated_instructions = {}  # turn_id -> generated_instruction
+            
+            for turn_data in episode_turns:
+                original_index = turn_data['original_index']
+                turn_id = turn_data['turn_id']
+                sample = turn_data['sample']
                 
-                # Calculate metrics if generation was successful (not skipped)
-                if processed_sample['instructions'] != avdn_sample['instructions']:
-                    # Extract original answer from AVDN instruction
-                    original_instruction = avdn_sample['instructions']
-                    if '[INS]' in original_instruction:
-                        original_answer = original_instruction.replace('[INS]', '').strip()
-                    else:
-                        original_answer = original_instruction.strip()
+                try:
+                    # Update pre_dialogs with previously generated instructions in this episode
+                    if turn_id > 1 and len(sample.get('pre_dialogs', [])) > 0:
+                        updated_pre_dialogs = []
+                        for j, prev_dialog in enumerate(sample['pre_dialogs']):
+                            # Check if this dialog corresponds to a previously generated instruction
+                            prev_turn_id = j + 1  # pre_dialogs[0] = turn 1, pre_dialogs[1] = turn 2, etc.
+                            
+                            if prev_turn_id in generated_instructions:
+                                # Replace with generated instruction
+                                updated_pre_dialogs.append(generated_instructions[prev_turn_id])
+                            else:
+                                # Keep original
+                                updated_pre_dialogs.append(prev_dialog)
+                        
+                        sample['pre_dialogs'] = updated_pre_dialogs
                     
-                    # Extract generated answer from new instruction
-                    new_instruction = processed_sample['instructions']
-                    if '[INS]' in new_instruction:
-                        generated_answer = new_instruction.replace('[INS]', '').strip()
-                    else:
-                        generated_answer = new_instruction.strip()
+                    # Process the sample
+                    processed_sample = self.process_avdn_sample(sample, formatted_dataset, mapping, original_index)
+                    processed_data[original_index] = processed_sample
                     
-                    # Calculate composite score
-                    scores = composite_score(generated_answer, original_answer, task_type="precision_short")
-                    all_scores.append(scores)
-                    successful_generations += 1
-                
-                processed_data.append(processed_sample)
-                
-                # Print some examples with scores
-                if i < 3:
-                    print(f"\nSample {i+1}:")
-                    print(f"Map: {avdn_sample['map_name']}, Route: {avdn_sample['route_index']}")
-                    print(f"Original: {avdn_sample['instructions']}")
-                    print(f"Generated: {processed_sample['instructions']}")
+                    # Store generated instruction for next turns in this episode
+                    if processed_sample['instructions'] != sample['instructions']:
+                        generated_instructions[turn_id] = processed_sample['instructions']
+                        successful_generations += 1
+                        
+                        # Calculate metrics
+                        original_instruction = sample['instructions']
+                        if '[INS]' in original_instruction:
+                            original_answer = original_instruction.split('[INS]')[-1].strip()
+                        else:
+                            original_answer = original_instruction.strip()
+                        
+                        new_instruction = processed_sample['instructions']
+                        if '[INS]' in new_instruction:
+                            generated_answer = new_instruction.split('[INS]')[-1].strip()
+                        else:
+                            generated_answer = new_instruction.strip()
+                        
+                        # Calculate composite score
+                        scores = composite_score(generated_answer, original_answer, task_type="precision_short")
+                        all_scores.append(scores)
                     
-                    # Show scores if generation was successful
-                    if processed_sample['instructions'] != avdn_sample['instructions']:
-                        scores = composite_score(
-                            processed_sample['instructions'].replace('[INS]', '').strip(),
-                            avdn_sample['instructions'].replace('[INS]', '').strip(),
-                            task_type="precision_short"
-                        )
-                        print(f"Composite Score: {scores['total']:.4f}")
-                        print(f"Direction Score: {scores['direction']:.4f}")
-                        print(f"Movement Score: {scores['movement']:.4f}")
-                    
-                    print("-" * 80)
-                    
-            except Exception as e:
-                print(f"Error processing sample {i}: {e}")
-                # Keep original sample if generation fails
-                processed_data.append(avdn_sample)
+                except Exception as e:
+                    print(f"Error processing sample {original_index} in episode {episode_key}: {e}")
+                    # Keep original sample if generation fails
+                    processed_data[original_index] = sample
+        
+        # Fill in any None values with original samples
+        for i, sample in enumerate(processed_data):
+            if sample is None:
+                processed_data[i] = avdn_data[i]
+        
+        # Print some examples
+        examples_shown = 0
+        for i, (original, processed) in enumerate(zip(avdn_data, processed_data)):
+            if examples_shown >= 3:
+                break
+            if processed['instructions'] != original['instructions']:
+                examples_shown += 1
+                print(f"\nGenerated Example {examples_shown}:")
+                print(f"Map: {original['map_name']}, Route: {original['route_index']}")
+                print(f"Original: {original['instructions']}")
+                print(f"Generated: {processed['instructions']}")
+                print("-" * 80)
         
         # Report final metrics for this split
         if all_scores:
