@@ -122,7 +122,13 @@ def test_formatted_dataset_structure():
                 print(f"  First instruction input: {list(sample['first_instruction_input'].keys())}")
             if 'current_question_input' in sample:
                 print(f"  Current question input: {list(sample['current_question_input'].keys())}")
-            print(f"  Text label: {sample['text_label'][:100]}...")
+            
+            # Safely print text label (avoid tensor slice issues)
+            text_label = sample['text_label']
+            if hasattr(text_label, 'shape'):
+                print(f"  Text label shape: {text_label.shape}")
+            else:
+                print(f"  Text label: {str(text_label)[:100]}...")
             
     except Exception as e:
         print(f"❌ Error testing formatted dataset structure: {e}")
@@ -187,7 +193,13 @@ def test_instruction_comparison():
             if i < len(dataset):
                 formatted_sample = dataset[i]
                 print(f"\n🟢 FORMATTED DATASET:")
-                print(f"  Text label: {formatted_sample['text_label'][:200]}...")
+                
+                # Safely print text label
+                text_label = formatted_sample['text_label']
+                if hasattr(text_label, 'shape'):
+                    print(f"  Text label shape: {text_label.shape}")
+                else:
+                    print(f"  Text label: {str(text_label)[:200]}...")
                 
                 # Try to decode the inputs
                 try:
@@ -229,17 +241,48 @@ def test_answering_agent_generation():
         # Load model
         model = AnsweringAgent(config)
         checkpoint_path = config.model.checkpoint_path
-        if os.path.exists(checkpoint_path):
+        
+        print(f"🔍 Looking for checkpoint at: {checkpoint_path}")
+        
+        if not os.path.exists(checkpoint_path):
+            print(f"❌ Checkpoint not found at: {checkpoint_path}")
+            print("🔍 Checking for alternative checkpoint paths...")
+            
+            # Try alternative paths
+            alt_paths = [
+                "checkpoints/best_model.pth",
+                "checkpoints/latest_model.pth", 
+                "models/checkpoint.pth",
+                "../checkpoints/best_model.pth",
+                "../models/checkpoint.pth"
+            ]
+            
+            for alt_path in alt_paths:
+                if os.path.exists(alt_path):
+                    checkpoint_path = alt_path
+                    print(f"✅ Found checkpoint at: {checkpoint_path}")
+                    break
+            else:
+                print("❌ No checkpoint found. Please provide a valid checkpoint path.")
+                return
+        
+        # Load checkpoint
+        try:
             checkpoint = torch.load(checkpoint_path, map_location='cpu')
-            model.load_state_dict(checkpoint['model_state_dict'])
-            print(f"✅ Loaded model from {checkpoint_path}")
-        else:
-            print(f"❌ Checkpoint not found: {checkpoint_path}")
+            if 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+                print(f"✅ Loaded model state from {checkpoint_path}")
+            else:
+                model.load_state_dict(checkpoint)
+                print(f"✅ Loaded model directly from {checkpoint_path}")
+        except Exception as e:
+            print(f"❌ Error loading checkpoint: {e}")
             return
         
         model.eval()
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model.to(device)
+        print(f"✅ Model loaded on device: {device}")
         
         # Load datasets
         dataset = AnsweringDataset(config, split='val_seen')
@@ -341,17 +384,48 @@ def test_direct_generation():
         # Load model
         model = AnsweringAgent(config)
         checkpoint_path = config.model.checkpoint_path
-        if os.path.exists(checkpoint_path):
+        
+        print(f"🔍 Looking for checkpoint at: {checkpoint_path}")
+        
+        if not os.path.exists(checkpoint_path):
+            print(f"❌ Checkpoint not found at: {checkpoint_path}")
+            print("🔍 Checking for alternative checkpoint paths...")
+            
+            # Try alternative paths
+            alt_paths = [
+                "checkpoints/best_model.pth",
+                "checkpoints/latest_model.pth", 
+                "models/checkpoint.pth",
+                "../checkpoints/best_model.pth",
+                "../models/checkpoint.pth"
+            ]
+            
+            for alt_path in alt_paths:
+                if os.path.exists(alt_path):
+                    checkpoint_path = alt_path
+                    print(f"✅ Found checkpoint at: {checkpoint_path}")
+                    break
+            else:
+                print("❌ No checkpoint found. Please provide a valid checkpoint path.")
+                return
+        
+        # Load checkpoint
+        try:
             checkpoint = torch.load(checkpoint_path, map_location='cpu')
-            model.load_state_dict(checkpoint['model_state_dict'])
-            print(f"✅ Loaded model from {checkpoint_path}")
-        else:
-            print(f"❌ Checkpoint not found: {checkpoint_path}")
+            if 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+                print(f"✅ Loaded model state from {checkpoint_path}")
+            else:
+                model.load_state_dict(checkpoint)
+                print(f"✅ Loaded model directly from {checkpoint_path}")
+        except Exception as e:
+            print(f"❌ Error loading checkpoint: {e}")
             return
         
         model.eval()
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model.to(device)
+        print(f"✅ Model loaded on device: {device}")
         
         # Load dataset
         dataset = AnsweringDataset(config, split='val_seen')
