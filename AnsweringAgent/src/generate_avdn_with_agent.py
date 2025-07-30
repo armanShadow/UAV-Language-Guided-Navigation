@@ -690,7 +690,7 @@ def main():
         print(f"World Size: {world_size}, Rank: {rank}")
         if torch.cuda.is_available():
             print(f"CUDA Devices: {torch.cuda.device_count()}")
-        print(f"AVDN Data Dir: {args.avdn_data_dir}")
+        print(f"AVDN Data Dir: {config.data.avdn_annotations_dir}")
         print(f"Output Dir: {args.output_dir}")
         print(f"Splits: {args.splits}")
         print(f"Sample Ratio: {args.sample_ratio}")
