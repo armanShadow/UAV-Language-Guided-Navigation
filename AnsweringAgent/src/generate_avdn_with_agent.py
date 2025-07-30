@@ -66,6 +66,8 @@ class AVDNGeneratorWithAgent:
         # Use config path instead of hardcoded path
         data_file = os.path.join(self.config.data.avdn_annotations_dir, f'{split}_data.json')
         print(f"Loading AVDN data from: {data_file}")
+        print(f"Config AVDN annotations dir: {self.config.data.avdn_annotations_dir}")
+        print(f"File exists: {os.path.exists(data_file)}")
         
         with open(data_file, 'r') as f:
             data = json.load(f)
@@ -690,7 +692,6 @@ def main():
         print(f"World Size: {world_size}, Rank: {rank}")
         if torch.cuda.is_available():
             print(f"CUDA Devices: {torch.cuda.device_count()}")
-        print(f"AVDN Data Dir: {config.data.avdn_annotations_dir}")
         print(f"Output Dir: {args.output_dir}")
         print(f"Splits: {args.splits}")
         print(f"Sample Ratio: {args.sample_ratio}")
