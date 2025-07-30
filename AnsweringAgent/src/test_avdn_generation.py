@@ -552,16 +552,24 @@ def test_small_generation():
 
 def test_matching_logic():
     """Test the actual matching logic from the generation script"""
-    print("\n🔍 Testing matching logic from generation script...")
+    print("\n🔍 Testing actual matching logic from generate_avdn_with_agent.py...")
     
     try:
+        # Import the actual generator class
+        from generate_avdn_with_agent import AVDNGeneratorWithAgent
+        
+        config = Config()
+        
+        # Create generator instance
+        generator = AVDNGeneratorWithAgent(config)
+        print(f"✅ Created AVDNGeneratorWithAgent instance")
+        
         # Load AVDN dataset
         avdn_data = load_avdn_dataset('val_seen')
         print(f"✅ Loaded AVDN dataset: {len(avdn_data)} samples")
         
-        # Load preprocessed JSON
-        config = Config()
-        preprocessed_json = load_preprocessed_json(config, 'val_seen')
+        # Load preprocessed JSON using the generator's method
+        preprocessed_json = generator.load_preprocessed_json('val_seen')
         if not preprocessed_json:
             print("❌ Could not load preprocessed JSON for matching test")
             return
@@ -572,39 +580,23 @@ def test_matching_logic():
         dataset = AnsweringDataset(config, split='val_seen')
         print(f"✅ Loaded formatted dataset: {len(dataset)} samples")
         
-        # Test the matching logic from generate_avdn_with_agent.py
-        print("\n🔍 Testing matching logic...")
+        # Test the actual matching function
+        print("\n🔍 Testing actual create_avdn_to_preprocessed_mapping function...")
         
-        # Create preprocessed turns (skipping augmented episodes)
-        preprocessed_turns = []
-        for episode in preprocessed_json:
-            episode_id = episode.get('episode_id', '')
-            
-            # Skip augmented episodes
-            if 'aug_pattern' in episode_id:
-                continue
-                
-            # Process dialog turns (skip turn 0)
-            for dialog in episode.get('dialogs', []):
-                if dialog.get('turn_id', 0) > 0:
-                    turn_data = {
-                        'episode_id': episode_id,
-                        'map_name': episode.get('map_name', ''),
-                        'turn_id': dialog.get('turn_id', 0),
-                        'question': dialog.get('question', ''),
-                        'answer': dialog.get('answer', ''),
-                        'dialog_history': dialog.get('dialog_history', [])
-                    }
-                    preprocessed_turns.append(turn_data)
+        # Use the generator's actual mapping function
+        avdn_to_preprocessed_mapping = generator.create_avdn_to_preprocessed_mapping(
+            avdn_data[:10],  # Test with first 10 samples
+            preprocessed_json
+        )
         
-        print(f"✅ Created {len(preprocessed_turns)} preprocessed turns (non-augmented)")
+        print(f"✅ Created mapping for {len(avdn_to_preprocessed_mapping)} AVDN samples")
         
-        # Test matching for first few AVDN samples
+        # Test first few samples
         sample_count = min(5, len(avdn_data))
         
         for i in range(sample_count):
             print(f"\n{'='*80}")
-            print(f"🎯 MATCHING TEST SAMPLE {i}")
+            print(f"🎯 TESTING ACTUAL MATCHING FOR SAMPLE {i}")
             print(f"{'='*80}")
             
             avdn_sample = avdn_data[i]
@@ -629,42 +621,26 @@ def test_matching_logic():
             else:
                 print(f"  Raw Instructions: {instructions}")
             
-            # Try to find matching formatted sample
-            print(f"\n🔍 Looking for matching formatted sample...")
-            
-            # Simple matching: try to find by map_name and instruction content
-            map_name = avdn_sample.get('map_name', '')
-            best_match = None
-            best_score = 0
-            
-            for j, turn_data in enumerate(preprocessed_turns):
-                if turn_data['map_name'] == map_name:
-                    # Check if instruction content matches
-                    if instruction and turn_data['answer']:
-                        # Simple text similarity
-                        instruction_words = set(instruction.lower().split())
-                        answer_words = set(turn_data['answer'].lower().split())
-                        common_words = instruction_words.intersection(answer_words)
-                        similarity = len(common_words) / max(len(instruction_words), len(answer_words))
-                        
-                        if similarity > best_score:
-                            best_score = similarity
-                            best_match = (j, turn_data)
-            
-            if best_match and best_score > 0.1:  # Threshold for matching
-                match_idx, match_data = best_match
-                print(f"✅ Found match with score {best_score:.3f}:")
-                print(f"  Preprocessed Turn {match_idx}:")
-                print(f"    Episode: {match_data['episode_id']}")
-                print(f"    Map: {match_data['map_name']}")
-                print(f"    Turn: {match_data['turn_id']}")
-                print(f"    Question: {match_data['question']}")
-                print(f"    Answer: {match_data['answer']}")
+            # Check if this AVDN sample has a match using the actual mapping
+            if i in avdn_to_preprocessed_mapping:
+                turn_index = avdn_to_preprocessed_mapping[i]
+                print(f"\n✅ FOUND MATCH using actual mapping logic:")
+                print(f"  Mapped to turn index: {turn_index}")
+                
+                # Get the preprocessed turn data
+                if hasattr(generator, 'preprocessed_turns') and turn_index < len(generator.preprocessed_turns):
+                    turn_data = generator.preprocessed_turns[turn_index]
+                    print(f"  Preprocessed Turn Data:")
+                    print(f"    Episode: {turn_data.get('episode_id', 'N/A')}")
+                    print(f"    Map: {turn_data.get('map_name', 'N/A')}")
+                    print(f"    Turn: {turn_data.get('turn_id', 'N/A')}")
+                    print(f"    Question: {turn_data.get('question', 'N/A')}")
+                    print(f"    Answer: {turn_data.get('answer', 'N/A')}")
                 
                 # Get corresponding formatted sample
-                if match_idx < len(dataset):
-                    formatted_sample = dataset[match_idx]
-                    print(f"\n🟢 CORRESPONDING FORMATTED SAMPLE:")
+                if turn_index < len(dataset):
+                    formatted_sample = dataset[turn_index]
+                    print(f"\n🟢 CORRESPONDING FORMATTED SAMPLE (index {turn_index}):")
                     
                     try:
                         from transformers import T5Tokenizer
@@ -688,14 +664,16 @@ def test_matching_logic():
                     except Exception as e:
                         print(f"  Error decoding formatted sample: {e}")
                 else:
-                    print(f"❌ Formatted sample index {match_idx} out of range ({len(dataset)} total)")
+                    print(f"❌ Turn index {turn_index} out of range for formatted dataset ({len(dataset)} total)")
             else:
-                print(f"❌ No good match found (best score: {best_score:.3f})")
+                print(f"❌ No match found in actual mapping for AVDN sample {i}")
             
             print(f"\n{'='*80}")
             
     except Exception as e:
         print(f"❌ Error in matching logic test: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     print("🧪 Starting AVDN Generation Tests...")
