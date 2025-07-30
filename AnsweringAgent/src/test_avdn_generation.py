@@ -25,7 +25,7 @@ def test_avdn_structure():
     print("🔍 Testing AVDN dataset structure...")
     
     # Load a small sample from val_seen
-    avdn_file = "../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_seen_data.json"
+    avdn_file = "/app/UAV-Language-Guided-Navigation/Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_seen_data.json"
     
     if not os.path.exists(avdn_file):
         print(f"❌ AVDN file not found: {avdn_file}")
