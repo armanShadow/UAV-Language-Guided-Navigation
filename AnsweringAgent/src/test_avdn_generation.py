@@ -15,6 +15,11 @@ from data.dataset import AnsweringDataset
 from models.answering_agent import AnsweringAgent
 from utils.logger import setup_logger
 
+# Import evaluation functions
+import sys
+sys.path.append('../scripts')
+from run_eval_generation import composite_score, direction_score, yesno_score, attribute_score, landmark_score, movement_score
+
 def test_avdn_structure():
     """Test understanding of AVDN dataset structure."""
     print("🔍 Testing AVDN dataset structure...")
@@ -78,7 +83,7 @@ def test_formatted_dataset_structure():
         return False
 
 def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
-    """Test Answering Agent generation with actual checkpoint."""
+    """Test Answering Agent generation with actual checkpoint and calculate metrics."""
     print(f"\n🧪 Testing Answering Agent generation with checkpoint: {checkpoint_path}")
     
     if not os.path.exists(checkpoint_path):
@@ -120,6 +125,10 @@ def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
     # Test generation on a few samples
     print(f"🧪 Testing generation on {max_samples} samples...")
     
+    # Track metrics
+    all_scores = []
+    successful_generations = 0
+    
     for i in range(min(max_samples, len(dataset))):
         try:
             sample = dataset[i]
@@ -157,15 +166,44 @@ def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
             generated_answer = tokenizer.decode(generated_seq[0], skip_special_tokens=True)
             dialog_context = tokenizer.decode(sample['text_input']['input_ids'], skip_special_tokens=True)
             
+            # Calculate composite score
+            scores = composite_score(generated_answer, original_answer, task_type="precision_short")
+            all_scores.append(scores)
+            successful_generations += 1
+            
             print(f"\n📝 Sample {i+1}:")
             print(f"Context: {dialog_context[:100]}...")
             print(f"Original Answer: {original_answer}")
             print(f"Generated Answer: {generated_answer}")
+            print(f"Composite Score: {scores['total']:.4f}")
+            print(f"Direction Score: {scores['direction']:.4f}")
+            print(f"Movement Score: {scores['movement']:.4f}")
             print("-" * 80)
             
         except Exception as e:
             print(f"❌ Error generating sample {i}: {e}")
             continue
+    
+    # Calculate and report final metrics
+    if all_scores:
+        avg_composite = sum(s['total'] for s in all_scores) / len(all_scores)
+        avg_direction = sum(s['direction'] for s in all_scores) / len(all_scores)
+        avg_movement = sum(s['movement'] for s in all_scores) / len(all_scores)
+        avg_landmark = sum(s['landmark'] for s in all_scores) / len(all_scores)
+        avg_attribute = sum(s['attribute'] for s in all_scores) / len(all_scores)
+        
+        print(f"\n📊 GENERATION METRICS SUMMARY:")
+        print(f"Successful Generations: {successful_generations}/{max_samples}")
+        print(f"Average Composite Score: {avg_composite:.4f}")
+        print(f"Average Direction Score: {avg_direction:.4f}")
+        print(f"Average Movement Score: {avg_movement:.4f}")
+        print(f"Average Landmark Score: {avg_landmark:.4f}")
+        print(f"Average Attribute Score: {avg_attribute:.4f}")
+        
+        # Individual scores for detailed analysis
+        print(f"\n📈 INDIVIDUAL SCORES:")
+        for i, scores in enumerate(all_scores):
+            print(f"Sample {i+1}: Composite={scores['total']:.4f}, Direction={scores['direction']:.4f}, Movement={scores['movement']:.4f}")
     
     print("✅ Answering Agent generation test completed!")
     return True
