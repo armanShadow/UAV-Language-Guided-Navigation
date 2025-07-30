@@ -37,11 +37,10 @@ class AVDNGeneratorWithAgent:
     """Generate new AVDN dataset using Answering Agent while preserving AVDN structure."""
     
     def __init__(self, config: Config, tokenizer: T5Tokenizer, model: AnsweringAgent, 
-                 avdn_data_dir: str, output_dir: str, device: torch.device):
+                 output_dir: str, device: torch.device):
         self.config = config
         self.tokenizer = tokenizer
         self.model = model
-        self.avdn_data_dir = avdn_data_dir
         self.output_dir = output_dir
         self.device = device
         
@@ -64,7 +63,8 @@ class AVDNGeneratorWithAgent:
     
     def load_avdn_data(self, split: str) -> List[Dict]:
         """Load original AVDN dataset for a specific split."""
-        data_file = os.path.join(self.avdn_data_dir, f'{split}_data.json')
+        # Use config path instead of hardcoded path
+        data_file = os.path.join(self.config.data.avdn_annotations_dir, f'{split}_data.json')
         print(f"Loading AVDN data from: {data_file}")
         
         with open(data_file, 'r') as f:
@@ -663,9 +663,6 @@ def main():
     parser = argparse.ArgumentParser(description="Generate AVDN dataset with Answering Agent")
     parser.add_argument("--checkpoint", type=str, required=True,
                        help="Path to Answering Agent checkpoint")
-    parser.add_argument("--avdn_data_dir", type=str, 
-                       default="../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations",
-                       help="Directory containing AVDN annotation files")
     parser.add_argument("--output_dir", type=str, default="./generated_avdn_dataset",
                        help="Output directory for generated dataset")
     parser.add_argument("--splits", nargs="+", 
@@ -750,7 +747,6 @@ def main():
         config=config,
         tokenizer=tokenizer,
         model=model,
-        avdn_data_dir=args.avdn_data_dir,
         output_dir=args.output_dir,
         device=device
     )

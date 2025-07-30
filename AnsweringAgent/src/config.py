@@ -109,6 +109,7 @@ class DataConfig:
     use_augmentation: bool = False  # Enable/disable visual augmentation during preprocessing
     
     avdn_image_dir: str = str(DATASET_ROOT / "AVDN/train_images")
+    avdn_annotations_dir: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations")
     darknet_config_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/yolo_v3.cfg")
     darknet_weights_path: str = str(PROJECT_ROOT / "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/pretrain_weights/best.pt")
     max_previous_views: int = 3
