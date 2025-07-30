@@ -557,11 +557,31 @@ def test_matching_logic():
     try:
         # Import the actual generator class
         from generate_avdn_with_agent import AVDNGeneratorWithAgent
+        from transformers import T5Tokenizer
         
         config = Config()
         
-        # Create generator instance
-        generator = AVDNGeneratorWithAgent(config)
+        # Set up required components for the generator
+        tokenizer = T5Tokenizer.from_pretrained('t5-base')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Create a dummy model for testing (we won't actually use it for generation)
+        model = AnsweringAgent(config)
+        model.to(device)
+        
+        # Set up directories
+        avdn_data_dir = "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations"
+        output_dir = "test_output"
+        
+        # Create generator instance with all required arguments
+        generator = AVDNGeneratorWithAgent(
+            config=config,
+            tokenizer=tokenizer,
+            model=model,
+            avdn_data_dir=avdn_data_dir,
+            output_dir=output_dir,
+            device=device
+        )
         print(f"✅ Created AVDNGeneratorWithAgent instance")
         
         # Load AVDN dataset
