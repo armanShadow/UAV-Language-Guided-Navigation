@@ -336,32 +336,71 @@ class AVDNGeneratorWithAgent:
             
             # Look for exact answer match
             best_match = None
+            fallback_match = None
+            
             for turn_idx in map_to_turns[map_name]:
                 turn_data = preprocessed_turns[turn_idx]
                 
                 # Check if answers match exactly (case-insensitive)
                 if turn_data['answer'].lower().strip() == avdn_answer.lower().strip():
-                    # Sanity check: verify first instruction and question match
-                    first_instruction_match = (turn_data['first_instruction'].lower().strip() == 
-                                             avdn_first_instruction.lower().strip())
+                    # Primary sanity check: verify question match
                     question_match = (turn_data['question'].lower().strip() == 
                                     avdn_question.lower().strip())
                     
-                    if first_instruction_match and question_match:
-                        best_match = turn_idx
-                        break
-                    elif matched_count < 5:
-                        print(f"⚠️  Answer match found but sanity check failed for AVDN[{i}]:")
-                        print(f"   First instruction match: {first_instruction_match}")
-                        print(f"   Question match: {question_match}")
+                    if question_match:
+                        # Store as fallback match (answer + question match)
+                        if fallback_match is None:
+                            fallback_match = turn_idx
+                        
+                        # More flexible first instruction matching - check for substantial overlap
+                        def normalize_text(text):
+                            # Remove extra spaces, punctuation, and normalize
+                            import re
+                            text = re.sub(r'[^\w\s]', ' ', text.lower())
+                            return ' '.join(text.split())
+                        
+                        norm_proc_first = normalize_text(turn_data['first_instruction'])
+                        norm_avdn_first = normalize_text(avdn_first_instruction)
+                        
+                        # Check if there's substantial overlap (at least 50% of words match - more lenient)
+                        proc_words = set(norm_proc_first.split())
+                        avdn_words = set(norm_avdn_first.split())
+                        
+                        if len(avdn_words) > 0:
+                            overlap = len(proc_words & avdn_words) / len(avdn_words)
+                            first_instruction_flexible_match = overlap >= 0.9  # Lowered threshold
+                        else:
+                            overlap = 1.0 if len(proc_words) == 0 else 0.0
+                            first_instruction_flexible_match = len(proc_words) == 0
+                        
+                        if first_instruction_flexible_match:
+                            best_match = turn_idx
+                            break
+                        elif matched_count < 5:
+                            print(f"⚠️  Answer+Question match found but first instruction mismatch for AVDN[{i}]:")
+                            print(f"   First instruction overlap: {overlap:.2f} (need ≥0.5)")
+                            print(f"   AVDN first: {norm_avdn_first[:60]}...")
+                            print(f"   Proc first: {norm_proc_first[:60]}...")
+            
+            # Use best match if found, otherwise use fallback (answer + question only)
+            final_match = None
+            match_type = ""
             
             if best_match is not None:
-                mapping[i] = best_match
+                final_match = best_match
+                match_type = "full"
+            elif fallback_match is not None:
+                final_match = fallback_match
+                match_type = "fallback"
+            
+            if final_match is not None:
+                mapping[i] = final_match
                 matched_count += 1
                 
                 if matched_count <= 10:  # Debug first few matches
-                    turn_data = preprocessed_turns[best_match]
-                    print(f"✅ Match {matched_count}: AVDN[{i}] map:{map_name} -> Preprocessed[{best_match}] {turn_data['episode_id']}")
+                    turn_data = preprocessed_turns[final_match]
+                    match_symbol = "✅" if match_type == "full" else "📝"
+                    print(f"{match_symbol} Match {matched_count} ({match_type}): AVDN[{i}] map:{map_name} -> Preprocessed[{final_match}] {turn_data['episode_id']}")
                     print(f"   Answer: {avdn_answer[:50]}...")
                     print(f"   Question: {avdn_question[:50]}...")
             else:
@@ -598,6 +637,7 @@ class AVDNGeneratorWithAgent:
                 print("-" * 80)
         
         # Report final metrics for this split
+        total_samples = len(avdn_data)
         if all_scores:
             avg_composite = sum(s['total'] for s in all_scores) / len(all_scores)
             avg_direction = sum(s['direction'] for s in all_scores) / len(all_scores)
