@@ -20,450 +20,481 @@ import sys
 sys.path.append('../scripts')
 from run_eval_generation import composite_score, direction_score, yesno_score, attribute_score, landmark_score, movement_score
 
+import json
+import torch
+import os
+import sys
+from typing import Dict, List, Optional
+import numpy as np
+
+# Add the src directory to the path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from config import Config
+from data.dataset import AnsweringDataset
+from models.answering_agent import AnsweringAgent
+from run_eval_generation import composite_score, direction_score, yesno_score, attribute_score, landmark_score, movement_score
+
+def load_preprocessed_json(config, split: str) -> Optional[List[Dict]]:
+    """Load preprocessed JSON data with fallback paths"""
+    json_paths = [
+        getattr(config.data, f'{split}_json_path', None),
+        f'data/processed_data/{split}_data.json',
+        f'processed_data/{split}_data.json',
+        f'../data/processed_data/{split}_data.json'
+    ]
+    
+    for path in json_paths:
+        if path and os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Failed to load {path}: {e}")
+                continue
+    
+    print(f"❌ Could not load preprocessed JSON for {split}")
+    return None
+
+def load_avdn_dataset(split: str) -> List[Dict]:
+    """Load original AVDN dataset"""
+    avdn_paths = [
+        f'../../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/{split}_data.json',
+        f'../../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/{split}_data.json',
+        f'../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/{split}_data.json',
+        f'Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/{split}_data.json'
+    ]
+    
+    for path in avdn_paths:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Failed to load {path}: {e}")
+                continue
+    
+    raise FileNotFoundError(f"Could not find AVDN dataset for {split}")
+
 def test_avdn_structure():
-    """Test understanding of AVDN dataset structure."""
+    """Test the structure of AVDN dataset"""
     print("🔍 Testing AVDN dataset structure...")
     
-    # Load a small sample from val_seen
-    avdn_file = "/app/UAV-Language-Guided-Navigation/Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_seen_data.json"
-    
-    if not os.path.exists(avdn_file):
-        print(f"❌ AVDN file not found: {avdn_file}")
-        return False
-    
-    with open(avdn_file, 'r') as f:
-        data = json.load(f)
-    
-    print(f"✅ Loaded {len(data)} samples from val_seen")
-    
-    # Examine first sample
-    sample = data[0]
-    print(f"\n📋 AVDN Sample structure:")
-    print(f"Keys: {list(sample.keys())}")
-    print(f"Instruction: {sample['instructions']}")
-    print(f"Map: {sample['map_name']}")
-    print(f"Route: {sample['route_index']}")
-    print(f"Angle: {sample['angle']}")
-    
-    return True
+    try:
+        avdn_file = "/app/UAV-Language-Guided-Navigation/Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_seen_data.json"
+        if not os.path.exists(avdn_file):
+            avdn_file = "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_seen_data.json"
+        
+        with open(avdn_file, 'r') as f:
+            avdn_data = json.load(f)
+        
+        print(f"✅ AVDN dataset loaded: {len(avdn_data)} samples")
+        
+        # Print first few samples
+        for i in range(min(3, len(avdn_data))):
+            sample = avdn_data[i]
+            print(f"\n📋 Sample {i}:")
+            print(f"  Map: {sample.get('map_name', 'N/A')}")
+            print(f"  Route Index: {sample.get('route_index', 'N/A')}")
+            print(f"  Last Round: {sample.get('last_round_idx', 'N/A')}")
+            print(f"  Instructions: {sample.get('instructions', 'N/A')}")
+            print(f"  Pre-dialogs: {len(sample.get('pre_dialogs', []))} entries")
+            
+    except Exception as e:
+        print(f"❌ Error testing AVDN structure: {e}")
 
 def test_formatted_dataset_structure():
-    """Test understanding of formatted dataset structure."""
+    """Test the structure of formatted dataset"""
     print("\n🔍 Testing formatted dataset structure...")
     
-    # Load config
-    config = Config()
-    tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name)
-    
-    # Load a small sample from val_seen
     try:
-        dataset = AnsweringDataset(config, split='val_seen', tokenizer=tokenizer)
-        print(f"✅ Loaded {len(dataset)} samples from formatted val_seen")
+        config = Config()
+        dataset = AnsweringDataset(config, split='val_seen')
         
-        # Examine first sample
-        sample = dataset[0]
-        print(f"\n📋 Formatted Sample structure:")
-        print(f"Keys: {list(sample.keys())}")
+        print(f"✅ Formatted dataset loaded: {len(dataset)} samples")
         
-        # Decode some components safely
-        current_answer = tokenizer.decode(sample['text_label']['input_ids'], skip_special_tokens=True)
-        dialog_context = tokenizer.decode(sample['text_input']['input_ids'], skip_special_tokens=True)
+        # Print first few samples
+        for i in range(min(3, len(dataset))):
+            sample = dataset[i]
+            print(f"\n📋 Formatted Sample {i}:")
+            print(f"  Text input keys: {list(sample['text_input'].keys())}")
+            if 'first_instruction_input' in sample:
+                print(f"  First instruction input: {list(sample['first_instruction_input'].keys())}")
+            if 'current_question_input' in sample:
+                print(f"  Current question input: {list(sample['current_question_input'].keys())}")
+            print(f"  Text label: {sample['text_label'][:100]}...")
+            
+    except Exception as e:
+        print(f"❌ Error testing formatted dataset structure: {e}")
+
+def test_instruction_comparison():
+    """Compare instructions between AVDN and formatted datasets"""
+    print("\n🔍 Testing instruction comparison between AVDN and formatted datasets...")
+    
+    try:
+        # Load AVDN dataset
+        avdn_data = load_avdn_dataset('val_seen')
+        print(f"✅ Loaded AVDN dataset: {len(avdn_data)} samples")
         
-        # Conditionally decode other components if they exist
-        first_instruction = ""
-        current_question = ""
+        # Load preprocessed JSON
+        config = Config()
+        preprocessed_json = load_preprocessed_json(config, 'val_seen')
+        if not preprocessed_json:
+            print("❌ Could not load preprocessed JSON for comparison")
+            return
         
-        if 'first_instruction_input' in sample:
+        print(f"✅ Loaded preprocessed JSON: {len(preprocessed_json)} episodes")
+        
+        # Load formatted dataset
+        dataset = AnsweringDataset(config, split='val_seen')
+        print(f"✅ Loaded formatted dataset: {len(dataset)} samples")
+        
+        # Compare first few samples
+        sample_count = min(5, len(avdn_data))
+        
+        for i in range(sample_count):
+            print(f"\n{'='*80}")
+            print(f"📋 COMPARISON SAMPLE {i}")
+            print(f"{'='*80}")
+            
+            # AVDN sample
+            avdn_sample = avdn_data[i]
+            print(f"\n🔴 AVDN DATASET:")
+            print(f"  Map: {avdn_sample.get('map_name', 'N/A')}")
+            print(f"  Route Index: {avdn_sample.get('route_index', 'N/A')}")
+            print(f"  Last Round: {avdn_sample.get('last_round_idx', 'N/A')}")
+            print(f"  Instructions: {avdn_sample.get('instructions', 'N/A')}")
+            
+            # Parse AVDN instructions
+            instructions = avdn_sample.get('instructions', '')
+            if '[QUE]' in instructions and '[INS]' in instructions:
+                # Extract question and instruction
+                que_start = instructions.find('[QUE]')
+                ins_start = instructions.find('[INS]')
+                question = instructions[que_start+5:ins_start].strip()
+                instruction = instructions[ins_start+5:].strip()
+                print(f"  Extracted Question: {question}")
+                print(f"  Extracted Instruction: {instruction}")
+            elif '[INS]' in instructions:
+                # First instruction only
+                instruction = instructions.replace('[INS]', '').strip()
+                print(f"  First Instruction: {instruction}")
+                print(f"  Question: None (first instruction)")
+            else:
+                print(f"  Raw Instructions: {instructions}")
+            
+            # Find corresponding formatted sample
+            if i < len(dataset):
+                formatted_sample = dataset[i]
+                print(f"\n🟢 FORMATTED DATASET:")
+                print(f"  Text label: {formatted_sample['text_label'][:200]}...")
+                
+                # Try to decode the inputs
+                try:
+                    from transformers import T5Tokenizer
+                    tokenizer = T5Tokenizer.from_pretrained('t5-base')
+                    
+                    # Decode text input
+                    text_input_ids = formatted_sample['text_input']['input_ids']
+                    decoded_text = tokenizer.decode(text_input_ids, skip_special_tokens=True)
+                    print(f"  Decoded text input: {decoded_text[:200]}...")
+                    
+                    # Decode first instruction if present
+                    if 'first_instruction_input' in formatted_sample:
+                        first_ins_ids = formatted_sample['first_instruction_input']['input_ids']
+                        decoded_first_ins = tokenizer.decode(first_ins_ids, skip_special_tokens=True)
+                        print(f"  Decoded first instruction: {decoded_first_ins}")
+                    
+                    # Decode current question if present
+                    if 'current_question_input' in formatted_sample:
+                        current_q_ids = formatted_sample['current_question_input']['input_ids']
+                        decoded_current_q = tokenizer.decode(current_q_ids, skip_special_tokens=True)
+                        print(f"  Decoded current question: {decoded_current_q}")
+                        
+                except Exception as e:
+                    print(f"  Error decoding formatted sample: {e}")
+            
+            print(f"\n{'='*80}")
+            
+    except Exception as e:
+        print(f"❌ Error in instruction comparison: {e}")
+
+def test_answering_agent_generation():
+    """Test Answering Agent generation with real data"""
+    print("\n🔍 Testing Answering Agent generation...")
+    
+    try:
+        config = Config()
+        
+        # Load model
+        model = AnsweringAgent(config)
+        checkpoint_path = config.model.checkpoint_path
+        if os.path.exists(checkpoint_path):
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            model.load_state_dict(checkpoint['model_state_dict'])
+            print(f"✅ Loaded model from {checkpoint_path}")
+        else:
+            print(f"❌ Checkpoint not found: {checkpoint_path}")
+            return
+        
+        model.eval()
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model.to(device)
+        
+        # Load datasets
+        dataset = AnsweringDataset(config, split='val_seen')
+        preprocessed_json = load_preprocessed_json(config, 'val_seen')
+        
+        if not preprocessed_json:
+            print("❌ Could not load preprocessed JSON")
+            return
+        
+        print(f"✅ Loaded dataset: {len(dataset)} samples")
+        print(f"✅ Loaded preprocessed JSON: {len(preprocessed_json)} episodes")
+        
+        # Test first few samples
+        sample_count = min(3, len(dataset))
+        all_scores = []
+        
+        for i in range(sample_count):
+            print(f"\n{'='*60}")
+            print(f"🎯 GENERATION SAMPLE {i}")
+            print(f"{'='*60}")
+            
             try:
-                first_instruction = tokenizer.decode(sample['first_instruction_input']['input_ids'], skip_special_tokens=True)
+                sample = dataset[i]
+                
+                # Get metadata info
+                metadata_info = "Unknown"
+                if i < len(preprocessed_json):
+                    episode = preprocessed_json[i]
+                    metadata_info = f"Episode: {episode.get('episode_id', 'N/A')}, Map: {episode.get('map_name', 'N/A')}"
+                
+                print(f"📋 Metadata: {metadata_info}")
+                
+                # Construct text_input exactly as in training
+                text_input = {
+                    'input_ids': sample['text_input']['input_ids'].unsqueeze(0).to(device),
+                    'attention_mask': sample['text_input']['attention_mask'].unsqueeze(0).to(device)
+                }
+                if 'first_instruction_input' in sample:
+                    text_input['first_instruction_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['first_instruction_input'].items()}
+                if 'current_question_input' in sample:
+                    text_input['current_question_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['current_question_input'].items()}
+                
+                # Get visual features
+                current_view = sample['current_view_image'].unsqueeze(0).to(device)
+                previous_views = sample['previous_views_image'].unsqueeze(0).to(device)
+                destination = sample['destination_image'].unsqueeze(0).to(device)
+                
+                # Generate answer
+                with torch.no_grad():
+                    generated_ids = model.generate_answer(
+                        text_input=text_input,
+                        current_view=current_view,
+                        previous_views=previous_views,
+                        destination=destination
+                    )
+                
+                # Decode generated text
+                from transformers import T5Tokenizer
+                tokenizer = T5Tokenizer.from_pretrained('t5-base')
+                generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+                
+                # Decode original text
+                original_text = tokenizer.decode(sample['text_label'], skip_special_tokens=True)
+                
+                print(f"🔄 Original: {original_text}")
+                print(f"🎯 Generated: {generated_text}")
+                
+                # Calculate scores
+                scores = {
+                    'direction': direction_score(generated_text),
+                    'yesno': yesno_score(generated_text),
+                    'attribute': attribute_score(generated_text),
+                    'landmark': landmark_score(generated_text),
+                    'movement': movement_score(generated_text)
+                }
+                composite = composite_score(scores)
+                all_scores.append(composite)
+                
+                print(f"📊 Scores: {scores}")
+                print(f"📈 Composite: {composite:.4f}")
+                
             except Exception as e:
-                print(f"Debug: first_instruction_input structure: {type(sample['first_instruction_input'])}")
-                if isinstance(sample['first_instruction_input'], dict):
-                    print(f"Debug: first_instruction_input keys: {sample['first_instruction_input'].keys()}")
-                first_instruction = f"Error decoding: {e}"
+                print(f"❌ Error generating sample {i}: {e}")
         
-        if 'current_question_input' in sample:
-            current_question = tokenizer.decode(sample['current_question_input']['input_ids'], skip_special_tokens=True)
-        
-        print(f"First Instruction: {first_instruction}")
-        print(f"Current Question: {current_question}")
-        print(f"Current Answer: {current_answer}")
-        print(f"Dialog Context: {dialog_context[:200]}...")
-        
-        return True
+        if all_scores:
+            avg_score = np.mean(all_scores)
+            print(f"\n📊 Average Composite Score: {avg_score:.4f}")
         
     except Exception as e:
-        print(f"❌ Error loading formatted dataset: {e}")
-        return False
+        print(f"❌ Error in Answering Agent generation: {e}")
 
-def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
-    """Test Answering Agent generation with actual checkpoint and calculate metrics."""
-    print(f"\n🧪 Testing Answering Agent generation with checkpoint: {checkpoint_path}")
+def test_direct_generation():
+    """Test direct generation without preprocessed JSON"""
+    print("\n🔍 Testing direct generation...")
     
-    if not os.path.exists(checkpoint_path):
-        print(f"❌ Checkpoint not found: {checkpoint_path}")
-        return False
-    
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
-    
-    # Load config and tokenizer
-    config = Config()
-    tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name)
-    
-    # Initialize logger
-    logger = setup_logger('test_generation', log_dir=config.log_dir)
-    
-    # Load Answering Agent model
-    print("🏗️ Loading Answering Agent model...")
-    model = AnsweringAgent(config, tokenizer, logger)
-    
-    # Load checkpoint
-    print(f"📂 Loading checkpoint: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
-    
-    if 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
-        print("✅ Model state loaded successfully")
-    else:
-        print("⚠️ No model_state_dict found in checkpoint, trying direct load")
-        model.load_state_dict(checkpoint)
-    
-    model.to(device)
-    model.eval()
-    
-    # Load formatted dataset
-    print("📊 Loading formatted dataset...")
-    dataset = AnsweringDataset(config, split='val_seen', tokenizer=tokenizer)
-    
-    # Load preprocessed JSON for metadata
-    print("📊 Loading preprocessed JSON for metadata...")
-    preprocessed_json = load_preprocessed_json(config, 'val_seen')
-    
-    if not preprocessed_json:
-        print("❌ Could not load preprocessed JSON, falling back to direct dataset testing")
-        return test_direct_generation(model, dataset, tokenizer, device, max_samples)
-    
-    # Test generation on a few samples using metadata matching
-    print(f"🧪 Testing generation on {max_samples} samples using metadata matching...")
-    
-    # Track metrics
-    all_scores = []
-    successful_generations = 0
-    
-    # Test with first few samples from formatted dataset
-    for i in range(min(max_samples, len(dataset))):
-        try:
-            sample = dataset[i]
-            
-            # Debug: print sample keys to understand structure
-            if i == 0:
-                print(f"Sample keys: {list(sample.keys())}")
-            
-            # Get text input and visual features
-            text_input = {
-                'input_ids': sample['text_input']['input_ids'].unsqueeze(0).to(device),
-                'attention_mask': sample['text_input']['attention_mask'].unsqueeze(0).to(device)
-            }
-            
-            # Add separate components EXACTLY as in training (lines 687-691 in train.py)
-            if 'first_instruction_input' in sample:
-                text_input['first_instruction_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['first_instruction_input'].items()}
-            if 'current_question_input' in sample:
-                text_input['current_question_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['current_question_input'].items()}
-            
-            current_view = sample['current_view_image'].unsqueeze(0).to(device)
-            previous_views = sample['previous_views_image'].unsqueeze(0).to(device)
-            
-            # Generation parameters (same as evaluation)
-            generation_params = {
-                'task_type': 'precision_short',
-                'num_beams': 4,
-                'do_sample': False,
-                'repetition_penalty': 1.1,
-                'length_penalty': 0.8,
-                'min_new_tokens': 8,
-                'max_new_tokens': 70,
-                'early_stopping': True,
-            }
-            
-            # Generate answer
-            with torch.no_grad():
-                generated_seq = model.generate_answer(
-                    text_input, current_view, previous_views,
-                    **generation_params
-                )
-            
-            # Decode results
-            original_answer = tokenizer.decode(sample['text_label']['input_ids'], skip_special_tokens=True)
-            generated_answer = tokenizer.decode(generated_seq[0], skip_special_tokens=True)
-            dialog_context = tokenizer.decode(sample['text_input']['input_ids'], skip_special_tokens=True)
-            
-            # Get metadata from preprocessed JSON if available
-            metadata_info = ""
-            if i < len(preprocessed_json):
-                metadata = preprocessed_json[i]
-                metadata_info = f"Map: {metadata.get('map_name', 'N/A')}, Episode: {metadata.get('episode_id', 'N/A')}, Turn: {metadata.get('turn_id', 'N/A')}"
-            
-            # Calculate composite score
-            scores = composite_score(generated_answer, original_answer, task_type="precision_short")
-            all_scores.append(scores)
-            successful_generations += 1
-            
-            print(f"\n📝 Sample {i+1}:")
-            if metadata_info:
-                print(f"Metadata: {metadata_info}")
-            print(f"Context: {dialog_context[:100]}...")
-            print(f"Original Answer: {original_answer}")
-            print(f"Generated Answer: {generated_answer}")
-            print(f"Composite Score: {scores['total']:.4f}")
-            print(f"Direction Score: {scores['direction']:.4f}")
-            print(f"Movement Score: {scores['movement']:.4f}")
-            print("-" * 80)
-            
-        except Exception as e:
-            print(f"❌ Error generating sample {i}: {e}")
-            continue
-    
-    # Calculate and report final metrics
-    if all_scores:
-        avg_composite = sum(s['total'] for s in all_scores) / len(all_scores)
-        avg_direction = sum(s['direction'] for s in all_scores) / len(all_scores)
-        avg_movement = sum(s['movement'] for s in all_scores) / len(all_scores)
-        avg_landmark = sum(s['landmark'] for s in all_scores) / len(all_scores)
-        avg_attribute = sum(s['attribute'] for s in all_scores) / len(all_scores)
+    try:
+        config = Config()
         
-        print(f"\n📊 GENERATION METRICS SUMMARY:")
-        print(f"Successful Generations: {successful_generations}/{max_samples}")
-        print(f"Average Composite Score: {avg_composite:.4f}")
-        print(f"Average Direction Score: {avg_direction:.4f}")
-        print(f"Average Movement Score: {avg_movement:.4f}")
-        print(f"Average Landmark Score: {avg_landmark:.4f}")
-        print(f"Average Attribute Score: {avg_attribute:.4f}")
-        
-        # Individual scores for detailed analysis
-        print(f"\n📈 INDIVIDUAL SCORES:")
-        for i, scores in enumerate(all_scores):
-            print(f"Sample {i+1}: Composite={scores['total']:.4f}, Direction={scores['direction']:.4f}, Movement={scores['movement']:.4f}")
-    
-    print("✅ Answering Agent generation test completed!")
-    return True
-
-def load_preprocessed_json(config, split: str):
-    """Load the JSON format of preprocessed dataset with metadata."""
-    # Use the config's JSON paths
-    if split == 'train':
-        json_file = config.data.train_json_path
-    elif split == 'val_seen':
-        json_file = config.data.val_seen_json_path
-    elif split == 'val_unseen':
-        json_file = config.data.val_unseen_json_path
-    else:
-        raise ValueError(f"Unknown split: {split}")
-    
-    print(f"Loading preprocessed JSON from: {json_file}")
-    
-    if not os.path.exists(json_file):
-        # Try alternative paths
-        alt_paths = [
-            f"../datasets/{split}_data.json",
-            f"./datasets/{split}_data.json", 
-            f"./processed_data/{split}_data.json",
-            f"/app/datasets/{split}_data.json",
-            f"/app/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/{split}_data.json"
-        ]
-        
-        for alt_path in alt_paths:
-            if os.path.exists(alt_path):
-                json_file = alt_path
-                print(f"Found JSON file at alternative path: {json_file}")
-                break
+        # Load model
+        model = AnsweringAgent(config)
+        checkpoint_path = config.model.checkpoint_path
+        if os.path.exists(checkpoint_path):
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            model.load_state_dict(checkpoint['model_state_dict'])
+            print(f"✅ Loaded model from {checkpoint_path}")
         else:
-            print(f"❌ Could not find preprocessed JSON file for {split}")
-            print(f"Looked in: {json_file}")
-            for path in alt_paths:
-                print(f"  Also tried: {path}")
-            return []
-    
-    with open(json_file, 'r') as f:
-        data = json.load(f)
-    
-    print(f"✅ Loaded {len(data)} preprocessed samples from JSON")
-    return data
-
-def test_direct_generation(model, dataset, tokenizer, device, max_samples):
-    """Fallback test without metadata matching."""
-    print("🔄 Testing direct generation without metadata matching...")
-    
-    all_scores = []
-    successful_generations = 0
-    
-    for i in range(min(max_samples, len(dataset))):
-        try:
-            sample = dataset[i]
-            
-            # Get text input and visual features
-            text_input = {
-                'input_ids': sample['text_input']['input_ids'].unsqueeze(0).to(device),
-                'attention_mask': sample['text_input']['attention_mask'].unsqueeze(0).to(device)
-            }
-            
-            # Add separate components EXACTLY as in training (lines 687-691 in train.py)
-            if 'first_instruction_input' in sample:
-                text_input['first_instruction_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['first_instruction_input'].items()}
-            if 'current_question_input' in sample:
-                text_input['current_question_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['current_question_input'].items()}
-            
-            current_view = sample['current_view_image'].unsqueeze(0).to(device)
-            previous_views = sample['previous_views_image'].unsqueeze(0).to(device)
-            
-            # Generation parameters
-            generation_params = {
-                'task_type': 'precision_short',
-                'num_beams': 4,
-                'do_sample': False,
-                'repetition_penalty': 1.1,
-                'length_penalty': 0.8,
-                'min_new_tokens': 8,
-                'max_new_tokens': 70,
-                'early_stopping': True,
-            }
-            
-            # Generate answer
-            with torch.no_grad():
-                generated_seq = model.generate_answer(
-                    text_input, current_view, previous_views,
-                    **generation_params
-                )
-            
-            # Decode results
-            original_answer = tokenizer.decode(sample['text_label']['input_ids'], skip_special_tokens=True)
-            generated_answer = tokenizer.decode(generated_seq[0], skip_special_tokens=True)
-            
-            # Calculate composite score
-            scores = composite_score(generated_answer, original_answer, task_type="precision_short")
-            all_scores.append(scores)
-            successful_generations += 1
-            
-            print(f"\n📝 Sample {i+1}:")
-            print(f"Original Answer: {original_answer}")
-            print(f"Generated Answer: {generated_answer}")
-            print(f"Composite Score: {scores['total']:.4f}")
-            print("-" * 80)
-            
-        except Exception as e:
-            print(f"❌ Error generating sample {i}: {e}")
-            continue
-    
-    # Report metrics
-    if all_scores:
-        avg_composite = sum(s['total'] for s in all_scores) / len(all_scores)
-        print(f"\n📊 DIRECT GENERATION METRICS:")
-        print(f"Successful Generations: {successful_generations}/{max_samples}")
-        print(f"Average Composite Score: {avg_composite:.4f}")
-    
-    return True
-
-def test_small_generation(max_samples: int = 5):
-    """Test AVDN generation on a small sample."""
-    print(f"\n🚀 Testing AVDN generation on {max_samples} samples...")
-    
-    # Load AVDN data
-    avdn_file = "../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_seen_data.json"
-    
-    if not os.path.exists(avdn_file):
-        print(f"❌ AVDN file not found: {avdn_file}")
-        return False
-    
-    with open(avdn_file, 'r') as f:
-        avdn_data = json.load(f)
-    
-    # Load formatted dataset
-    config = Config()
-    tokenizer = T5Tokenizer.from_pretrained(config.model.t5_model_name)
-    formatted_dataset = AnsweringDataset(config, split='val_seen', tokenizer=tokenizer)
-    
-    # Process a few samples
-    processed_samples = []
-    
-    for i in tqdm(range(min(max_samples, len(avdn_data))), desc="Processing samples"):
-        avdn_sample = avdn_data[i]
-        
-        # Get original instruction
-        original_instruction = avdn_sample['instructions']
-        
-        # For testing, we'll just use the original instruction
-        # In the real script, this would be generated by the Answering Agent
-        new_instruction = original_instruction  # Placeholder for testing
-        
-        # Create new AVDN sample
-        new_sample = avdn_sample.copy()
-        new_sample['instructions'] = new_instruction
-        
-        processed_samples.append(new_sample)
-        
-        # Print example
-        if i < 3:
-            print(f"\nSample {i+1}:")
-            print(f"Map: {avdn_sample['map_name']}, Route: {avdn_sample['route_index']}")
-            print(f"Original: {original_instruction}")
-            print(f"Generated: {new_sample['instructions']}")
-            print("-" * 80)
-    
-    # Save test results
-    output_dir = "./test_generated_avdn"
-    os.makedirs(output_dir, exist_ok=True)
-    
-    output_file = os.path.join(output_dir, "test_val_seen_data.json")
-    with open(output_file, 'w') as f:
-        json.dump(processed_samples, f, indent=2)
-    
-    print(f"\n✅ Test completed successfully!")
-    print(f"📁 Test results saved to: {output_file}")
-    print(f"📊 Processed {len(processed_samples)} samples")
-    
-    return True
-
-def main():
-    parser = argparse.ArgumentParser(description="Test AVDN generation")
-    parser.add_argument("--checkpoint", type=str, default=None,
-                       help="Path to Answering Agent checkpoint")
-    parser.add_argument("--max_samples", type=int, default=5,
-                       help="Maximum samples to process for testing")
-    args = parser.parse_args()
-
-    print("🚀 AVDN Dataset Generation Test Suite")
-    print("=" * 50)
-    
-    # Test 1: AVDN structure
-    if not test_avdn_structure():
-        print("❌ AVDN structure test failed")
-        return
-    
-    # Test 2: Formatted dataset structure
-    if not test_formatted_dataset_structure():
-        print("❌ Formatted dataset structure test failed")
-        return
-    
-    # Test 3: Answering Agent generation (if checkpoint provided)
-    if args.checkpoint:
-        if not test_answering_agent_generation(args.checkpoint, args.max_samples):
-            print("❌ Answering Agent generation test failed")
+            print(f"❌ Checkpoint not found: {checkpoint_path}")
             return
-    else:
-        print("\n⚠️ No checkpoint provided, skipping Answering Agent generation test")
-        print("Use --checkpoint path/to/checkpoint.pth to test generation")
+        
+        model.eval()
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model.to(device)
+        
+        # Load dataset
+        dataset = AnsweringDataset(config, split='val_seen')
+        print(f"✅ Loaded dataset: {len(dataset)} samples")
+        
+        # Test first few samples
+        sample_count = min(3, len(dataset))
+        all_scores = []
+        
+        for i in range(sample_count):
+            print(f"\n{'='*60}")
+            print(f"🎯 DIRECT GENERATION SAMPLE {i}")
+            print(f"{'='*60}")
+            
+            try:
+                sample = dataset[i]
+                
+                # Construct text_input exactly as in training
+                text_input = {
+                    'input_ids': sample['text_input']['input_ids'].unsqueeze(0).to(device),
+                    'attention_mask': sample['text_input']['attention_mask'].unsqueeze(0).to(device)
+                }
+                if 'first_instruction_input' in sample:
+                    text_input['first_instruction_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['first_instruction_input'].items()}
+                if 'current_question_input' in sample:
+                    text_input['current_question_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['current_question_input'].items()}
+                
+                # Get visual features
+                current_view = sample['current_view_image'].unsqueeze(0).to(device)
+                previous_views = sample['previous_views_image'].unsqueeze(0).to(device)
+                destination = sample['destination_image'].unsqueeze(0).to(device)
+                
+                # Generate answer
+                with torch.no_grad():
+                    generated_ids = model.generate_answer(
+                        text_input=text_input,
+                        current_view=current_view,
+                        previous_views=previous_views,
+                        destination=destination
+                    )
+                
+                # Decode generated text
+                from transformers import T5Tokenizer
+                tokenizer = T5Tokenizer.from_pretrained('t5-base')
+                generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+                
+                # Decode original text
+                original_text = tokenizer.decode(sample['text_label'], skip_special_tokens=True)
+                
+                print(f"🔄 Original: {original_text}")
+                print(f"🎯 Generated: {generated_text}")
+                
+                # Calculate scores
+                scores = {
+                    'direction': direction_score(generated_text),
+                    'yesno': yesno_score(generated_text),
+                    'attribute': attribute_score(generated_text),
+                    'landmark': landmark_score(generated_text),
+                    'movement': movement_score(generated_text)
+                }
+                composite = composite_score(scores)
+                all_scores.append(composite)
+                
+                print(f"📊 Scores: {scores}")
+                print(f"📈 Composite: {composite:.4f}")
+                
+            except Exception as e:
+                print(f"❌ Error generating sample {i}: {e}")
+        
+        if all_scores:
+            avg_score = np.mean(all_scores)
+            print(f"\n📊 Average Composite Score: {avg_score:.4f}")
+        
+    except Exception as e:
+        print(f"❌ Error in direct generation: {e}")
+
+def test_small_generation():
+    """Test small generation with AVDN data"""
+    print("\n🔍 Testing small generation with AVDN data...")
     
-    # Test 4: Small generation
-    if not test_small_generation(args.max_samples):
-        print("❌ Small generation test failed")
-        return
-    
-    print("\n✅ All tests completed successfully!")
-    print("\n📝 Next steps:")
-    print("1. Run the full generation script with --checkpoint path")
-    print("2. Test with a small sample first: --max_samples 10")
-    print("3. Scale up to full dataset when ready")
+    try:
+        # Load AVDN data
+        avdn_file = "/app/UAV-Language-Guided-Navigation/Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_seen_data.json"
+        if not os.path.exists(avdn_file):
+            avdn_file = "Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations/val_seen_data.json"
+        
+        if not os.path.exists(avdn_file):
+            print(f"❌ AVDN file not found: {avdn_file}")
+            return
+        
+        with open(avdn_file, 'r') as f:
+            avdn_data = json.load(f)
+        
+        print(f"✅ Loaded AVDN data: {len(avdn_data)} samples")
+        
+        # Print first few samples with instruction parsing
+        for i in range(min(3, len(avdn_data))):
+            sample = avdn_data[i]
+            print(f"\n📋 AVDN Sample {i}:")
+            print(f"  Map: {sample.get('map_name', 'N/A')}")
+            print(f"  Route Index: {sample.get('route_index', 'N/A')}")
+            print(f"  Last Round: {sample.get('last_round_idx', 'N/A')}")
+            
+            instructions = sample.get('instructions', '')
+            print(f"  Raw Instructions: {instructions}")
+            
+            # Parse instructions
+            if '[QUE]' in instructions and '[INS]' in instructions:
+                que_start = instructions.find('[QUE]')
+                ins_start = instructions.find('[INS]')
+                question = instructions[que_start+5:ins_start].strip()
+                instruction = instructions[ins_start+5:].strip()
+                print(f"  📝 Question: {question}")
+                print(f"  📝 Instruction: {instruction}")
+            elif '[INS]' in instructions:
+                instruction = instructions.replace('[INS]', '').strip()
+                print(f"  📝 First Instruction: {instruction}")
+                print(f"  📝 Question: None (first instruction)")
+            else:
+                print(f"  📝 Unrecognized format: {instructions}")
+            
+    except Exception as e:
+        print(f"❌ Error in small generation test: {e}")
 
 if __name__ == "__main__":
-    main() 
+    print("🧪 Starting AVDN Generation Tests...")
+    
+    # Test AVDN structure
+    test_avdn_structure()
+    
+    # Test formatted dataset structure
+    test_formatted_dataset_structure()
+    
+    # Test instruction comparison
+    test_instruction_comparison()
+    
+    # Test Answering Agent generation
+    test_answering_agent_generation()
+    
+    # Test direct generation
+    test_direct_generation()
+    
+    # Test small generation
+    test_small_generation()
+    
+    print("\n✅ All tests completed!") 
