@@ -89,13 +89,25 @@ class AVDNGeneratorWithAgent:
         Extract dialog components from formatted dataset sample.
         Returns: (first_instruction, current_question, current_answer, dialog_history)
         """
-        # Decode the tokenized components
-        first_instruction = self.decode_tokenized_text(sample['first_instruction_input'])
-        current_question = self.decode_tokenized_text(sample['current_question_input'])
+        # Decode the tokenized components safely
         current_answer = self.decode_tokenized_text(sample['text_label'])
-        
-        # Extract dialog history from the unified text input
         dialog_context = self.decode_tokenized_text(sample['text_input'])
+        
+        # Conditionally decode other components if they exist
+        first_instruction = ""
+        current_question = ""
+        
+        if 'first_instruction_input' in sample:
+            try:
+                first_instruction = self.decode_tokenized_text(sample['first_instruction_input'])
+            except Exception as e:
+                print(f"Debug: first_instruction_input structure: {type(sample['first_instruction_input'])}")
+                if isinstance(sample['first_instruction_input'], dict):
+                    print(f"Debug: first_instruction_input keys: {sample['first_instruction_input'].keys()}")
+                first_instruction = f"Error decoding: {e}"
+        
+        if 'current_question_input' in sample:
+            current_question = self.decode_tokenized_text(sample['current_question_input'])
         
         # Parse dialog history from the context
         dialog_history = self.parse_dialog_history(dialog_context, first_instruction)

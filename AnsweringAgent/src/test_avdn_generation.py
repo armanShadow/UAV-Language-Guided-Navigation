@@ -65,11 +65,25 @@ def test_formatted_dataset_structure():
         print(f"\n📋 Formatted Sample structure:")
         print(f"Keys: {list(sample.keys())}")
         
-        # Decode some components
-        first_instruction = tokenizer.decode(sample['first_instruction_input']['input_ids'], skip_special_tokens=True)
-        current_question = tokenizer.decode(sample['current_question_input']['input_ids'], skip_special_tokens=True)
+        # Decode some components safely
         current_answer = tokenizer.decode(sample['text_label']['input_ids'], skip_special_tokens=True)
         dialog_context = tokenizer.decode(sample['text_input']['input_ids'], skip_special_tokens=True)
+        
+        # Conditionally decode other components if they exist
+        first_instruction = ""
+        current_question = ""
+        
+        if 'first_instruction_input' in sample:
+            try:
+                first_instruction = tokenizer.decode(sample['first_instruction_input']['input_ids'], skip_special_tokens=True)
+            except Exception as e:
+                print(f"Debug: first_instruction_input structure: {type(sample['first_instruction_input'])}")
+                if isinstance(sample['first_instruction_input'], dict):
+                    print(f"Debug: first_instruction_input keys: {sample['first_instruction_input'].keys()}")
+                first_instruction = f"Error decoding: {e}"
+        
+        if 'current_question_input' in sample:
+            current_question = tokenizer.decode(sample['current_question_input']['input_ids'], skip_special_tokens=True)
         
         print(f"First Instruction: {first_instruction}")
         print(f"Current Question: {current_question}")
