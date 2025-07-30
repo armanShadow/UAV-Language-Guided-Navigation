@@ -175,7 +175,7 @@ class AVDNGeneratorWithAgent:
 
     
     def update_avdn_instruction(self, avdn_sample: Dict, new_answer: str, turn_index: int) -> Dict:
-        """Update AVDN sample with new instruction."""
+        """Update AVDN sample with new instruction and dialog history."""
         # Create new sample by copying the original
         new_sample = avdn_sample.copy()
         
@@ -201,6 +201,10 @@ class AVDNGeneratorWithAgent:
         
         # Update the instruction
         new_sample['instructions'] = new_instruction
+        
+        # Dialog history will be updated at the episode level during processing
+        # Individual sample updates only change the current instruction
+        # The pre_dialogs will be updated when processing subsequent turns in the same episode
         
         return new_sample
     
@@ -247,13 +251,15 @@ class AVDNGeneratorWithAgent:
         return data
     
     def create_avdn_to_preprocessed_mapping(self, avdn_data: List[Dict], preprocessed_json: List[Dict]) -> Dict[int, int]:
-        """Create mapping from AVDN indices to preprocessed dataset indices using metadata."""
-        print("Creating AVDN to preprocessed dataset mapping using episode-based metadata...")
+        """Create mapping from AVDN indices to preprocessed dataset indices using exact episode metadata."""
+        print("Creating AVDN to preprocessed dataset mapping using exact episode metadata...")
         
         mapping = {}
         
         # Parse preprocessed episodes and create flattened turn index
         preprocessed_turns = []
+        episode_map = {}  # episode_id -> {turn_id: index}
+        
         for episode in preprocessed_json:
             episode_id = episode.get('episode_id', '')
             
@@ -262,6 +268,7 @@ class AVDNGeneratorWithAgent:
                 continue
                 
             map_name = episode.get('map_name', '')
+            episode_map[episode_id] = {}
             
             # Process each dialog turn in the episode
             for dialog in episode.get('dialogs', []):
@@ -271,8 +278,8 @@ class AVDNGeneratorWithAgent:
                 if turn_id == 0:
                     continue
                     
-                answer = dialog.get('answer', '').strip().lower()
-                question = dialog.get('question', '').strip().lower()
+                answer = dialog.get('answer', '').strip()
+                question = dialog.get('question', '').strip()
                 
                 turn_data = {
                     'episode_id': episode_id,
@@ -283,129 +290,99 @@ class AVDNGeneratorWithAgent:
                     'preprocessed_index': len(preprocessed_turns)
                 }
                 preprocessed_turns.append(turn_data)
+                episode_map[episode_id][turn_id] = len(preprocessed_turns) - 1
         
-        print(f"Found {len(preprocessed_turns)} non-augmented dialog turns")
+        print(f"Found {len(preprocessed_turns)} non-augmented dialog turns in {len(episode_map)} episodes")
         
-        # Create index for matching
-        preprocessed_index = {}
-        for i, turn in enumerate(preprocessed_turns):
-            map_name = turn['map_name']
-            answer = turn['answer']
+        # Parse AVDN data to group by trajectory and understand the structure
+        avdn_trajectories = {}  # map_name -> {trajectory_id -> [turns]}
+        
+        for i, avdn_sample in enumerate(avdn_data):
+            map_name = avdn_sample['map_name']
+            route_index = avdn_sample['route_index']
             
-            # Create keys for matching
-            keys = [
-                f"{map_name}_{answer}",
-                f"{map_name}_{turn['episode_id']}_{turn['turn_id']}"
-            ]
+            # route_index format is "trajectory_turn" (e.g., "3_1", "0_2")
+            route_parts = route_index.split('_')
+            if len(route_parts) >= 2:
+                trajectory_id = route_parts[0]
+                turn_id = int(route_parts[1])
+                
+                if map_name not in avdn_trajectories:
+                    avdn_trajectories[map_name] = {}
+                if trajectory_id not in avdn_trajectories[map_name]:
+                    avdn_trajectories[map_name][trajectory_id] = []
+                
+                avdn_trajectories[map_name][trajectory_id].append({
+                    'avdn_index': i,
+                    'turn_id': turn_id,
+                    'sample': avdn_sample,
+                    'route_index': route_index
+                })
+            else:
+                print(f"Warning: Unexpected route_index format: {route_index}")
+                continue
+        
+        # Create a trajectory mapping for each map
+        # AVDN trajectories don't directly correspond to processed episode IDs
+        trajectory_mapping = {}  # map_name -> {avdn_trajectory_id -> processed_episode_id}
+        
+        for map_name in avdn_trajectories:
+            trajectory_mapping[map_name] = {}
+            avdn_traj_ids = sorted(avdn_trajectories[map_name].keys())
             
-            for key in keys:
-                if key not in preprocessed_index:
-                    preprocessed_index[key] = []
-                preprocessed_index[key].append(i)
+            # Find all processed episodes for this map
+            map_episodes = [ep_id for ep_id in episode_map.keys() if ep_id.startswith(f"{map_name}_")]
+            map_episodes.sort()
+            
+            print(f"Map {map_name}: AVDN trajectories {avdn_traj_ids} -> Processed episodes {map_episodes}")
+            
+            # Create mapping based on order (not direct ID match)
+            for i, avdn_traj_id in enumerate(avdn_traj_ids):
+                if i < len(map_episodes):
+                    processed_episode_id = map_episodes[i]
+                    trajectory_mapping[map_name][avdn_traj_id] = processed_episode_id
+                    print(f"  Trajectory mapping: {avdn_traj_id} -> {processed_episode_id}")
         
         matched_count = 0
-        for i, avdn_sample in enumerate(avdn_data):
-            # Parse AVDN instruction to determine turn type
-            instruction = avdn_sample['instructions']
-            
-            # Determine if this is a first instruction or Q&A turn
-            if '[QUE]' in instruction and '[INS]' in instruction:
-                # This is a Q&A turn
-                que_start = instruction.find('[QUE]')
-                ins_start = instruction.find('[INS]')
-                avdn_question = instruction[que_start+5:ins_start].strip().lower()
-                avdn_answer = instruction[ins_start+5:].strip().lower()
-                is_first_instruction = False
-            elif '[INS]' in instruction:
-                # This is a first instruction (no question)
-                avdn_answer = instruction.replace('[INS]', '').strip().lower()
-                avdn_question = None
-                is_first_instruction = True
-            else:
-                # Unrecognized format, skip
-                print(f"Warning: Unrecognized instruction format for sample {i}: {instruction}")
-                continue
-            
-            map_name = avdn_sample['map_name']
-            
-            # Find matching preprocessed turn based on turn type
-            match_found = False
-            best_match_idx = None
-            best_score = 0
-            
-            for turn_idx, turn_data in enumerate(preprocessed_turns):
-                # Only consider turns from the same map
-                if turn_data['map_name'] != map_name:
-                    continue
-                
-                preprocessed_question = turn_data['question'].strip().lower()
-                preprocessed_answer = turn_data['answer'].strip().lower()
-                
-                # Check turn type compatibility
-                if is_first_instruction:
-                    # AVDN first instruction should match preprocessed turns without questions
-                    if preprocessed_question:  # Skip turns that have questions
-                        continue
-                else:
-                    # AVDN Q&A turn should match preprocessed turns with questions
-                    if not preprocessed_question:  # Skip turns without questions
-                        continue
-                    
-                    # For Q&A turns, also check question similarity
-                    question_words = set(avdn_question.split())
-                    prep_question_words = set(preprocessed_question.split())
-                    question_overlap = len(question_words & prep_question_words)
-                    
-                    # Require significant question overlap for Q&A turns
-                    if question_overlap < 3:  # Require at least 3 common words
-                        continue
-                
-                # Check answer similarity
-                answer_words = set(avdn_answer.split())
-                prep_answer_words = set(preprocessed_answer.split())
-                answer_overlap = len(answer_words & prep_answer_words)
-                
-                # Calculate similarity score
-                total_words = max(len(answer_words), len(prep_answer_words))
-                if total_words == 0:
-                    continue
-                    
-                similarity_score = answer_overlap / total_words
-                
-                # For Q&A turns, also factor in question similarity
-                if not is_first_instruction and preprocessed_question:
-                    question_total = max(len(question_words), len(prep_question_words))
-                    if question_total > 0:
-                        question_similarity = question_overlap / question_total
-                        similarity_score = (similarity_score + question_similarity) / 2
-                
-                # Update best match if this is better
-                if similarity_score > best_score and similarity_score > 0.3:  # Minimum threshold
-                    best_score = similarity_score
-                    best_match_idx = turn_idx
-            
-            # If we found a good match, use it
-            if best_match_idx is not None:
-                mapping[i] = best_match_idx
-                matched_count += 1
-                match_found = True
-                
-                if i < 3:  # Debug first few matches
-                    turn_data = preprocessed_turns[best_match_idx]
-                    print(f"Match {i}: AVDN({map_name}, {avdn_sample['route_index']}) -> Turn {best_match_idx}")
-                    print(f"  Turn type: {'First Instruction' if is_first_instruction else 'Q&A Turn'}")
-                    print(f"  AVDN instruction: {instruction}")
-                    print(f"  Preprocessed answer: {turn_data['answer']}")
-                    print(f"  Preprocessed question: {turn_data['question']}")
-                    print(f"  Episode ID: {turn_data['episode_id']}")
-                    print(f"  Turn ID: {turn_data['turn_id']}")
-                    print(f"  Similarity score: {best_score:.3f}")
-            else:
-                if i < 3:  # Debug failed matches
-                    turn_type = 'First Instruction' if is_first_instruction else 'Q&A Turn'
-                    print(f"No match found for AVDN sample {i} ({turn_type}): {instruction}")
         
-        print(f"Successfully mapped {matched_count}/{len(avdn_data)} AVDN samples to non-augmented preprocessed turns")
+        # Now match using the trajectory mapping
+        for map_name, trajectories in avdn_trajectories.items():
+            for avdn_traj_id, turns in trajectories.items():
+                # Sort turns by turn_id
+                turns.sort(key=lambda x: x['turn_id'])
+                
+                # Get corresponding processed episode
+                if (map_name in trajectory_mapping and 
+                    avdn_traj_id in trajectory_mapping[map_name]):
+                    
+                    processed_episode_id = trajectory_mapping[map_name][avdn_traj_id]
+                    
+                    if processed_episode_id in episode_map:
+                        # Match turns within the episode
+                        for turn_data in turns:
+                            avdn_index = turn_data['avdn_index']
+                            turn_id = turn_data['turn_id']
+                            
+                            if turn_id in episode_map[processed_episode_id]:
+                                preprocessed_index = episode_map[processed_episode_id][turn_id]
+                                mapping[avdn_index] = preprocessed_index
+                                matched_count += 1
+                                
+                                if matched_count <= 5:  # Debug first few matches
+                                    prep_turn_data = preprocessed_turns[preprocessed_index]
+                                    print(f"✅ Match {matched_count}: AVDN[{avdn_index}] {map_name}_traj{avdn_traj_id}_turn{turn_id} ({turn_data['route_index']}) -> Preprocessed[{preprocessed_index}] {prep_turn_data['episode_id']}_turn{prep_turn_data['turn_id']}")
+                                    print(f"   Answer preview: {prep_turn_data['answer'][:50]}...")
+                            else:
+                                if matched_count <= 5:
+                                    print(f"❌ No turn {turn_id} found in episode {processed_episode_id}")
+                    else:
+                        if matched_count <= 5:
+                            print(f"❌ Episode {processed_episode_id} not found in episode_map")
+                else:
+                    if matched_count <= 5:
+                        print(f"❌ No trajectory mapping found for {map_name}_traj{avdn_traj_id}")
+        
+        print(f"Successfully mapped {matched_count}/{len(avdn_data)} AVDN samples using exact episode metadata")
         return mapping
     
     def process_avdn_sample(self, avdn_sample: Dict, formatted_dataset: AnsweringDataset, mapping: Dict[int, int], avdn_index: int) -> Dict:
@@ -454,6 +431,35 @@ class AVDNGeneratorWithAgent:
         
         # Update AVDN sample with new instruction
         new_sample = self.update_avdn_instruction(avdn_sample, new_answer, 0)
+        
+        # Add debug information for verification
+        if avdn_index in mapping:
+            turn_index = mapping[avdn_index]
+            if turn_index < len(self.preprocessed_turns):
+                turn_data = self.preprocessed_turns[turn_index]
+                
+                # Add debug fields to the output for verification
+                new_sample['_debug_info'] = {
+                    'matched_episode_id': turn_data['episode_id'],
+                    'matched_turn_id': turn_data['turn_id'],
+                    'original_context_preview': self.decode_tokenized_text(matching_sample['text_input'])[:200] + "...",
+                    'original_answer': avdn_sample['instructions'],
+                    'generated_answer': new_answer,
+                    'preprocessed_answer': turn_data['answer'],
+                    'avdn_route_index': avdn_sample['route_index']
+                }
+                
+                # Calculate generation score for this sample
+                if '[INS]' in avdn_sample['instructions']:
+                    original_answer = avdn_sample['instructions'].split('[INS]')[-1].strip()
+                else:
+                    original_answer = avdn_sample['instructions'].strip()
+                
+                try:
+                    scores = composite_score(new_answer, original_answer, task_type="precision_short")
+                    new_sample['_debug_info']['generation_scores'] = scores
+                except Exception as e:
+                    new_sample['_debug_info']['generation_scores'] = {'error': str(e)}
         
         return new_sample
     
