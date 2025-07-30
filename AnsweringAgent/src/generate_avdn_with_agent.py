@@ -184,82 +184,160 @@ class AVDNGeneratorWithAgent:
         
         return new_sample
     
-    def create_dataset_index(self, formatted_dataset: AnsweringDataset) -> Dict[str, int]:
-        """Create an index mapping (episode_id, turn_id, map_name) to dataset indices."""
-        print("Creating dataset index for efficient matching...")
+    def load_preprocessed_json(self, split: str) -> List[Dict]:
+        """Load the JSON format of preprocessed dataset with metadata."""
+        # Construct the JSON file path based on your data structure
+        if split == 'train':
+            json_file = os.path.join(self.config.data.processed_data_dir, 'train_data.json')
+        elif split == 'val_seen':
+            json_file = os.path.join(self.config.data.processed_data_dir, 'val_seen_data.json')
+        elif split == 'val_unseen':
+            json_file = os.path.join(self.config.data.processed_data_dir, 'val_unseen_data.json')
+        else:
+            raise ValueError(f"Unknown split: {split}")
         
-        index = {}
-        for i in range(len(formatted_dataset)):
-            try:
-                sample = formatted_dataset[i]
-                # Extract metadata from the preprocessed data
-                # The normalizer stores this information in the dialog context
-                dialog_context = self.decode_tokenized_text(sample['text_input'])
-                
-                # Extract episode and turn information from context
-                # This is a heuristic - we'll need to find patterns in your data
-                # For now, we'll use the index as a fallback
-                key = f"sample_{i}"  # Fallback key
-                index[key] = i
-                
-                if i < 5:  # Debug first few samples
-                    print(f"Sample {i} context preview: {dialog_context[:100]}...")
-                    
-            except Exception as e:
-                print(f"Error indexing sample {i}: {e}")
-                continue
+        print(f"Loading preprocessed JSON from: {json_file}")
         
-        print(f"Created index with {len(index)} entries")
-        return index
+        if not os.path.exists(json_file):
+            # Try alternative paths
+            alt_paths = [
+                f"../datasets/{split}_data.json",
+                f"./datasets/{split}_data.json", 
+                f"./processed_data/{split}_data.json",
+                f"/app/datasets/{split}_data.json"
+            ]
+            
+            for alt_path in alt_paths:
+                if os.path.exists(alt_path):
+                    json_file = alt_path
+                    print(f"Found JSON file at alternative path: {json_file}")
+                    break
+            else:
+                print(f"❌ Could not find preprocessed JSON file for {split}")
+                print(f"Looked in: {json_file}")
+                for path in alt_paths:
+                    print(f"  Also tried: {path}")
+                return []
+        
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+        
+        print(f"✅ Loaded {len(data)} preprocessed samples from JSON")
+        return data
     
-    def process_avdn_sample(self, avdn_sample: Dict, formatted_dataset: AnsweringDataset, dataset_index: Dict[str, int]) -> Dict:
-        """Process a single AVDN sample and generate new instruction."""
-        # For now, we'll use a simple sequential matching as a starting point
-        # This assumes both datasets are in the same order (which they likely are)
+    def create_avdn_to_preprocessed_mapping(self, avdn_data: List[Dict], preprocessed_json: List[Dict]) -> Dict[int, int]:
+        """Create mapping from AVDN indices to preprocessed dataset indices using metadata."""
+        print("Creating AVDN to preprocessed dataset mapping using metadata...")
+        
+        mapping = {}
+        
+        # Create index of preprocessed data by (map_name, answer)
+        preprocessed_index = {}
+        for i, item in enumerate(preprocessed_json):
+            map_name = item.get('map_name', '')
+            answer = item.get('answer', '').strip().lower()
+            episode_id = item.get('episode_id', '')
+            turn_id = item.get('turn_id', '')
+            
+            # Create multiple keys for flexible matching
+            keys = [
+                f"{map_name}_{answer}",
+                f"{episode_id}_{turn_id}",
+                f"{map_name}_{episode_id}_{turn_id}"
+            ]
+            
+            for key in keys:
+                if key not in preprocessed_index:
+                    preprocessed_index[key] = []
+                preprocessed_index[key].append(i)
+        
+        matched_count = 0
+        for i, avdn_sample in enumerate(avdn_data):
+            # Extract AVDN instruction
+            instruction = avdn_sample['instructions']
+            if '[INS]' in instruction:
+                clean_instruction = instruction.replace('[INS]', '').strip().lower()
+            elif '[QUE]' in instruction and '[INS]' in instruction:
+                parts = instruction.split('[INS]')
+                if len(parts) > 1:
+                    clean_instruction = parts[1].strip().lower()
+                else:
+                    clean_instruction = instruction.strip().lower()
+            else:
+                clean_instruction = instruction.strip().lower()
+            
+            map_name = avdn_sample['map_name']
+            
+            # Try to find matching preprocessed sample
+            match_found = False
+            
+            # Strategy 1: Match by map_name and instruction text
+            key = f"{map_name}_{clean_instruction}"
+            if key in preprocessed_index:
+                mapping[i] = preprocessed_index[key][0]  # Use first match
+                matched_count += 1
+                match_found = True
+                
+                if i < 3:  # Debug first few matches
+                    preprocessed_item = preprocessed_json[preprocessed_index[key][0]]
+                    print(f"Match {i}: AVDN({map_name}, {avdn_sample['route_index']}) -> Preprocessed {preprocessed_index[key][0]}")
+                    print(f"  AVDN instruction: {instruction}")
+                    print(f"  Preprocessed answer: {preprocessed_item.get('answer', '')}")
+                    print(f"  Episode ID: {preprocessed_item.get('episode_id', '')}")
+                    print(f"  Turn ID: {preprocessed_item.get('turn_id', '')}")
+            
+            # Strategy 2: If no exact match, try partial matching
+            if not match_found:
+                for key, indices in preprocessed_index.items():
+                    if map_name in key:
+                        # Check if instruction text is similar
+                        for idx in indices:
+                            preprocessed_item = preprocessed_json[idx]
+                            preprocessed_answer = preprocessed_item.get('answer', '').strip().lower()
+                            
+                            # Check for partial text match
+                            if (clean_instruction in preprocessed_answer or 
+                                preprocessed_answer in clean_instruction or
+                                len(set(clean_instruction.split()) & set(preprocessed_answer.split())) > 2):
+                                
+                                mapping[i] = idx
+                                matched_count += 1
+                                match_found = True
+                                break
+                    
+                    if match_found:
+                        break
+        
+        print(f"Successfully mapped {matched_count}/{len(avdn_data)} AVDN samples to preprocessed dataset")
+        return mapping
+    
+    def process_avdn_sample(self, avdn_sample: Dict, formatted_dataset: AnsweringDataset, mapping: Dict[int, int], avdn_index: int) -> Dict:
+        """Process a single AVDN sample and generate new instruction using mapping."""
         
         # Get AVDN sample metadata
         map_name = avdn_sample['map_name']
         route_index = avdn_sample['route_index']
         
-        # Try different matching strategies
+        # Use the mapping to find corresponding formatted sample
         matching_sample = None
-        sample_index = None
-        
-        # Strategy 1: Try to find in dataset index (if we had proper metadata)
-        potential_key = f"{map_name}_{route_index}"
-        if potential_key in dataset_index:
-            sample_index = dataset_index[potential_key]
-            matching_sample = formatted_dataset[sample_index]
-        
-        # Strategy 2: Linear search through formatted dataset (limited)
-        if matching_sample is None:
-            for i in range(min(100, len(formatted_dataset))):  # Limit search for efficiency
-                try:
-                    sample = formatted_dataset[i]
-                    # Check if this sample could match based on text content
-                    dialog_context = self.decode_tokenized_text(sample['text_input'])
-                    
-                    # Look for map name in the context
-                    if map_name.lower() in dialog_context.lower():
-                        matching_sample = sample
-                        sample_index = i
-                        break
-                        
-                except Exception as e:
-                    continue
-        
-        # Strategy 3: Use index-based matching as fallback (assumes same order)
-        if matching_sample is None and route_index < len(formatted_dataset):
+        if avdn_index in mapping:
             try:
-                matching_sample = formatted_dataset[route_index % len(formatted_dataset)]
-                sample_index = route_index % len(formatted_dataset)
-                print(f"Using index-based matching: AVDN route {route_index} -> formatted sample {sample_index}")
-            except:
-                pass
+                formatted_index = mapping[avdn_index]
+                matching_sample = formatted_dataset[formatted_index]
+                
+                if avdn_index < 3:  # Debug first few matches
+                    dialog_context = self.decode_tokenized_text(matching_sample['text_input'])
+                    formatted_answer = self.decode_tokenized_text(matching_sample['text_label'])
+                    print(f"Mapped match {avdn_index}: AVDN({map_name}, {route_index}) -> Formatted sample {formatted_index}")
+                    print(f"  Context: {dialog_context[:100]}...")
+                    print(f"  Answer: {formatted_answer}")
+                    
+            except Exception as e:
+                print(f"Error accessing mapped formatted sample {mapping[avdn_index]}: {e}")
         
         if matching_sample is None:
-            # If no match found, skip this sample
-            print(f"No matching formatted sample found for {map_name}_{route_index}, skipping")
+            # If no mapping found, skip this sample
+            print(f"No mapping found for AVDN sample {avdn_index} ({map_name}_{route_index}), skipping")
             return avdn_sample  # Return original sample unchanged
         
         # Get visual features from formatted sample
@@ -287,8 +365,11 @@ class AVDNGeneratorWithAgent:
         # Load formatted dataset for generation inputs
         formatted_dataset = self.load_formatted_dataset(split)
         
-        # Create dataset index for efficient matching
-        dataset_index = self.create_dataset_index(formatted_dataset)
+        # Load preprocessed JSON with metadata
+        preprocessed_json = self.load_preprocessed_json(split)
+        
+        # Create mapping between AVDN and preprocessed datasets using metadata
+        mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, preprocessed_json)
         
         # Apply sampling if requested
         if sample_ratio < 1.0:
@@ -309,7 +390,7 @@ class AVDNGeneratorWithAgent:
         
         for i, avdn_sample in enumerate(tqdm(avdn_data, desc=f"Processing {split}")):
             try:
-                processed_sample = self.process_avdn_sample(avdn_sample, formatted_dataset, dataset_index)
+                processed_sample = self.process_avdn_sample(avdn_sample, formatted_dataset, mapping, i)
                 
                 # Calculate metrics if generation was successful (not skipped)
                 if processed_sample['instructions'] != avdn_sample['instructions']:

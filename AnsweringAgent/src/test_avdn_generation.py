@@ -133,6 +133,10 @@ def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
         try:
             sample = dataset[i]
             
+            # Debug: print sample keys to understand structure
+            if i == 0:
+                print(f"Sample keys: {list(sample.keys())}")
+            
             # Get text input and visual features
             text_input = {
                 'input_ids': sample['text_input']['input_ids'].unsqueeze(0).to(device),
@@ -165,6 +169,14 @@ def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
             original_answer = tokenizer.decode(sample['text_label']['input_ids'], skip_special_tokens=True)
             generated_answer = tokenizer.decode(generated_seq[0], skip_special_tokens=True)
             dialog_context = tokenizer.decode(sample['text_input']['input_ids'], skip_special_tokens=True)
+            
+            # Try to decode other components if they exist
+            first_instruction = ""
+            current_question = ""
+            if 'first_instruction_input' in sample:
+                first_instruction = tokenizer.decode(sample['first_instruction_input']['input_ids'], skip_special_tokens=True)
+            if 'current_question_input' in sample:
+                current_question = tokenizer.decode(sample['current_question_input']['input_ids'], skip_special_tokens=True)
             
             # Calculate composite score
             scores = composite_score(generated_answer, original_answer, task_type="precision_short")
