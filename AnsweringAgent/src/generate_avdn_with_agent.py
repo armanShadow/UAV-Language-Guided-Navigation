@@ -303,61 +303,105 @@ class AVDNGeneratorWithAgent:
         
         matched_count = 0
         for i, avdn_sample in enumerate(avdn_data):
-            # Extract AVDN instruction
+            # Parse AVDN instruction to determine turn type
             instruction = avdn_sample['instructions']
-            if '[INS]' in instruction:
-                clean_instruction = instruction.replace('[INS]', '').strip().lower()
-            elif '[QUE]' in instruction and '[INS]' in instruction:
-                parts = instruction.split('[INS]')
-                if len(parts) > 1:
-                    clean_instruction = parts[1].strip().lower()
-                else:
-                    clean_instruction = instruction.strip().lower()
+            
+            # Determine if this is a first instruction or Q&A turn
+            if '[QUE]' in instruction and '[INS]' in instruction:
+                # This is a Q&A turn
+                que_start = instruction.find('[QUE]')
+                ins_start = instruction.find('[INS]')
+                avdn_question = instruction[que_start+5:ins_start].strip().lower()
+                avdn_answer = instruction[ins_start+5:].strip().lower()
+                is_first_instruction = False
+            elif '[INS]' in instruction:
+                # This is a first instruction (no question)
+                avdn_answer = instruction.replace('[INS]', '').strip().lower()
+                avdn_question = None
+                is_first_instruction = True
             else:
-                clean_instruction = instruction.strip().lower()
+                # Unrecognized format, skip
+                print(f"Warning: Unrecognized instruction format for sample {i}: {instruction}")
+                continue
             
             map_name = avdn_sample['map_name']
             
-            # Try to find matching preprocessed turn
+            # Find matching preprocessed turn based on turn type
             match_found = False
+            best_match_idx = None
+            best_score = 0
             
-            # Strategy 1: Match by map_name and instruction text
-            key = f"{map_name}_{clean_instruction}"
-            if key in preprocessed_index:
-                turn_idx = preprocessed_index[key][0]  # Use first match
-                mapping[i] = turn_idx
+            for turn_idx, turn_data in enumerate(preprocessed_turns):
+                # Only consider turns from the same map
+                if turn_data['map_name'] != map_name:
+                    continue
+                
+                preprocessed_question = turn_data['question'].strip().lower()
+                preprocessed_answer = turn_data['answer'].strip().lower()
+                
+                # Check turn type compatibility
+                if is_first_instruction:
+                    # AVDN first instruction should match preprocessed turns without questions
+                    if preprocessed_question:  # Skip turns that have questions
+                        continue
+                else:
+                    # AVDN Q&A turn should match preprocessed turns with questions
+                    if not preprocessed_question:  # Skip turns without questions
+                        continue
+                    
+                    # For Q&A turns, also check question similarity
+                    question_words = set(avdn_question.split())
+                    prep_question_words = set(preprocessed_question.split())
+                    question_overlap = len(question_words & prep_question_words)
+                    
+                    # Require significant question overlap for Q&A turns
+                    if question_overlap < 3:  # Require at least 3 common words
+                        continue
+                
+                # Check answer similarity
+                answer_words = set(avdn_answer.split())
+                prep_answer_words = set(preprocessed_answer.split())
+                answer_overlap = len(answer_words & prep_answer_words)
+                
+                # Calculate similarity score
+                total_words = max(len(answer_words), len(prep_answer_words))
+                if total_words == 0:
+                    continue
+                    
+                similarity_score = answer_overlap / total_words
+                
+                # For Q&A turns, also factor in question similarity
+                if not is_first_instruction and preprocessed_question:
+                    question_total = max(len(question_words), len(prep_question_words))
+                    if question_total > 0:
+                        question_similarity = question_overlap / question_total
+                        similarity_score = (similarity_score + question_similarity) / 2
+                
+                # Update best match if this is better
+                if similarity_score > best_score and similarity_score > 0.3:  # Minimum threshold
+                    best_score = similarity_score
+                    best_match_idx = turn_idx
+            
+            # If we found a good match, use it
+            if best_match_idx is not None:
+                mapping[i] = best_match_idx
                 matched_count += 1
                 match_found = True
                 
                 if i < 3:  # Debug first few matches
-                    turn_data = preprocessed_turns[turn_idx]
-                    print(f"Match {i}: AVDN({map_name}, {avdn_sample['route_index']}) -> Turn {turn_idx}")
+                    turn_data = preprocessed_turns[best_match_idx]
+                    print(f"Match {i}: AVDN({map_name}, {avdn_sample['route_index']}) -> Turn {best_match_idx}")
+                    print(f"  Turn type: {'First Instruction' if is_first_instruction else 'Q&A Turn'}")
                     print(f"  AVDN instruction: {instruction}")
                     print(f"  Preprocessed answer: {turn_data['answer']}")
+                    print(f"  Preprocessed question: {turn_data['question']}")
                     print(f"  Episode ID: {turn_data['episode_id']}")
                     print(f"  Turn ID: {turn_data['turn_id']}")
-            
-            # Strategy 2: If no exact match, try partial matching
-            if not match_found:
-                for key, indices in preprocessed_index.items():
-                    if map_name in key:
-                        # Check if instruction text is similar
-                        for turn_idx in indices:
-                            turn_data = preprocessed_turns[turn_idx]
-                            preprocessed_answer = turn_data['answer']
-                            
-                            # Check for partial text match
-                            if (clean_instruction in preprocessed_answer or 
-                                preprocessed_answer in clean_instruction or
-                                len(set(clean_instruction.split()) & set(preprocessed_answer.split())) > 2):
-                                
-                                mapping[i] = turn_idx
-                                matched_count += 1
-                                match_found = True
-                                break
-                    
-                    if match_found:
-                        break
+                    print(f"  Similarity score: {best_score:.3f}")
+            else:
+                if i < 3:  # Debug failed matches
+                    turn_type = 'First Instruction' if is_first_instruction else 'Q&A Turn'
+                    print(f"No match found for AVDN sample {i} ({turn_type}): {instruction}")
         
         print(f"Successfully mapped {matched_count}/{len(avdn_data)} AVDN samples to non-augmented preprocessed turns")
         return mapping
