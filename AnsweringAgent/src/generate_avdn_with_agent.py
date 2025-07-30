@@ -17,6 +17,11 @@ from config import Config
 from data.dataset import AnsweringDataset
 from utils.logger import setup_logger
 
+# Import evaluation functions
+import sys
+sys.path.append('../scripts')
+from run_eval_generation import composite_score, direction_score, yesno_score, attribute_score, landmark_score, movement_score
+
 # Suppress warnings for cleaner output
 import warnings
 warnings.filterwarnings("ignore")
@@ -298,24 +303,81 @@ class AVDNGeneratorWithAgent:
         
         # Process samples
         processed_data = []
+        all_scores = []
+        successful_generations = 0
+        total_samples = len(avdn_data)
         
         for i, avdn_sample in enumerate(tqdm(avdn_data, desc=f"Processing {split}")):
             try:
                 processed_sample = self.process_avdn_sample(avdn_sample, formatted_dataset, dataset_index)
+                
+                # Calculate metrics if generation was successful (not skipped)
+                if processed_sample['instructions'] != avdn_sample['instructions']:
+                    # Extract original answer from AVDN instruction
+                    original_instruction = avdn_sample['instructions']
+                    if '[INS]' in original_instruction:
+                        original_answer = original_instruction.replace('[INS]', '').strip()
+                    else:
+                        original_answer = original_instruction.strip()
+                    
+                    # Extract generated answer from new instruction
+                    new_instruction = processed_sample['instructions']
+                    if '[INS]' in new_instruction:
+                        generated_answer = new_instruction.replace('[INS]', '').strip()
+                    else:
+                        generated_answer = new_instruction.strip()
+                    
+                    # Calculate composite score
+                    scores = composite_score(generated_answer, original_answer, task_type="precision_short")
+                    all_scores.append(scores)
+                    successful_generations += 1
+                
                 processed_data.append(processed_sample)
                 
-                # Print some examples
+                # Print some examples with scores
                 if i < 3:
                     print(f"\nSample {i+1}:")
                     print(f"Map: {avdn_sample['map_name']}, Route: {avdn_sample['route_index']}")
                     print(f"Original: {avdn_sample['instructions']}")
                     print(f"Generated: {processed_sample['instructions']}")
+                    
+                    # Show scores if generation was successful
+                    if processed_sample['instructions'] != avdn_sample['instructions']:
+                        scores = composite_score(
+                            processed_sample['instructions'].replace('[INS]', '').strip(),
+                            avdn_sample['instructions'].replace('[INS]', '').strip(),
+                            task_type="precision_short"
+                        )
+                        print(f"Composite Score: {scores['total']:.4f}")
+                        print(f"Direction Score: {scores['direction']:.4f}")
+                        print(f"Movement Score: {scores['movement']:.4f}")
+                    
                     print("-" * 80)
                     
             except Exception as e:
                 print(f"Error processing sample {i}: {e}")
                 # Keep original sample if generation fails
                 processed_data.append(avdn_sample)
+        
+        # Report final metrics for this split
+        if all_scores:
+            avg_composite = sum(s['total'] for s in all_scores) / len(all_scores)
+            avg_direction = sum(s['direction'] for s in all_scores) / len(all_scores)
+            avg_movement = sum(s['movement'] for s in all_scores) / len(all_scores)
+            avg_landmark = sum(s['landmark'] for s in all_scores) / len(all_scores)
+            avg_attribute = sum(s['attribute'] for s in all_scores) / len(all_scores)
+            
+            print(f"\n📊 {split.upper()} GENERATION METRICS:")
+            print(f"Total Samples: {total_samples}")
+            print(f"Successful Generations: {successful_generations}")
+            print(f"Success Rate: {successful_generations/total_samples*100:.1f}%")
+            print(f"Average Composite Score: {avg_composite:.4f}")
+            print(f"Average Direction Score: {avg_direction:.4f}")
+            print(f"Average Movement Score: {avg_movement:.4f}")
+            print(f"Average Landmark Score: {avg_landmark:.4f}")
+            print(f"Average Attribute Score: {avg_attribute:.4f}")
+        else:
+            print(f"\n⚠️ No successful generations for {split} split")
         
         return processed_data
     
@@ -331,9 +393,32 @@ class AVDNGeneratorWithAgent:
     def process_all_splits(self, splits: List[str], sample_ratio: float = 1.0, 
                           max_samples: Optional[int] = None):
         """Process all specified splits."""
+        overall_metrics = {}
+        
         for split in splits:
             processed_data = self.process_split(split, sample_ratio, max_samples)
             self.save_processed_data(processed_data, split)
+            
+            # Store metrics for overall summary
+            overall_metrics[split] = {
+                'total_samples': len(processed_data),
+                'successful_generations': sum(1 for p in processed_data if p['instructions'] != p.get('original_instructions', '')),
+                'avg_composite_score': 0.0,  # Will be calculated if we track scores
+                'avg_direction_score': 0.0,
+                'avg_movement_score': 0.0,
+                'avg_landmark_score': 0.0,
+                'avg_attribute_score': 0.0
+            }
+        
+        # Print overall summary
+        print(f"\n🎯 OVERALL GENERATION SUMMARY:")
+        print("=" * 60)
+        for split, metrics in overall_metrics.items():
+            success_rate = metrics['successful_generations'] / metrics['total_samples'] * 100 if metrics['total_samples'] > 0 else 0
+            print(f"{split.upper()}: {metrics['successful_generations']}/{metrics['total_samples']} ({success_rate:.1f}% success)")
+        
+        print(f"\n✅ Generation completed for all splits!")
+        print(f"📁 Generated datasets saved to: {self.output_dir}")
 
 
 # -------------------------
