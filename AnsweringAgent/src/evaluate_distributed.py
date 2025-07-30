@@ -124,7 +124,7 @@ def compute_metrics(outputs: torch.Tensor, labels: torch.Tensor, pad_token_id: i
     }
 
 def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer, split_name: str, 
-                              max_samples: int = 5, logger=None, rank=0, world_size=1, config=None, epoch=None) -> Dict[str, float]:
+                              logger=None, rank=0, world_size=1, config=None, epoch=None) -> Dict[str, float]:
     """Evaluate model on a dataset with distributed processing and training-matching loss calculation."""
     model.eval()
     
@@ -139,12 +139,12 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
     total_loss = 0.0
     total_ce_loss = 0.0
     total_contrastive_loss = 0.0
+    total_destination_loss = 0.0
+    total_kd_loss = 0.0
+    total_reg_loss = 0.0
     total_accuracy = 0.0
     total_tokens = 0
     correct_tokens = 0
-    
-    sample_outputs = []
-    sample_count = 0
     
     # Initialize contrastive loss function if enabled
     contrastive_loss_fn = None
@@ -157,24 +157,33 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
             mean_all=config.training.contrastive_mean_all
         )
     
+    # Import weight scheduling functions from training
+    from train import (
+        get_smart_contrastive_schedule, 
+        get_adaptive_contrastive_schedule,
+        get_smart_destination_schedule,
+        get_smart_kd_schedule
+    )
+    
+    # Get weight functions
+    contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(config.training.planned_epochs, config.training.num_epochs)
+    adaptive_contrastive_fn = get_adaptive_contrastive_schedule(contrastive_weight_fn)
+    destination_weight_fn = get_smart_destination_schedule(config.training.planned_epochs)
+    kd_weight_fn = get_smart_kd_schedule(config.training.planned_epochs)
+    
     # Calculate actual weights used for proper reporting
     actual_weights = {}
     if epoch is not None:
-        try:
-            from train import get_smart_contrastive_schedule, get_adaptive_contrastive_schedule
-            contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(config.training.planned_epochs, config.training.num_epochs)
-            adaptive_contrastive_fn = get_adaptive_contrastive_schedule(contrastive_weight_fn)
-            
-            actual_weights['ce_weight'] = ce_weight_fn(epoch)
-            actual_weights['contrastive_weight'], _ = adaptive_contrastive_fn(epoch)
-        except Exception as e:
-            if rank == 0:
-                logger.warning(f"⚠️ Could not calculate epoch weights: {str(e)}")
-            actual_weights['ce_weight'] = config.training.ce_loss_weight_end
-            actual_weights['contrastive_weight'] = config.training.contrastive_weight_end
+        actual_weights['ce_weight'] = ce_weight_fn(epoch)
+        actual_weights['contrastive_weight'], _ = adaptive_contrastive_fn(epoch)
+        actual_weights['destination_weight'] = destination_weight_fn(epoch)
+        actual_weights['kd_weight'] = kd_weight_fn(epoch)
     else:
-        actual_weights['ce_weight'] = config.training.ce_loss_weight_end
-        actual_weights['contrastive_weight'] = config.training.contrastive_weight_end
+        # Fallback to end weights if epoch not provided
+        actual_weights['ce_weight'] = ce_weight_fn(config.training.num_epochs - 1)
+        actual_weights['contrastive_weight'], _ = adaptive_contrastive_fn(config.training.num_epochs - 1)
+        actual_weights['destination_weight'] = destination_weight_fn(config.training.num_epochs - 1)
+        actual_weights['kd_weight'] = kd_weight_fn(config.training.num_epochs - 1)
     
     try:
         with torch.no_grad():
@@ -233,27 +242,32 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                         feature_norm = outputs.get("feature_norm", torch.tensor(0.0, device=device))
                         batch_size, seq_len, vocab_size = logits.size()
                         
-                        # CRITICAL FIX: Use actual training weights, not static end weights!
-                        # Import weight scheduling functions from training
-                        from train import get_smart_contrastive_schedule, get_adaptive_contrastive_schedule
-                        
                         # Get the actual weights used during training
                         if epoch is not None:
-                            contrastive_weight_fn, ce_weight_fn = get_smart_contrastive_schedule(config.training.planned_epochs, config.training.num_epochs)
-                            adaptive_contrastive_fn = get_adaptive_contrastive_schedule(contrastive_weight_fn)
-                            
-                            # Use epoch-specific weights
                             ce_weight = ce_weight_fn(epoch)
                             contrastive_weight, _ = adaptive_contrastive_fn(epoch)
+                            destination_weight = destination_weight_fn(epoch)
+                            kd_weight = kd_weight_fn(epoch)
                         else:
                             # Fallback to end weights if epoch not provided
-                            ce_weight = config.training.ce_loss_weight_end
-                            contrastive_weight = config.training.contrastive_weight_end
+                            ce_weight = ce_weight_fn(config.training.num_epochs - 1)
+                            contrastive_weight, _ = adaptive_contrastive_fn(config.training.num_epochs - 1)
+                            destination_weight = destination_weight_fn(config.training.num_epochs - 1)
+                            kd_weight = kd_weight_fn(config.training.num_epochs - 1)
                         
-                        # Start with weighted CE loss using correct weights
-                        loss = ce_weight * ce_loss
+                        # Add feature regularization with clipping to prevent explosion (matches training)
+                        feature_norm_clipped = feature_norm.clamp(max=1e3)  # Clip to prevent explosion
+                        reg_loss = 1e-4 * feature_norm_clipped
+                        loss = ce_weight * ce_loss + reg_loss
                         
-                        # Calculate contrastive loss if enabled
+                        # Add destination loss if destination view is available (matches training)
+                        destination_cosine_loss = torch.tensor(0.0, device=device)
+                        if destination_view is not None:
+                            dest_features = outputs.get("destination_features", outputs["raw_adapted_features"])
+                            destination_cosine_loss = calculate_cosine_similarity_loss(outputs["raw_adapted_features"], dest_features)
+                            loss = loss + destination_weight * destination_cosine_loss
+                        
+                        # Calculate contrastive loss if enabled (matches training)
                         contrastive_loss = torch.tensor(0.0, device=device)
                         if config.training.use_contrastive_learning and contrastive_loss_fn is not None:
                             # Collect all positive and negative embeddings
@@ -296,70 +310,33 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                                 # Add weighted contrastive loss using correct weights
                                 loss = loss + contrastive_weight * contrastive_loss
                         
+                        # KD loss using embeddings generated during preprocessing (matches training)
+                        kd_loss = torch.tensor(0.0, device=device)
+                        if config.training.use_kd:
+                            # Teacher embeddings are included in the batch from preprocessing
+                            teacher_embeddings = batch['teacher_embed'].to(device)
+                            
+                            # Use raw_adapted_features for KD - these are the pure T5 adapter outputs before contrastive projection
+                            student_hidden = F.normalize(outputs["raw_adapted_features"], p=2, dim=-1)
+                            teacher_hidden = F.normalize(teacher_embeddings, p=2, dim=-1)
+                            
+                            kd_loss = 1 - F.cosine_similarity(student_hidden, teacher_hidden, dim=-1).mean()
+                            
+                            loss = loss + kd_weight * kd_loss
+                        
                         # Accumulate loss components
                         total_loss += loss.item()
                         total_ce_loss += ce_loss.item()
                         total_contrastive_loss += contrastive_loss.item()
+                        total_destination_loss += destination_cosine_loss.item()
+                        total_kd_loss += kd_loss.item()
+                        total_reg_loss += reg_loss.item()
                         
                     # Calculate metrics
                     metrics = compute_metrics(logits, label_input_ids, tokenizer.pad_token_id)
                     total_accuracy += metrics['accuracy']
                     total_tokens += metrics['total_tokens']
                     correct_tokens += metrics['correct_tokens']
-                    
-                    # Generate samples (only on rank 0)
-                    if rank == 0 and sample_count < max_samples:
-                        for i in range(min(batch_size, max_samples - sample_count)):
-                            _, predicted_tokens = logits[i].max(dim=-1)
-                            
-                            input_text = tokenizer.decode(text_input['input_ids'][i], skip_special_tokens=True)
-                            target_text = tokenizer.decode(label_input_ids[i], skip_special_tokens=True)
-                            predicted_text = tokenizer.decode(predicted_tokens, skip_special_tokens=True)
-                            
-                            # Optional: Add autoregressive generation for real-world performance
-                            # This shows actual inference capability (no teacher forcing)
-                            try:
-                                # Get the actual model (unwrap DDP if needed)
-                                actual_model = model.module if hasattr(model, 'module') else model
-                                
-                                # Prepare single sample input properly
-                                single_text_input = {}
-                                for k, v in text_input.items():
-                                    if isinstance(v, dict):
-                                        # Handle nested dictionaries (like first_instruction_input)
-                                        single_text_input[k] = {sub_k: sub_v[i:i+1] for sub_k, sub_v in v.items()}
-                                    else:
-                                        single_text_input[k] = v[i:i+1]
-                                
-                                generated_outputs = actual_model(
-                                    single_text_input,  # Properly formatted single sample
-                                    current_view[i:i+1], 
-                                    previous_views[i:i+1],
-                                    labels=None,  # No labels for generation
-                                    generate=True,  # Autoregressive generation with spatial guidance
-                                    destination_view=destination_view[i:i+1] if destination_view is not None else None,
-                                    curriculum_ratio=0.0
-                                )
-                                generated_text = tokenizer.decode(generated_outputs["sequences"][0], skip_special_tokens=True)
-                                
-                                # Remove spatial prompt if it appears at the beginning
-                                spatial_prompt = "Provide precise navigation with clock directions (1-12 o'clock), landmark colors and shapes, clear movement instructions."
-                                if generated_text.startswith(spatial_prompt.strip()):
-                                    generated_text = generated_text[len(spatial_prompt.strip()):].strip()
-                            except Exception as e:
-                                import traceback
-                                generated_text = f"Generation failed: {str(e)}"
-                                if rank == 0:
-                                    logger.error(f"Generation error details: {traceback.format_exc()}")
-                            
-                            sample_outputs.append({
-                                'input': input_text,
-                                'target': target_text,
-                                'predicted_teacher_forcing': predicted_text,  # From teacher forcing
-                                'generated_autoregressive': generated_text,   # From real generation
-                                'accuracy': metrics['accuracy']
-                            })
-                            sample_count += 1
                 
                 except Exception as e:
                     if rank == 0 and logger:
@@ -376,6 +353,9 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
         loss_tensor = torch.tensor(total_loss, device=device)
         ce_loss_tensor = torch.tensor(total_ce_loss, device=device)
         cont_loss_tensor = torch.tensor(total_contrastive_loss, device=device)
+        dest_loss_tensor = torch.tensor(total_destination_loss, device=device)
+        kd_loss_tensor = torch.tensor(total_kd_loss, device=device)
+        reg_loss_tensor = torch.tensor(total_reg_loss, device=device)
         accuracy_tensor = torch.tensor(total_accuracy, device=device)
         tokens_tensor = torch.tensor(total_tokens, device=device)
         correct_tensor = torch.tensor(correct_tokens, device=device)
@@ -383,6 +363,9 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
         dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(ce_loss_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(cont_loss_tensor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(dest_loss_tensor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(kd_loss_tensor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(reg_loss_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(accuracy_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(tokens_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(correct_tensor, op=dist.ReduceOp.SUM)
@@ -390,6 +373,9 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
         total_loss = loss_tensor.item() / world_size
         total_ce_loss = ce_loss_tensor.item() / world_size
         total_contrastive_loss = cont_loss_tensor.item() / world_size
+        total_destination_loss = dest_loss_tensor.item() / world_size
+        total_kd_loss = kd_loss_tensor.item() / world_size
+        total_reg_loss = reg_loss_tensor.item() / world_size
         total_accuracy = accuracy_tensor.item() / world_size
         total_tokens = tokens_tensor.item()
         correct_tokens = correct_tensor.item()
@@ -399,6 +385,9 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
     avg_ce_loss = total_ce_loss / num_batches if num_batches > 0 else 0.0
     avg_contrastive_loss = total_contrastive_loss / num_batches if num_batches > 0 else 0.0
+    avg_destination_loss = total_destination_loss / num_batches if num_batches > 0 else 0.0
+    avg_kd_loss = total_kd_loss / num_batches if num_batches > 0 else 0.0
+    avg_reg_loss = total_reg_loss / num_batches if num_batches > 0 else 0.0
     avg_accuracy = total_accuracy / num_batches if num_batches > 0 else 0.0
     overall_accuracy = correct_tokens / total_tokens if total_tokens > 0 else 0.0
     
@@ -406,13 +395,17 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
         'loss': avg_loss,
         'ce_loss': avg_ce_loss,
         'contrastive_loss': avg_contrastive_loss,
+        'destination_loss': avg_destination_loss,
+        'kd_loss': avg_kd_loss,
+        'reg_loss': avg_reg_loss,
         'accuracy': avg_accuracy,
         'overall_accuracy': overall_accuracy,
         'total_tokens': total_tokens,
         'correct_tokens': correct_tokens,
-        'samples': sample_outputs,
         'ce_weight': actual_weights['ce_weight'],
-        'contrastive_weight': actual_weights['contrastive_weight']
+        'contrastive_weight': actual_weights['contrastive_weight'],
+        'destination_weight': actual_weights['destination_weight'],
+        'kd_weight': actual_weights['kd_weight']
     }
     
     return results
@@ -450,7 +443,6 @@ def main():
     parser.add_argument('--checkpoint', type=str, required=True, help='Path to checkpoint file')
     parser.add_argument('--batch-size', type=int, default=8, help='Per-GPU batch size')
     parser.add_argument('--num-workers', type=int, default=4, help='Number of workers per GPU')
-    parser.add_argument('--max-samples', type=int, default=5, help='Maximum samples to display per dataset')
     parser.add_argument('--output-dir', type=str, default='evaluation_results', help='Directory to save results')
     parser.add_argument('--validate-leakage', action='store_true', help='Validate data leakage prevention')
     args = parser.parse_args()
@@ -585,7 +577,6 @@ def main():
                 device=device,
                 tokenizer=tokenizer,
                 split_name=split,
-                max_samples=args.max_samples,
                 logger=logger,
                 rank=rank,
                 world_size=world_size,
@@ -596,42 +587,35 @@ def main():
             if rank == 0:
                 all_results[split] = results
                 
-                # Log results with simplified loss components
+                # Log raw loss values
                 logger.info(f"📈 {split.upper()} Results:")
-                logger.info(f"  Total Loss: {results['loss']:.4f}")
-                logger.info(f"  CE Loss: {results['ce_loss']:.4f}")
-                logger.info(f"  Contrastive Loss: {results['contrastive_loss']:.4f}")
-                logger.info(f"  Accuracy: {results['accuracy']:.4f}")
-                logger.info(f"  Overall Accuracy: {results['overall_accuracy']:.4f}")
+                logger.info(f"  Total Loss: {results['loss']:.6f}")
+                logger.info(f"  CE Loss: {results['ce_loss']:.6f}")
+                logger.info(f"  Contrastive Loss: {results['contrastive_loss']:.6f}")
+                logger.info(f"  Destination Loss: {results['destination_loss']:.6f}")
+                logger.info(f"  KD Loss: {results['kd_loss']:.6f}")
+                logger.info(f"  Reg Loss: {results['reg_loss']:.6f}")
+                logger.info(f"  Accuracy: {results['accuracy']:.6f}")
+                logger.info(f"  Overall Accuracy: {results['overall_accuracy']:.6f}")
                 logger.info(f"  Total Tokens: {results['total_tokens']:,}")
                 logger.info(f"  Correct Tokens: {results['correct_tokens']:,}")
                 
                 # Log effective contributions with correct weights
                 logger.info(f"🔍 Effective Loss Components:")
-                logger.info(f"  CE (weighted): {results['ce_loss'] * results['ce_weight']:.4f}")
-                logger.info(f"  Contrastive (weighted): {results['contrastive_loss'] * results['contrastive_weight']:.4f}")
+                logger.info(f"  CE (weighted): {results['ce_loss'] * results['ce_weight']:.6f}")
+                logger.info(f"  Contrastive (weighted): {results['contrastive_loss'] * results['contrastive_weight']:.6f}")
+                logger.info(f"  Destination (weighted): {results['destination_loss'] * results['destination_weight']:.6f}")
+                logger.info(f"  KD (weighted): {results['kd_loss'] * results['kd_weight']:.6f}")
                 logger.info(f"⚖️  Weights Used (Epoch {checkpoint_epoch + 1 if checkpoint_epoch is not None else 'Unknown'}):")
-                logger.info(f"  CE Weight: {results['ce_weight']:.2f}")
-                logger.info(f"  Contrastive Weight: {results['contrastive_weight']:.2f}")
-                
-                # Display samples
-                logger.info(f"📝 {split.upper()} Samples:")
-                for i, sample in enumerate(results['samples']):
-                    logger.info(f"  Sample {i+1}:")
-                    logger.info(f"    Input: {sample['input'][:200]}...")
-                    logger.info(f"    Target: {sample['target']}")
-                    logger.info(f"    Predicted (Teacher Forcing): {sample['predicted_teacher_forcing']}")
-                    logger.info(f"    Generated (Autoregressive): {sample['generated_autoregressive']}")
-                    logger.info(f"    Accuracy: {sample['accuracy']:.4f}")
-                    logger.info("")
+                logger.info(f"  CE Weight: {results['ce_weight']:.6f}")
+                logger.info(f"  Contrastive Weight: {results['contrastive_weight']:.6f}")
+                logger.info(f"  Destination Weight: {results['destination_weight']:.6f}")
+                logger.info(f"  KD Weight: {results['kd_weight']:.6f}")
                 
         except Exception as e:
             if rank == 0:
                 logger.error(f"❌ Error evaluating {split} dataset: {str(e)}")
                 all_results[split] = {'error': str(e)}
-    
-    # Weights are now calculated inside evaluate_dataset_distributed function
-    # No need to duplicate here
 
     # Save results (only on rank 0)
     if rank == 0:
@@ -646,20 +630,19 @@ def main():
                         'loss': float(results['loss']),
                         'ce_loss': float(results['ce_loss']),
                         'contrastive_loss': float(results['contrastive_loss']),
+                        'destination_loss': float(results['destination_loss']),
+                        'kd_loss': float(results['kd_loss']),
+                        'reg_loss': float(results['reg_loss']),
                         'accuracy': float(results['accuracy']),
                         'overall_accuracy': float(results['overall_accuracy']),
                         'total_tokens': int(results['total_tokens']),
                         'correct_tokens': int(results['correct_tokens']),
-                        'samples': results['samples'],
-                        # Save weighted contributions using correct epoch weights
-                        'weighted_contributions': {
-                            'ce_weighted': float(results['ce_loss']) * results.get('ce_weight', config.training.ce_loss_weight_end),
-                            'contrastive_weighted': float(results['contrastive_loss']) * results.get('contrastive_weight', config.training.contrastive_weight_end),
-                            'epoch': checkpoint_epoch,
-                            'weights_used': {
-                                'ce_weight': results.get('ce_weight', config.training.ce_loss_weight_end),
-                                'contrastive_weight': results.get('contrastive_weight', config.training.contrastive_weight_end)
-                            }
+                        'weights_used': {
+                            'ce_weight': results['ce_weight'],
+                            'contrastive_weight': results['contrastive_weight'],
+                            'destination_weight': results['destination_weight'],
+                            'kd_weight': results['kd_weight'],
+                            'epoch': checkpoint_epoch
                         }
                     }
             
@@ -673,8 +656,9 @@ def main():
             if split in all_results and 'error' not in all_results[split]:
                 results = all_results[split]
                 logger.info(f"  {split.upper()}:")
-                logger.info(f"    Total Loss: {results['loss']:.4f} | Accuracy: {results['accuracy']:.4f}")
-                logger.info(f"    CE: {results['ce_loss']:.4f} | Contrastive: {results['contrastive_loss']:.4f}")
+                logger.info(f"    Total Loss: {results['loss']:.6f} | Accuracy: {results['accuracy']:.6f}")
+                logger.info(f"    CE: {results['ce_loss']:.6f} | Contrastive: {results['contrastive_loss']:.6f}")
+                logger.info(f"    Destination: {results['destination_loss']:.6f} | KD: {results['kd_loss']:.6f}")
             else:
                 logger.info(f"  {split.upper()}: ERROR")
         
@@ -682,11 +666,11 @@ def main():
         logger.info("🏆 BEST MODEL VALIDATION:")
         if 'val_seen' in all_results and 'error' not in all_results['val_seen']:
             val_seen_results = all_results['val_seen']
-            logger.info(f"  Val Seen - Loss: {val_seen_results['loss']:.4f}, Accuracy: {val_seen_results['overall_accuracy']:.4f}")
+            logger.info(f"  Val Seen - Loss: {val_seen_results['loss']:.6f}, Accuracy: {val_seen_results['overall_accuracy']:.6f}")
         
         if 'val_unseen' in all_results and 'error' not in all_results['val_unseen']:
             val_unseen_results = all_results['val_unseen']
-            logger.info(f"  Val Unseen - Loss: {val_unseen_results['loss']:.4f}, Accuracy: {val_unseen_results['overall_accuracy']:.4f}")
+            logger.info(f"  Val Unseen - Loss: {val_unseen_results['loss']:.6f}, Accuracy: {val_unseen_results['overall_accuracy']:.6f}")
         
         logger.info("✅ Evaluation completed!")
     

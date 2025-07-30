@@ -230,20 +230,19 @@ def get_smart_contrastive_schedule(planned_epochs: int, max_epochs: int):
         elif epoch <= phase2_end:
             # Phase 2: GRADUAL transition from high to intermediate
             progress = (epoch - phase1_end) / (phase2_end - phase1_end)
-            mid_weight = start_weight * 0.6  # 10.0 → 6.0 (smooth transition)
+            mid_weight = start_weight * 0.7  # 10.0 → 7.0 (smooth transition)
             return start_weight * (1 - progress) + mid_weight * progress
         elif epoch < planned_epochs:
-            # Phase 3: GENTLE decline to end weight (preserve signal!)
-            progress = (epoch - phase2_end) / (planned_epochs - phase2_end)
-            mid_weight = start_weight * 0.6  # 6.0 (from phase 2)
-            return mid_weight * (1 - progress) + end_weight * progress  # 6.0 → 3.0
+            mid_weight = start_weight * 0.7  # 7.0
+            return mid_weight
         elif epoch < 450:
             # Higher weight for 75 epochs for refreshed Hard Negatives 
             progress = (epoch - planned_epochs) / (450 - planned_epochs)
-            return 7.0 * (1 - progress) + 3.0 * progress # 7.0 → 3.0 for 75 epochs
+            mid_weight = start_weight * 0.7
+            return mid_weight * (1 - progress) + end_weight * progress # 7.0 → 3.0 for 75 epochs
         else:
             # Extended Phase: FIXED at end weight (adaptive revival still works)
-            return 3.0
+            return end_weight
     
     def ce_weight_fn(epoch: int) -> float:
         if epoch <= phase1_end:
@@ -265,7 +264,7 @@ def get_smart_contrastive_schedule(planned_epochs: int, max_epochs: int):
             progress = (epoch - 525) / 25
             return 0.6 * (1 - progress) + 0.8 * progress   # 0.6 → 0.8
         else:
-            # Fix CE at 1.0 for the remainder of training (avoid over-fitting)
+            # Fix CE at 0.8 for the remainder of training (avoid over-fitting)
             return 0.8
     
     return contrastive_weight_fn, ce_weight_fn

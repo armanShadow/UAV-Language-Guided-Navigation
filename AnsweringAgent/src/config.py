@@ -54,7 +54,6 @@ class TrainingConfig:
     per_gpu_batch_size_val: int = 6  # Reduced from 8 for unfrozen decoder
     train_chunk_size: int = 1000
     # Curriculum learning parameters - ADAPTED FOR UAV SPATIAL LEARNING
-    curriculum_epochs: int = 120  # 30% of 400 planned epochs (align with Phase 1)
     destination_loss_weight_start: float = 1.2  # Higher for UAV navigation importance
     destination_loss_weight_end: float = 0.1   # Maintain some spatial guidance
     
@@ -67,8 +66,8 @@ class TrainingConfig:
     contrastive_loss_type: str = "infonce"
     contrastive_margin: float = 0.4  # Larger margin for UAV aerial perspective differences
     contrastive_temperature: float = 0.15  # Higher temp for aerial imagery similarity learning
-    contrastive_weight_start: float = 15.0  # Will be overridden by smart scheduler
-    contrastive_weight_end: float = 5.0    # Will be overridden by smart scheduler
+    contrastive_weight_start: float = 10.0  # Will be overridden by smart scheduler
+    contrastive_weight_end: float = 3.0    # Will be overridden by smart scheduler
     # UAV-specific triplet loss options
     use_cosine_distance: bool = True  # Better for aerial visual similarities
     contrastive_mean_all: bool = False  # More selective for UAV landmark learning
