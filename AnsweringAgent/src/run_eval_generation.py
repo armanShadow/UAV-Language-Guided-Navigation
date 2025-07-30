@@ -505,10 +505,10 @@ def composite_score(pred: str, gold: str, task_type: str = "precision_short",
     weights = {
         'direction': 1.0,    # Most important for navigation
         'attribute': 0.8,    # Very important for landmark identification
-        'landmark': 0.7,     # Important for navigation
-        'movement': 0.7,     # Important for instructions
-        'yesno': 0.6,        # Standard importance
-        'form': 0.5,         # Least important (just avoids banned phrases)
+        'landmark': 0.6,     # Important for navigation
+        'movement': 0.6,     # Important for instructions
+        'yesno': 0.4,        # Standard importance
+        'form': 0.2,         # Least important (just avoids banned phrases)
     }
     
     # Build weighted score components
