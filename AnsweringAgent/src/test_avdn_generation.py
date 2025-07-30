@@ -122,13 +122,22 @@ def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
     print("📊 Loading formatted dataset...")
     dataset = AnsweringDataset(config, split='val_seen', tokenizer=tokenizer)
     
-    # Test generation on a few samples
-    print(f"🧪 Testing generation on {max_samples} samples...")
+    # Load preprocessed JSON for metadata
+    print("📊 Loading preprocessed JSON for metadata...")
+    preprocessed_json = load_preprocessed_json(config, 'val_seen')
+    
+    if not preprocessed_json:
+        print("❌ Could not load preprocessed JSON, falling back to direct dataset testing")
+        return test_direct_generation(model, dataset, tokenizer, device, max_samples)
+    
+    # Test generation on a few samples using metadata matching
+    print(f"🧪 Testing generation on {max_samples} samples using metadata matching...")
     
     # Track metrics
     all_scores = []
     successful_generations = 0
     
+    # Test with first few samples from formatted dataset
     for i in range(min(max_samples, len(dataset))):
         try:
             sample = dataset[i]
@@ -170,13 +179,11 @@ def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
             generated_answer = tokenizer.decode(generated_seq[0], skip_special_tokens=True)
             dialog_context = tokenizer.decode(sample['text_input']['input_ids'], skip_special_tokens=True)
             
-            # Try to decode other components if they exist
-            first_instruction = ""
-            current_question = ""
-            if 'first_instruction_input' in sample:
-                first_instruction = tokenizer.decode(sample['first_instruction_input']['input_ids'], skip_special_tokens=True)
-            if 'current_question_input' in sample:
-                current_question = tokenizer.decode(sample['current_question_input']['input_ids'], skip_special_tokens=True)
+            # Get metadata from preprocessed JSON if available
+            metadata_info = ""
+            if i < len(preprocessed_json):
+                metadata = preprocessed_json[i]
+                metadata_info = f"Map: {metadata.get('map_name', 'N/A')}, Episode: {metadata.get('episode_id', 'N/A')}, Turn: {metadata.get('turn_id', 'N/A')}"
             
             # Calculate composite score
             scores = composite_score(generated_answer, original_answer, task_type="precision_short")
@@ -184,6 +191,8 @@ def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
             successful_generations += 1
             
             print(f"\n📝 Sample {i+1}:")
+            if metadata_info:
+                print(f"Metadata: {metadata_info}")
             print(f"Context: {dialog_context[:100]}...")
             print(f"Original Answer: {original_answer}")
             print(f"Generated Answer: {generated_answer}")
@@ -218,6 +227,111 @@ def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
             print(f"Sample {i+1}: Composite={scores['total']:.4f}, Direction={scores['direction']:.4f}, Movement={scores['movement']:.4f}")
     
     print("✅ Answering Agent generation test completed!")
+    return True
+
+def load_preprocessed_json(config, split: str):
+    """Load the JSON format of preprocessed dataset with metadata."""
+    # Construct the JSON file path based on your data structure
+    if split == 'train':
+        json_file = os.path.join(config.data.processed_data_dir, 'train_data.json')
+    elif split == 'val_seen':
+        json_file = os.path.join(config.data.processed_data_dir, 'val_seen_data.json')
+    elif split == 'val_unseen':
+        json_file = os.path.join(config.data.processed_data_dir, 'val_unseen_data.json')
+    else:
+        raise ValueError(f"Unknown split: {split}")
+    
+    print(f"Loading preprocessed JSON from: {json_file}")
+    
+    if not os.path.exists(json_file):
+        # Try alternative paths
+        alt_paths = [
+            f"../datasets/{split}_data.json",
+            f"./datasets/{split}_data.json", 
+            f"./processed_data/{split}_data.json",
+            f"/app/datasets/{split}_data.json"
+        ]
+        
+        for alt_path in alt_paths:
+            if os.path.exists(alt_path):
+                json_file = alt_path
+                print(f"Found JSON file at alternative path: {json_file}")
+                break
+        else:
+            print(f"❌ Could not find preprocessed JSON file for {split}")
+            return []
+    
+    with open(json_file, 'r') as f:
+        data = json.load(f)
+    
+    print(f"✅ Loaded {len(data)} preprocessed samples from JSON")
+    return data
+
+def test_direct_generation(model, dataset, tokenizer, device, max_samples):
+    """Fallback test without metadata matching."""
+    print("🔄 Testing direct generation without metadata matching...")
+    
+    all_scores = []
+    successful_generations = 0
+    
+    for i in range(min(max_samples, len(dataset))):
+        try:
+            sample = dataset[i]
+            
+            # Get text input and visual features
+            text_input = {
+                'input_ids': sample['text_input']['input_ids'].unsqueeze(0).to(device),
+                'attention_mask': sample['text_input']['attention_mask'].unsqueeze(0).to(device)
+            }
+            
+            current_view = sample['current_view_image'].unsqueeze(0).to(device)
+            previous_views = sample['previous_views_image'].unsqueeze(0).to(device)
+            
+            # Generation parameters
+            generation_params = {
+                'task_type': 'precision_short',
+                'num_beams': 4,
+                'do_sample': False,
+                'repetition_penalty': 1.1,
+                'length_penalty': 0.8,
+                'min_new_tokens': 8,
+                'max_new_tokens': 70,
+                'early_stopping': True,
+            }
+            
+            # Generate answer
+            with torch.no_grad():
+                generated_seq = model.generate_answer(
+                    text_input, current_view, previous_views,
+                    **generation_params
+                )
+            
+            # Decode results
+            original_answer = tokenizer.decode(sample['text_label']['input_ids'], skip_special_tokens=True)
+            generated_answer = tokenizer.decode(generated_seq[0], skip_special_tokens=True)
+            
+            # Calculate composite score
+            scores = composite_score(generated_answer, original_answer, task_type="precision_short")
+            all_scores.append(scores)
+            successful_generations += 1
+            
+            print(f"\n📝 Sample {i+1}:")
+            print(f"Original Answer: {original_answer}")
+            print(f"Generated Answer: {generated_answer}")
+            print(f"Composite Score: {scores['total']:.4f}")
+            print("-" * 80)
+            
+        except Exception as e:
+            print(f"❌ Error generating sample {i}: {e}")
+            continue
+    
+    # Report metrics
+    if all_scores:
+        avg_composite = sum(s['total'] for s in all_scores) / len(all_scores)
+        print(f"\n📊 DIRECT GENERATION METRICS:")
+        print(f"Successful Generations: {successful_generations}/{max_samples}")
+        print(f"Average Composite Score: {avg_composite:.4f}")
+    
     return True
 
 def test_small_generation(max_samples: int = 5):
