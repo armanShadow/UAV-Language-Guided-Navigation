@@ -166,6 +166,12 @@ def test_answering_agent_generation(checkpoint_path: str, max_samples: int = 5):
                 'attention_mask': sample['text_input']['attention_mask'].unsqueeze(0).to(device)
             }
             
+            # Add separate components EXACTLY as in training (lines 687-691 in train.py)
+            if 'first_instruction_input' in sample:
+                text_input['first_instruction_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['first_instruction_input'].items()}
+            if 'current_question_input' in sample:
+                text_input['current_question_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['current_question_input'].items()}
+            
             current_view = sample['current_view_image'].unsqueeze(0).to(device)
             previous_views = sample['previous_views_image'].unsqueeze(0).to(device)
             
@@ -301,6 +307,12 @@ def test_direct_generation(model, dataset, tokenizer, device, max_samples):
                 'input_ids': sample['text_input']['input_ids'].unsqueeze(0).to(device),
                 'attention_mask': sample['text_input']['attention_mask'].unsqueeze(0).to(device)
             }
+            
+            # Add separate components EXACTLY as in training (lines 687-691 in train.py)
+            if 'first_instruction_input' in sample:
+                text_input['first_instruction_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['first_instruction_input'].items()}
+            if 'current_question_input' in sample:
+                text_input['current_question_input'] = {k: v.unsqueeze(0).to(device) for k, v in sample['current_question_input'].items()}
             
             current_view = sample['current_view_image'].unsqueeze(0).to(device)
             previous_views = sample['previous_views_image'].unsqueeze(0).to(device)

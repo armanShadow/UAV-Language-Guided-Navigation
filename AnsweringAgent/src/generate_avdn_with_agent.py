@@ -139,11 +139,17 @@ class AVDNGeneratorWithAgent:
                            destination_image: Optional[torch.Tensor] = None) -> str:
         """Generate a new answer using Answering Agent with actual inputs from formatted dataset."""
         
-        # Use the exact same text_input as the evaluation script (from formatted dataset)
+        # Construct text_input dictionary as expected by the AnsweringAgent model
         text_input = {
             'input_ids': formatted_sample['text_input']['input_ids'].unsqueeze(0).to(self.device),
             'attention_mask': formatted_sample['text_input']['attention_mask'].unsqueeze(0).to(self.device)
         }
+        
+        # Add separate components EXACTLY as in training (lines 687-691 in train.py)
+        if 'first_instruction_input' in formatted_sample:
+            text_input['first_instruction_input'] = {k: v.unsqueeze(0).to(self.device) for k, v in formatted_sample['first_instruction_input'].items()}
+        if 'current_question_input' in formatted_sample:
+            text_input['current_question_input'] = {k: v.unsqueeze(0).to(self.device) for k, v in formatted_sample['current_question_input'].items()}
         
         # Use actual visual features from the formatted dataset
         current_view = current_view_image.unsqueeze(0).to(self.device)  # Add batch dimension
@@ -240,23 +246,54 @@ class AVDNGeneratorWithAgent:
     
     def create_avdn_to_preprocessed_mapping(self, avdn_data: List[Dict], preprocessed_json: List[Dict]) -> Dict[int, int]:
         """Create mapping from AVDN indices to preprocessed dataset indices using metadata."""
-        print("Creating AVDN to preprocessed dataset mapping using metadata...")
+        print("Creating AVDN to preprocessed dataset mapping using episode-based metadata...")
         
         mapping = {}
         
-        # Create index of preprocessed data by (map_name, answer)
-        preprocessed_index = {}
-        for i, item in enumerate(preprocessed_json):
-            map_name = item.get('map_name', '')
-            answer = item.get('answer', '').strip().lower()
-            episode_id = item.get('episode_id', '')
-            turn_id = item.get('turn_id', '')
+        # Parse preprocessed episodes and create flattened turn index
+        preprocessed_turns = []
+        for episode in preprocessed_json:
+            episode_id = episode.get('episode_id', '')
             
-            # Create multiple keys for flexible matching
+            # Skip augmented episodes (contains "aug_pattern")
+            if 'aug_pattern' in episode_id:
+                continue
+                
+            map_name = episode.get('map_name', '')
+            
+            # Process each dialog turn in the episode
+            for dialog in episode.get('dialogs', []):
+                turn_id = dialog.get('turn_id', 0)
+                
+                # Skip turn 0 (usually just observation, no Q&A)
+                if turn_id == 0:
+                    continue
+                    
+                answer = dialog.get('answer', '').strip().lower()
+                question = dialog.get('question', '').strip().lower()
+                
+                turn_data = {
+                    'episode_id': episode_id,
+                    'map_name': map_name,
+                    'turn_id': turn_id,
+                    'answer': answer,
+                    'question': question,
+                    'preprocessed_index': len(preprocessed_turns)
+                }
+                preprocessed_turns.append(turn_data)
+        
+        print(f"Found {len(preprocessed_turns)} non-augmented dialog turns")
+        
+        # Create index for matching
+        preprocessed_index = {}
+        for i, turn in enumerate(preprocessed_turns):
+            map_name = turn['map_name']
+            answer = turn['answer']
+            
+            # Create keys for matching
             keys = [
                 f"{map_name}_{answer}",
-                f"{episode_id}_{turn_id}",
-                f"{map_name}_{episode_id}_{turn_id}"
+                f"{map_name}_{turn['episode_id']}_{turn['turn_id']}"
             ]
             
             for key in keys:
@@ -281,39 +318,40 @@ class AVDNGeneratorWithAgent:
             
             map_name = avdn_sample['map_name']
             
-            # Try to find matching preprocessed sample
+            # Try to find matching preprocessed turn
             match_found = False
             
             # Strategy 1: Match by map_name and instruction text
             key = f"{map_name}_{clean_instruction}"
             if key in preprocessed_index:
-                mapping[i] = preprocessed_index[key][0]  # Use first match
+                turn_idx = preprocessed_index[key][0]  # Use first match
+                mapping[i] = turn_idx
                 matched_count += 1
                 match_found = True
                 
                 if i < 3:  # Debug first few matches
-                    preprocessed_item = preprocessed_json[preprocessed_index[key][0]]
-                    print(f"Match {i}: AVDN({map_name}, {avdn_sample['route_index']}) -> Preprocessed {preprocessed_index[key][0]}")
+                    turn_data = preprocessed_turns[turn_idx]
+                    print(f"Match {i}: AVDN({map_name}, {avdn_sample['route_index']}) -> Turn {turn_idx}")
                     print(f"  AVDN instruction: {instruction}")
-                    print(f"  Preprocessed answer: {preprocessed_item.get('answer', '')}")
-                    print(f"  Episode ID: {preprocessed_item.get('episode_id', '')}")
-                    print(f"  Turn ID: {preprocessed_item.get('turn_id', '')}")
+                    print(f"  Preprocessed answer: {turn_data['answer']}")
+                    print(f"  Episode ID: {turn_data['episode_id']}")
+                    print(f"  Turn ID: {turn_data['turn_id']}")
             
             # Strategy 2: If no exact match, try partial matching
             if not match_found:
                 for key, indices in preprocessed_index.items():
                     if map_name in key:
                         # Check if instruction text is similar
-                        for idx in indices:
-                            preprocessed_item = preprocessed_json[idx]
-                            preprocessed_answer = preprocessed_item.get('answer', '').strip().lower()
+                        for turn_idx in indices:
+                            turn_data = preprocessed_turns[turn_idx]
+                            preprocessed_answer = turn_data['answer']
                             
                             # Check for partial text match
                             if (clean_instruction in preprocessed_answer or 
                                 preprocessed_answer in clean_instruction or
                                 len(set(clean_instruction.split()) & set(preprocessed_answer.split())) > 2):
                                 
-                                mapping[i] = idx
+                                mapping[i] = turn_idx
                                 matched_count += 1
                                 match_found = True
                                 break
@@ -321,7 +359,7 @@ class AVDNGeneratorWithAgent:
                     if match_found:
                         break
         
-        print(f"Successfully mapped {matched_count}/{len(avdn_data)} AVDN samples to preprocessed dataset")
+        print(f"Successfully mapped {matched_count}/{len(avdn_data)} AVDN samples to non-augmented preprocessed turns")
         return mapping
     
     def process_avdn_sample(self, avdn_sample: Dict, formatted_dataset: AnsweringDataset, mapping: Dict[int, int], avdn_index: int) -> Dict:
@@ -335,13 +373,18 @@ class AVDNGeneratorWithAgent:
         matching_sample = None
         if avdn_index in mapping:
             try:
-                formatted_index = mapping[avdn_index]
-                matching_sample = formatted_dataset[formatted_index]
+                turn_index = mapping[avdn_index]
+                # The turn_index corresponds to our flattened preprocessed_turns
+                # But we need to map this to the formatted_dataset index
+                # The formatted dataset should have the same indexing as our flattened turns
+                matching_sample = formatted_dataset[turn_index]
                 
                 if avdn_index < 3:  # Debug first few matches
+                    turn_data = self.preprocessed_turns[turn_index]
                     dialog_context = self.decode_tokenized_text(matching_sample['text_input'])
                     formatted_answer = self.decode_tokenized_text(matching_sample['text_label'])
-                    print(f"Mapped match {avdn_index}: AVDN({map_name}, {route_index}) -> Formatted sample {formatted_index}")
+                    print(f"Mapped match {avdn_index}: AVDN({map_name}, {route_index}) -> Turn {turn_index}")
+                    print(f"  Episode: {turn_data['episode_id']}, Turn: {turn_data['turn_id']}")
                     print(f"  Context: {dialog_context[:100]}...")
                     print(f"  Answer: {formatted_answer}")
                     
@@ -383,6 +426,26 @@ class AVDNGeneratorWithAgent:
         
         # Create mapping between AVDN and preprocessed datasets using metadata
         mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, preprocessed_json)
+        
+        # Store preprocessed turns for later access
+        self.preprocessed_turns = []
+        for episode in preprocessed_json:
+            episode_id = episode.get('episode_id', '')
+            if 'aug_pattern' in episode_id:
+                continue
+            map_name = episode.get('map_name', '')
+            for dialog in episode.get('dialogs', []):
+                turn_id = dialog.get('turn_id', 0)
+                if turn_id == 0:
+                    continue
+                turn_data = {
+                    'episode_id': episode_id,
+                    'map_name': map_name,
+                    'turn_id': turn_id,
+                    'answer': dialog.get('answer', ''),
+                    'question': dialog.get('question', '')
+                }
+                self.preprocessed_turns.append(turn_data)
         
         # Apply sampling if requested
         if sample_ratio < 1.0:
