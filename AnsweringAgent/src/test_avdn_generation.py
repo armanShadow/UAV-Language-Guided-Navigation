@@ -238,8 +238,17 @@ def test_answering_agent_generation():
     try:
         config = Config()
         
+        # Create a dummy logger for testing
+        class DummyLogger:
+            def info(self, msg):
+                print(f"[INFO] {msg}")
+            def warning(self, msg):
+                print(f"[WARNING] {msg}")
+            def error(self, msg):
+                print(f"[ERROR] {msg}")
+        
         # Load model
-        model = AnsweringAgent(config)
+        model = AnsweringAgent(config, logger=DummyLogger())
         checkpoint_path = config.model.checkpoint_path
         
         print(f"🔍 Looking for checkpoint at: {checkpoint_path}")
@@ -381,8 +390,17 @@ def test_direct_generation():
     try:
         config = Config()
         
+        # Create a dummy logger for testing
+        class DummyLogger:
+            def info(self, msg):
+                print(f"[INFO] {msg}")
+            def warning(self, msg):
+                print(f"[WARNING] {msg}")
+            def error(self, msg):
+                print(f"[ERROR] {msg}")
+        
         # Load model
-        model = AnsweringAgent(config)
+        model = AnsweringAgent(config, logger=DummyLogger())
         checkpoint_path = config.model.checkpoint_path
         
         print(f"🔍 Looking for checkpoint at: {checkpoint_path}")
@@ -565,8 +583,17 @@ def test_matching_logic():
         tokenizer = T5Tokenizer.from_pretrained('t5-base')
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
+        # Create a dummy logger for testing
+        class DummyLogger:
+            def info(self, msg):
+                print(f"[INFO] {msg}")
+            def warning(self, msg):
+                print(f"[WARNING] {msg}")
+            def error(self, msg):
+                print(f"[ERROR] {msg}")
+        
         # Create a dummy model for testing (we won't actually use it for generation)
-        model = AnsweringAgent(config)
+        model = AnsweringAgent(config, tokenizer=tokenizer, logger=DummyLogger())
         model.to(device)
         
         # Set up directories
