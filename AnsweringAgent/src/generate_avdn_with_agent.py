@@ -186,13 +186,13 @@ class AVDNGeneratorWithAgent:
     
     def load_preprocessed_json(self, split: str) -> List[Dict]:
         """Load the JSON format of preprocessed dataset with metadata."""
-        # Construct the JSON file path based on your data structure
+        # Use the config's JSON paths
         if split == 'train':
-            json_file = os.path.join(self.config.data.processed_data_dir, 'train_data.json')
+            json_file = self.config.data.train_json_path
         elif split == 'val_seen':
-            json_file = os.path.join(self.config.data.processed_data_dir, 'val_seen_data.json')
+            json_file = self.config.data.val_seen_json_path
         elif split == 'val_unseen':
-            json_file = os.path.join(self.config.data.processed_data_dir, 'val_unseen_data.json')
+            json_file = self.config.data.val_unseen_json_path
         else:
             raise ValueError(f"Unknown split: {split}")
         
@@ -204,7 +204,8 @@ class AVDNGeneratorWithAgent:
                 f"../datasets/{split}_data.json",
                 f"./datasets/{split}_data.json", 
                 f"./processed_data/{split}_data.json",
-                f"/app/datasets/{split}_data.json"
+                f"/app/datasets/{split}_data.json",
+                f"/app/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/{split}_data.json"
             ]
             
             for alt_path in alt_paths:
