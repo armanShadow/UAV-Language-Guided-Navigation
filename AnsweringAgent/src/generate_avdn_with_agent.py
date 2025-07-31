@@ -259,29 +259,36 @@ class AVDNGeneratorWithAgent:
                 # Generate new instruction for this turn
                 processed_sample = self.process_avdn_sample(current_sample, formatted_dataset, mapping, sample_idx, rank)
                 
-                # Check if new instruction was generated
-                if processed_sample['instructions'] != sample['instructions']:
-                    # New instruction was generated - add to dialog history for NEXT turn
-                    new_instruction = processed_sample['instructions']
-                    episode_dialog_history[episode_key].append(new_instruction)
-                    
-                    if rank == 0 and turn_idx < 3:  # Debug first few turns
-                        print(f"  ✅ Turn {turn_idx + 1}: Generated new instruction")
-                        print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
+                # Only add to dialog history if this is a Q&A turn (not first instruction)
+                instruction = sample['instructions']
+                if '[QUE]' in instruction and '[INS]' in instruction:
+                    # Check if new instruction was generated
+                    if processed_sample['instructions'] != sample['instructions']:
+                        # New instruction was generated - add to dialog history for NEXT turn
+                        new_instruction = processed_sample['instructions']
+                        episode_dialog_history[episode_key].append(new_instruction)
+                        
+                        if rank == 0 and turn_idx < 3:  # Debug first few turns
+                            print(f"  ✅ Turn {turn_idx + 1}: Generated new Q&A instruction")
+                            print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
+                    else:
+                        # No new instruction generated - add original instruction to dialog history for NEXT turn
+                        original_instruction = sample['instructions']
+                        episode_dialog_history[episode_key].append(original_instruction)
+                        
+                        if rank == 0 and turn_idx < 3:  # Debug first few turns
+                            print(f"  📝 Turn {turn_idx + 1}: Using original Q&A instruction")
+                            print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
                 else:
-                    # No new instruction generated - add original instruction to dialog history for NEXT turn
-                    original_instruction = sample['instructions']
-                    episode_dialog_history[episode_key].append(original_instruction)
-                    
+                    # This is a first instruction - don't add to dialog history
                     if rank == 0 and turn_idx < 3:  # Debug first few turns
-                        print(f"  📝 Turn {turn_idx + 1}: Using original instruction")
-                        print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
+                        print(f"  🚫 Turn {turn_idx + 1}: Skipping first instruction (no Q&A)")
                 
                 # Store the processed sample (keep original pre_dialogs for current turn)
                 processed_data[sample_idx] = processed_sample
                 
-                # Update pre_dialogs for the NEXT turn in this episode (not current turn)
-                if turn_idx + 1 < len(episode_samples):
+                # Update pre_dialogs for the NEXT turn in this episode (only for Q&A turns)
+                if ('[QUE]' in instruction and '[INS]' in instruction) and turn_idx + 1 < len(episode_samples):
                     next_sample_idx = episode_samples[turn_idx + 1][0]
                     next_sample = episode_samples[turn_idx + 1][1]
                     
@@ -475,6 +482,11 @@ class AVDNGeneratorWithAgent:
         # Get AVDN sample metadata
         map_name = avdn_sample['map_name']
         route_index = avdn_sample['route_index']
+        instruction = avdn_sample['instructions']
+        
+        # Only process Q&A entries (same filter as mapping creation)
+        if '[QUE]' not in instruction or '[INS]' not in instruction:
+            return avdn_sample  # Return original sample unchanged for first instructions
         
         # Use the mapping to find corresponding formatted sample
         matching_sample = None
