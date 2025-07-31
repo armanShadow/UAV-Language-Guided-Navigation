@@ -253,7 +253,7 @@ class AVDNGeneratorWithAgent:
         print(f"✅ Loaded {len(data)} preprocessed samples from JSON")
         return data
     
-    def create_avdn_to_preprocessed_mapping(self, avdn_data: List[Dict], preprocessed_json: List[Dict]) -> Dict[int, int]:
+    def create_avdn_to_preprocessed_mapping(self, avdn_data: List[Dict], preprocessed_json: List[Dict], rank: int = 0) -> Dict[int, int]:
         """Create simple mapping based on exact map name and answer matching."""
         print("Creating AVDN to preprocessed dataset mapping using simple map+answer matching...")
         
@@ -522,7 +522,7 @@ class AVDNGeneratorWithAgent:
             preprocessed_json = self.load_preprocessed_json(split)
             
             # Create mapping between AVDN and preprocessed datasets using metadata
-            mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, preprocessed_json)
+            mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, preprocessed_json, rank)
             
             # Store preprocessed_turns for all ranks
             preprocessed_turns = self.preprocessed_turns
