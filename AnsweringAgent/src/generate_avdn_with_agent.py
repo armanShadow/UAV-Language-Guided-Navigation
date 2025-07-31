@@ -286,18 +286,6 @@ class AVDNGeneratorWithAgent:
                 if rank == 0:
                     print(f"  🔄 Updating pre_dialogs with {len(instruction_updates)} new instructions")
                 
-                def normalize_for_comparison(text):
-                    """Normalize text for comparison by removing extra spaces/punctuation"""
-                    return text.strip().replace('.  ', '. ').replace('..  ', '. ').rstrip('. ').strip()
-                
-                def format_as_pre_dialog_qa(que_part, ins_part):
-                    """Format QA pair as it appears in pre_dialogs"""
-                    return f"{que_part}.  [INS] {ins_part}.  "
-                
-                def format_as_pre_dialog_ins(ins_content):
-                    """Format first instruction as it appears in pre_dialogs"""
-                    return f" [INS] {ins_content}..  "
-                
                 for turn_idx, (sample_idx, sample) in enumerate(episode_samples):
                     # Update pre_dialogs in this sample
                     updated_pre_dialogs = []
@@ -309,31 +297,27 @@ class AVDNGeneratorWithAgent:
                         # Check each instruction update to see if it matches this pre_dialog entry
                         for old_full_instruction, new_full_instruction in instruction_updates.items():
                             
-                            # Handle QA format: "[QUE] question.  [INS] answer.  "
+                            # Handle QA format: "[QUE] question.  [INS] answer..  "
                             if dialog.startswith('[QUE]') and '[INS]' in dialog:
-                                # Normalize both for comparison
-                                normalized_dialog = normalize_for_comparison(dialog)
-                                normalized_old = normalize_for_comparison(old_full_instruction)
-                                
-                                if normalized_dialog == normalized_old:
-                                    # Extract parts from new instruction
+                                # Extract the full QA pair and compare (ignoring trailing spaces)
+                                if dialog.strip().rstrip('.').strip() == old_full_instruction.strip().rstrip('.').strip():
+                                    # Format new instruction to match pre_dialog format
                                     que_part = new_full_instruction.split('[INS]')[0].strip()
                                     ins_part = new_full_instruction.split('[INS]')[1].strip()
-                                    updated_dialog = format_as_pre_dialog_qa(que_part, ins_part)
+                                    updated_dialog = f"{que_part}.  [INS] {ins_part}..  "
                                     break
                             
                             # Handle first instruction format: " [INS] content..  "
                             elif dialog.startswith(' [INS]'):
-                                # Extract INS content from both
+                                # Extract INS part from old instruction (could be from [INS] tag or full QA)
                                 if '[INS]' in old_full_instruction:
                                     old_ins_content = old_full_instruction.split('[INS]')[1].strip()
                                     dialog_ins_content = dialog.replace(' [INS] ', '').strip().rstrip('.').strip()
                                     
-                                    # Normalize for comparison
-                                    if normalize_for_comparison(dialog_ins_content) == normalize_for_comparison(old_ins_content):
+                                    if dialog_ins_content == old_ins_content.rstrip('.').strip():
                                         # Extract new INS content and format it
                                         new_ins_content = new_full_instruction.split('[INS]')[1].strip()
-                                        updated_dialog = format_as_pre_dialog_ins(new_ins_content)
+                                        updated_dialog = f" [INS] {new_ins_content}..  "
                                         break
                         
                         updated_pre_dialogs.append(updated_dialog)
@@ -504,15 +488,9 @@ class AVDNGeneratorWithAgent:
             ins_start = instruction.find('[INS]')
             avdn_question = instruction[que_start+5:ins_start].strip().lower()
             
-            # Get first instruction from pre_dialogs (handle empty case)
+            # Get first instruction from pre_dialogs
             pre_dialogs = avdn_sample['pre_dialogs']
-            if not pre_dialogs:
-                # For first turn, there's no dialog history - skip this sample
-                continue
             first_ins_start = pre_dialogs[0].find('[INS]')
-            if first_ins_start == -1:
-                # No [INS] found in first pre_dialog - skip this sample
-                continue
             first_instruction = pre_dialogs[0][first_ins_start+5:].strip().lower()
             
             for j, sample in candidates:
@@ -667,35 +645,33 @@ class AVDNGeneratorWithAgent:
         if rank == 0:
             print(f"\n🚀 Processing {split} split with {world_size} GPUs...")
         
-        # STEP 1: Load and sample data on rank 0, then broadcast
+        # STEP 1: Load all data on all ranks
+        avdn_data = self.load_avdn_data(split)
+        formatted_dataset = self.load_formatted_dataset(split)
+        
+        # STEP 2: Create mapping on FULL dataset (rank 0 only), then broadcast
         if rank == 0:
-            avdn_data = self.load_avdn_data(split)
-            formatted_dataset = self.load_formatted_dataset(split)
-            
-            # Apply sampling first to avoid index mismatch
-            if sample_ratio < 1.0:
-                num_samples = int(len(avdn_data) * sample_ratio)
-                original_length = len(avdn_data)
-                avdn_data = avdn_data[:num_samples]
-                print(f"📊 Sampled {num_samples}/{original_length} samples ({sample_ratio*100:.1f}%)")
-            
-            # Create mapping on final dataset
-            print("🔍 Creating mapping on dataset...")
+            print("🔍 Creating mapping on full dataset...")
             mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, formatted_dataset, rank)
         else:
-            avdn_data = []
             mapping = {}
         
-        # STEP 2: Broadcast sampled data and mapping to all ranks
+        # STEP 3: Broadcast mapping to all ranks
         if world_size > 1:
-            avdn_data = self.broadcast_data(avdn_data, rank, world_size)
             mapping = self.broadcast_mapping(mapping, rank, world_size)
         
-        # Load formatted dataset on all ranks (needed for generation)
-        if rank != 0:
-            formatted_dataset = self.load_formatted_dataset(split)
+        # STEP 4: Apply sampling AFTER mapping (on rank 0, then broadcast)
+        if rank == 0:
+            if sample_ratio < 1.0:
+                num_samples = int(len(avdn_data) * sample_ratio)
+                avdn_data = avdn_data[:num_samples]
+                print(f"📊 Sampled {num_samples}/{len(self.load_avdn_data(split))} samples ({sample_ratio*100:.1f}%)")
         
-        # STEP 3: Distribute work among ranks (simple sample-based distribution)
+        # STEP 5: Broadcast sampled data to all ranks
+        if world_size > 1:
+            avdn_data = self.broadcast_data(avdn_data, rank, world_size)
+        
+        # STEP 6: Distribute work among ranks (simple sample-based distribution)
         total_samples = len(avdn_data)
         samples_per_rank = total_samples // world_size
         extra_samples = total_samples % world_size
@@ -713,7 +689,7 @@ class AVDNGeneratorWithAgent:
         
         print(f"🔧 Rank {rank}: Processing {len(my_samples)}/{total_samples} samples (indices {start_idx}-{end_idx-1})")
         
-        # STEP 4: Process samples with episode-level dialog history updates
+        # STEP 7: Process samples with episode-level dialog history updates
         print(f"🔄 Rank {rank}: Processing {len(my_samples)} samples with dialog history updates...")
         
         # Use episode-level processing to properly update dialog history
@@ -752,7 +728,7 @@ class AVDNGeneratorWithAgent:
         
         print(f"🔧 Rank {rank}: Completed processing. Generated {local_successful_generations} samples")
         
-        # STEP 5: Gather results from all ranks
+        # STEP 8: Gather results from all ranks
         if world_size > 1:
             if rank == 0:
                 print("🔄 Gathering results from all ranks...")
