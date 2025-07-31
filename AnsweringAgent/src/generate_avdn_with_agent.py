@@ -20,7 +20,7 @@ from utils.logger import setup_logger
 # Import evaluation functions
 import sys
 sys.path.append('../scripts')
-from run_eval_generation import composite_score, direction_score, yesno_score, attribute_score, landmark_score, movement_score
+from run_eval_generation import composite_score
 
 # Suppress warnings for cleaner output
 import warnings
@@ -609,9 +609,18 @@ class AVDNGeneratorWithAgent:
                         else:
                             generated_answer = new_instruction.strip()
                         
-                        # Calculate composite score
+                        # Calculate composite score (normalization now handled in evaluation script)
                         scores = composite_score(generated_answer, original_answer, task_type="precision_short")
                         all_scores.append(scores)
+                        
+                        # Debug scoring for first few samples
+                        if successful_generations <= 3:
+                            print(f"\n🔍 Scoring Debug for sample {original_index}:")
+                            print(f"   Original: {original_answer}")
+                            print(f"   Generated: {generated_answer}")
+                            print(f"   Direction score: {scores['direction']}")
+                            print(f"   Movement score: {scores['movement']}")
+                            print(f"   Landmark score: {scores['landmark']}")
                     
                 except Exception as e:
                     print(f"Error processing sample {original_index} in episode {episode_key}: {e}")
@@ -657,16 +666,66 @@ class AVDNGeneratorWithAgent:
         else:
             print(f"\n⚠️ No successful generations for {split} split")
         
-        return processed_data
+        return processed_data, all_scores
     
-    def save_processed_data(self, data: List[Dict], split: str):
-        """Save processed data to output directory in AVDN format."""
+    def save_processed_data(self, data: List[Dict], split: str, all_scores: List[Dict] = None):
+        """Save processed data to output directory in AVDN format and save metrics."""
+        # Save main AVDN dataset
         output_file = os.path.join(self.output_dir, f'{split}_data.json')
         
         with open(output_file, 'w') as f:
             json.dump(data, f, indent=2)
         
         print(f"Saved {len(data)} samples to {output_file}")
+        
+        # Save detailed metrics if available
+        if all_scores:
+            metrics_file = os.path.join(self.output_dir, f'{split}_generation_metrics.json')
+            
+            # Calculate aggregated metrics
+            total_samples = len(data)
+            successful_generations = len(all_scores)
+            
+            # Calculate averages
+            if all_scores:
+                avg_metrics = {}
+                for metric in ['direction', 'yesno', 'attribute', 'landmark', 'movement', 'form', 'total', 'bleu4', 'rouge_l', 'bertscore']:
+                    scores_for_metric = [s[metric] for s in all_scores if metric in s]
+                    avg_metrics[metric] = sum(scores_for_metric) / len(scores_for_metric) if scores_for_metric else 0.0
+                
+                # Detailed metrics report
+                detailed_metrics = {
+                    'split': split,
+                    'summary': {
+                        'total_samples': total_samples,
+                        'successful_generations': successful_generations,
+                        'success_rate': successful_generations / total_samples if total_samples > 0 else 0.0,
+                        'generation_coverage': f"{successful_generations}/{total_samples} samples ({successful_generations/total_samples*100:.1f}%)"
+                    },
+                    'average_scores': avg_metrics,
+                    'individual_scores': []
+                }
+                
+                # Add individual sample scores with context
+                sample_idx = 0
+                for i, sample in enumerate(data):
+                    if '_debug_info' in sample and 'generation_scores' in sample['_debug_info']:
+                        detailed_metrics['individual_scores'].append({
+                            'sample_index': i,
+                            'avdn_route_index': sample.get('route_index', 'unknown'),
+                            'map_name': sample.get('map_name', 'unknown'),
+                            'matched_episode_id': sample['_debug_info'].get('matched_episode_id', 'none'),
+                            'original_instruction': sample['_debug_info'].get('original_answer', '')[:100] + "..." if len(sample['_debug_info'].get('original_answer', '')) > 100 else sample['_debug_info'].get('original_answer', ''),
+                            'generated_instruction': sample['_debug_info'].get('generated_answer', '')[:100] + "..." if len(sample['_debug_info'].get('generated_answer', '')) > 100 else sample['_debug_info'].get('generated_answer', ''),
+                            'scores': sample['_debug_info']['generation_scores']
+                        })
+                
+                with open(metrics_file, 'w') as f:
+                    json.dump(detailed_metrics, f, indent=2)
+                
+                print(f"Saved detailed metrics to {metrics_file}")
+            else:
+                print(f"No scores available to save metrics for {split}")
     
     def process_all_splits(self, splits: List[str], sample_ratio: float = 1.0, 
                           max_samples: Optional[int] = None):
@@ -674,8 +733,8 @@ class AVDNGeneratorWithAgent:
         overall_metrics = {}
         
         for split in splits:
-            processed_data = self.process_split(split, sample_ratio, max_samples)
-            self.save_processed_data(processed_data, split)
+            processed_data, scores = self.process_split(split, sample_ratio, max_samples)
+            self.save_processed_data(processed_data, split, scores)
             
             # Store metrics for overall summary
             overall_metrics[split] = {

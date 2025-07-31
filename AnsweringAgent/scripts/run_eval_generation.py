@@ -196,17 +196,51 @@ def extract_spatial_features(text: str) -> Dict[str, List[str]]:
     
     return features
 
+def normalize_avdn_text(text: str) -> str:
+    """Normalize AVDN text to fix common formatting issues."""
+    import re
+    
+    # Fix clock direction patterns (most important fix)
+    # Handle: "6'o clock", "11o'clock", "1 o clock", etc. -> "6 o'clock"
+    text = re.sub(r"(\d+)'o\s+clock", r"\1 o'clock", text)  # "6'o clock" -> "6 o'clock"
+    text = re.sub(r"(\d+)o'clock", r"\1 o'clock", text)      # "11o'clock" -> "11 o'clock"
+    text = re.sub(r"(\d+)\s+o\s+clock", r"\1 o'clock", text) # "1 o clock" -> "1 o'clock"
+    text = re.sub(r"(\d+)\s*o'clock'", r"\1 o'clock", text)  # "6 o'clock'" -> "6 o'clock"
+    
+    # Fix invalid clock times (30 o'clock should be ignored, but normalize format)
+    text = re.sub(r"(\d+)\s*o'clock", lambda m: f"{m.group(1)} o'clock" if int(m.group(1)) <= 12 else m.group(0), text)
+    
+    # Normalize color variations
+    text = re.sub(r'\bgrey\b', 'gray', text, flags=re.IGNORECASE)
+    
+    # Fix common typos
+    text = re.sub(r'\bsorrounded\b', 'surrounded', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bdestinaton\b', 'destination', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bappartment\b', 'apartment', text, flags=re.IGNORECASE)
+    
+    # Normalize whitespace issues
+    text = re.sub(r'\s+', ' ', text)  # Multiple spaces -> single space
+    text = text.strip()  # Remove leading/trailing spaces
+    
+    return text
+
 def extract_clock_hour(direction_text: str) -> Optional[str]:
-    """Extract clock hour from direction text."""
-    # Match numeric clock (e.g., "5 o'clock")
-    numeric_match = re.search(r'(\d+)\s*o\'?clock', direction_text.lower())
+    """Extract clock hour from direction text with AVDN normalization."""
+    # First normalize the text to handle AVDN formatting issues
+    normalized_text = normalize_avdn_text(direction_text)
+    
+    # Match numeric clock (e.g., "5 o'clock") - now works on normalized text
+    numeric_match = re.search(r'(\d+)\s*o\'?clock', normalized_text.lower())
     if numeric_match:
-        return numeric_match.group(1)
+        hour = int(numeric_match.group(1))
+        # Only return valid clock hours (1-12)
+        if 1 <= hour <= 12:
+            return str(hour)
     
     # Match word form clock (e.g., "five o'clock")
     for hour, variants in CLOCK_MAPPINGS.items():
         for variant in variants:
-            if re.search(rf'\b{variant}\s+o\'?clock', direction_text.lower()):
+            if re.search(rf'\b{variant}\s+o\'?clock', normalized_text.lower()):
                 return hour
     return None
 
@@ -252,9 +286,13 @@ def find_landmark_synonym_match(orig_landmark: str, para_landmarks: List[str]) -
 # -------------------------
 def direction_score(pred: str, gold: str) -> float:
     """Score direction accuracy between prediction and gold using enhanced spatial parsing."""
-    # Extract spatial features using enhanced parsing
-    pred_features = extract_spatial_features(pred)
-    gold_features = extract_spatial_features(gold)
+    # Normalize texts to handle AVDN formatting issues
+    pred_normalized = normalize_avdn_text(pred)
+    gold_normalized = normalize_avdn_text(gold)
+    
+    # Extract spatial features using enhanced parsing on normalized text
+    pred_features = extract_spatial_features(pred_normalized)
+    gold_features = extract_spatial_features(gold_normalized)
     
     pred_dirs = pred_features.get('directions', [])
     gold_dirs = gold_features.get('directions', [])
@@ -326,9 +364,13 @@ def yesno_score(pred: str, gold: str) -> float:
 
 def attribute_score(pred: str, gold: str) -> float:
     """Score attribute accuracy between prediction and gold using enhanced spatial parsing."""
-    # Extract spatial features using enhanced parsing (already normalized)
-    pred_features = extract_spatial_features(pred)
-    gold_features = extract_spatial_features(gold)
+    # Normalize texts to handle AVDN formatting issues
+    pred_normalized = normalize_avdn_text(pred)
+    gold_normalized = normalize_avdn_text(gold)
+    
+    # Extract spatial features using enhanced parsing on normalized text
+    pred_features = extract_spatial_features(pred_normalized)
+    gold_features = extract_spatial_features(gold_normalized)
     
     # Extract colors and shapes (already normalized by extract_spatial_features)
     pred_colors = pred_features.get('colors', [])
@@ -359,9 +401,13 @@ def attribute_score(pred: str, gold: str) -> float:
 
 def landmark_score(pred: str, gold: str) -> float:
     """Score landmark accuracy between prediction and gold using enhanced spatial parsing."""
-    # Extract spatial features using enhanced parsing
-    pred_features = extract_spatial_features(pred)
-    gold_features = extract_spatial_features(gold)
+    # Normalize texts to handle AVDN formatting issues
+    pred_normalized = normalize_avdn_text(pred)
+    gold_normalized = normalize_avdn_text(gold)
+    
+    # Extract spatial features using enhanced parsing on normalized text
+    pred_features = extract_spatial_features(pred_normalized)
+    gold_features = extract_spatial_features(gold_normalized)
     
     pred_landmarks = pred_features.get('landmarks', [])
     gold_landmarks = gold_features.get('landmarks', [])
@@ -403,9 +449,13 @@ def landmark_score(pred: str, gold: str) -> float:
 
 def movement_score(pred: str, gold: str) -> float:
     """Score movement verb accuracy between prediction and gold using enhanced spatial parsing."""
-    # Extract spatial features using enhanced parsing
-    pred_features = extract_spatial_features(pred)
-    gold_features = extract_spatial_features(gold)
+    # Normalize texts to handle AVDN formatting issues
+    pred_normalized = normalize_avdn_text(pred)
+    gold_normalized = normalize_avdn_text(gold)
+    
+    # Extract spatial features using enhanced parsing on normalized text
+    pred_features = extract_spatial_features(pred_normalized)
+    gold_features = extract_spatial_features(gold_normalized)
     
     pred_movements = pred_features.get('movement_verbs', [])
     gold_movements = gold_features.get('movement_verbs', [])

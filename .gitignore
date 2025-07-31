@@ -11,3 +11,4 @@ documents/
 /thesis_materials/
 *.log
 training.log
+train_data.json
