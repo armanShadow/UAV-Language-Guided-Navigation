@@ -56,7 +56,8 @@ def update_pre_dialogs(data: List[Dict]) -> List[Dict]:
 
 def main():
     """Main function to update pre_dialogs in generated AVDN dataset."""
-
+    import argparse
+    
     args = argparse.ArgumentParser()
     args.add_argument("--split", type=str, default="train")
     args = args.parse_args()
