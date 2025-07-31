@@ -256,8 +256,10 @@ class AVDNGeneratorWithAgent:
                 if episode_dialog_history[episode_key]:
                     current_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
                 
-                # Generate new instruction for this turn
-                processed_sample = self.process_avdn_sample(current_sample, formatted_dataset, mapping, sample_idx, rank)
+                # Generate new instruction for this turn using the original sample index
+                # For distributed processing, we need to map back to the global index
+                global_sample_idx = sample_idx  # This should be the correct global index
+                processed_sample = self.process_avdn_sample(current_sample, formatted_dataset, mapping, global_sample_idx, rank)
                 
                 # Only add to dialog history if this is a Q&A turn (not first instruction)
                 instruction = sample['instructions']
@@ -313,6 +315,10 @@ class AVDNGeneratorWithAgent:
         for i, sample in enumerate(processed_data):
             if sample is None:
                 processed_data[i] = avdn_data[i]
+        
+        # Validate dialog history updates (only on rank 0)
+        if rank == 0:
+            self.validate_dialog_history_updates(avdn_data, processed_data, rank)
         
         return processed_data
     
@@ -649,12 +655,8 @@ class AVDNGeneratorWithAgent:
         # STEP 7: Process samples with episode-level dialog history updates
         print(f"🔄 Rank {rank}: Processing {len(my_samples)} samples with dialog history updates...")
         
-        # Use simpler individual sample processing for now to avoid distributed complexity
-        local_processed_data_list = []
-        for i, sample in enumerate(my_samples):
-            sample_idx = my_indices[i]  # Get the original sample index
-            processed_sample = self.process_avdn_sample(sample, formatted_dataset, mapping, sample_idx, rank)
-            local_processed_data_list.append(processed_sample)
+        # Use episode-level processing to properly update dialog history
+        local_processed_data_list = self.process_episodes_with_dialog_history(my_samples, formatted_dataset, mapping, rank)
         
         # Convert list back to dict for consistency
         local_processed_data = {}
