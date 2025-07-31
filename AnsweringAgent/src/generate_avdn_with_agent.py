@@ -275,8 +275,7 @@ class AVDNGeneratorWithAgent:
                 sample = formatted_dataset[j]
                 turn_id = sample['turn_id']
                 avdn_turn_id = route_index[route_index.find('_')+1:]
-                if sample['map_name'] == map_name and 'aug_pattern' not in sample['episode_id'] and turn_id + 1 == avdn_turn_id:
-                    print(f"map_name: {map_name}, turn_id: {turn_id}, avdn_turn_id: {avdn_turn_id}")
+                if sample['map_name'] == map_name and 'aug_pattern' not in sample['episode_id'] and int(turn_id) + 1 == int(avdn_turn_id):
                     matching_samples.append((j, sample))
             
             # Now check fuzzy matches only on pre-filtered samples
@@ -297,7 +296,7 @@ class AVDNGeneratorWithAgent:
             else:
                 # Debug: No samples found for this map_name
                 if i < 10 and rank == 0:
-                    print(f"⚠️  No formatted samples found for map_name: {map_name}")
+                    print(f"⚠️  No formatted samples found for map_name: {map_name}, {avdn_turn_id}")
                 
 
             if best_match is not None:
