@@ -424,7 +424,7 @@ class AVDNGeneratorWithAgent:
         
         return mapping
     
-    def process_avdn_sample(self, avdn_sample: Dict, formatted_dataset: AnsweringDataset, mapping: Dict[int, int], avdn_index: int) -> Dict:
+    def process_avdn_sample(self, avdn_sample: Dict, formatted_dataset: AnsweringDataset, mapping: Dict[int, int], avdn_index: int, rank: int = 0) -> Dict:
         """Process a single AVDN sample and generate new instruction using mapping."""
         
         # Get AVDN sample metadata
@@ -679,7 +679,7 @@ class AVDNGeneratorWithAgent:
                         sample['pre_dialogs'] = updated_pre_dialogs
                     
                     # Process the sample
-                    processed_sample = self.process_avdn_sample(sample, formatted_dataset, mapping, original_index)
+                    processed_sample = self.process_avdn_sample(sample, formatted_dataset, mapping, original_index, rank)
                     local_processed_data[original_index] = processed_sample
                     
                     # Store generated instruction for next turns in this episode
