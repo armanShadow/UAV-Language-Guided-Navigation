@@ -504,9 +504,15 @@ class AVDNGeneratorWithAgent:
             ins_start = instruction.find('[INS]')
             avdn_question = instruction[que_start+5:ins_start].strip().lower()
             
-            # Get first instruction from pre_dialogs
+            # Get first instruction from pre_dialogs (handle empty case)
             pre_dialogs = avdn_sample['pre_dialogs']
+            if not pre_dialogs:
+                # For first turn, there's no dialog history - skip this sample
+                continue
             first_ins_start = pre_dialogs[0].find('[INS]')
+            if first_ins_start == -1:
+                # No [INS] found in first pre_dialog - skip this sample
+                continue
             first_instruction = pre_dialogs[0][first_ins_start+5:].strip().lower()
             
             for j, sample in candidates:
