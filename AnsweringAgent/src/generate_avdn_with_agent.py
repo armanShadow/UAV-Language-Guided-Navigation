@@ -452,6 +452,11 @@ class AVDNGeneratorWithAgent:
                 
             # Create a simple hash key from answer (most distinctive)
             formatted_answer = sample['answer'].strip().lower()
+            
+            # Debug: Print first few formatted answers
+            if j < 3 and rank == 0:
+                print(f"🔍 Formatted Answer {j}: '{formatted_answer[:100]}'")
+                
             answer_hash = hashlib.md5(formatted_answer.encode()).hexdigest()[:8]
             
             if answer_hash not in hash_to_index:
