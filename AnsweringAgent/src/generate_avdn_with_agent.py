@@ -577,7 +577,9 @@ class AVDNGeneratorWithAgent:
         # STEP 3: Broadcast mapping to all ranks
         if world_size > 1:
             mapping = self.broadcast_mapping(mapping, rank, world_size)
-            self.preprocessed_turns = preprocessed_turns if rank == 0 else [{'episode_id': 'distributed'}] * len(mapping)
+            # Also broadcast the preprocessed_turns structure
+            preprocessed_turns = self.broadcast_data(preprocessed_turns, rank, world_size)
+            self.preprocessed_turns = preprocessed_turns
         else:
             self.preprocessed_turns = preprocessed_turns
         
