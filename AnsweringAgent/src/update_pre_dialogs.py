@@ -47,15 +47,16 @@ def update_pre_dialogs(data: List[Dict]) -> List[Dict]:
         
         # Process each turn in the episode
         for turn_idx, (sample_idx, sample) in enumerate(episode_samples):
-            if turn_idx > 0 and turn_idx < len(episode_samples) - 1:  # Skip the first turn as it has no previous instructions
+            if turn_idx > 0 and turn_idx < len(episode_samples):  # Skip the first turn as it has no previous instructions
                 # Get the instruction from the current turn
                 new_instruction = sample['instructions']
                 updated_data[sample_idx].pop('_debug_info')
                 # Update pre_dialogs for all subsequent turns in this episode
-                for future_turn_idx in range(turn_idx+1, len(episode_samples)):
-                    future_sample_idx = episode_samples[future_turn_idx][0]  # Get the actual array index
-                    # Update the pre_dialogs at the correct position
-                    updated_data[future_sample_idx]['pre_dialogs'][turn_idx] = new_instruction
+                if turn_idx < len(episode_samples) - 1:
+                    for future_turn_idx in range(turn_idx+1, len(episode_samples)):
+                        future_sample_idx = episode_samples[future_turn_idx][0]  # Get the actual array index
+                        # Update the pre_dialogs at the correct position
+                        updated_data[future_sample_idx]['pre_dialogs'][turn_idx] = new_instruction
         
     
     return updated_data
