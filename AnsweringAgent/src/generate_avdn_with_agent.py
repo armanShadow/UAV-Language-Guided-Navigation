@@ -214,111 +214,86 @@ class AVDNGeneratorWithAgent:
 
     
     def create_avdn_to_preprocessed_mapping(self, avdn_data: List[Dict], formatted_dataset: AnsweringDataset, rank: int = 0) -> Dict[int, int]:
-        """Create mapping between AVDN and formatted dataset using PKL files."""
-        print("Creating AVDN to formatted dataset mapping...")
+        """Create mapping using super-fast hash-based matching."""
+        print("🚀 Creating ultra-fast hash-based mapping...")
         
+        import hashlib
+        
+        # STEP 1: Build hash lookup table for formatted dataset
+        print("⚡ Building hash index...")
+        hash_to_index = {}
+        
+        for j in range(len(formatted_dataset)):
+            sample = formatted_dataset[j]
+            
+            # Skip augmented episodes
+            if 'aug_pattern' in sample['episode_id']:
+                continue
+                
+            # Create a simple hash key from answer (most distinctive)
+            answer_hash = hashlib.md5(sample['answer'].strip().lower().encode()).hexdigest()[:8]
+            
+            if answer_hash not in hash_to_index:
+                hash_to_index[answer_hash] = []
+            hash_to_index[answer_hash].append((j, sample))
+        
+        print(f"✅ Built hash index with {len(hash_to_index)} answer hashes")
+        
+        # STEP 2: Process AVDN samples with hash lookup
         mapping = {}
-        
-        # TODO: IMPLEMENT YOUR OWN MATCHING LOGIC HERE
-        # 
-        # You now have access to:
-        # - avdn_data: Original AVDN dataset with 'map_name', 'route_index', 'instructions', 'pre_dialogs'
-        # - formatted_dataset: AnsweringDataset object with PKL data
-        # 
-        # You can access formatted dataset samples like:
-        # sample = formatted_dataset[i]  # Returns dict with 'text_input', 'text_label', 'current_view_image', etc.
-        # 
-        # Example matching criteria you might want to consider:
-        # 1. Map name matching
-        # 2. Answer text matching (decode text_label)
-        # 3. Question text matching (parse from text_input)
-        # 4. Route index to episode mapping
-        # 5. Visual feature similarity
-        # 
-        # For now, this will find no matches until you implement your logic
         matched_count = 0
         qa_samples_count = 0
         
-        # Process each AVDN sample
-        print(f"🔍 Processing {len(avdn_data)} AVDN samples against {len(formatted_dataset)} formatted samples...")
-        
+        print("⚡ Processing AVDN samples with hash lookup...")
         for i, avdn_sample in enumerate(avdn_data):
-            if i % 100 == 0 and rank == 0:  # Progress update every 100 samples
-                print(f"📊 Processing AVDN sample {i}/{len(avdn_data)}...")
+            if i % 1000 == 0 and rank == 0:
+                print(f"📊 Processed {i}/{len(avdn_data)} samples...")
                 
             instruction = avdn_sample['instructions']
-            map_name = avdn_sample['map_name']
-            route_index = avdn_sample['route_index']
-            pre_dialogs = avdn_sample['pre_dialogs']
             
-            # Only process entries with both question and answer (not first instructions)
+            # Only process Q&A entries
             if '[QUE]' not in instruction or '[INS]' not in instruction:
-                continue  # Skip first instructions
+                continue
                 
             qa_samples_count += 1
             
-            # Extract question and answer from AVDN instruction
-            que_start = instruction.find('[QUE]')
+            # Extract answer for hash lookup
             ins_start = instruction.find('[INS]')
-            avdn_question = instruction[que_start+5:ins_start].strip().lower()
             avdn_answer = instruction[ins_start+5:].strip().lower()
-
-            first_ins_start = pre_dialogs[0].find('[INS]')
-            first_instruction = pre_dialogs[0][first_ins_start+5:].strip().lower()
-
-            # Find matching sample in formatted dataset
+            
+            # Create hash for instant lookup
+            answer_hash = hashlib.md5(avdn_answer.encode()).hexdigest()[:8]
+            
+            # Fast hash lookup
+            candidates = hash_to_index.get(answer_hash, [])
+            
+            # If exact hash match found, verify map_name and route logic
             best_match = None
+            map_name = avdn_sample['map_name']
+            route_index = avdn_sample['route_index']
+            avdn_turn_id = int(route_index[route_index.find('_')+1:])
+            avdn_question = avdn_sample['instructions'].split('[INS]')[-1].strip()
+            first_instruction = avdn_sample['instructions'].split('[INS]')[0].strip()
             
-            # Pre-filter by map_name for efficiency
-            matching_samples = []
-            for j in range(len(formatted_dataset)):
-                sample = formatted_dataset[j]
-                turn_id = sample['turn_id']
-                avdn_turn_id = route_index[route_index.find('_')+1:]
-                if sample['map_name'] == map_name and 'aug_pattern' not in sample['episode_id'] and int(turn_id) + 1 == int(avdn_turn_id):
-                    matching_samples.append((j, sample))
-            
-            # Now check fuzzy matches only on pre-filtered samples
-            candidate_samples = []
-            if len(matching_samples) > 0:
-                for j, sample in matching_samples:
-                    # Check Fuzzy text matches (case-insensitive)
+            for j, sample in candidates:
+                if (sample['map_name'] == map_name and 
+                    sample['turn_id'] + 1 == avdn_turn_id):
                     from difflib import SequenceMatcher
-                    if SequenceMatcher(None, sample['answer'].strip().lower(), avdn_answer).ratio() > 0.9:
-                        candidate_samples.append((j, sample))
-
-            if len(candidate_samples) > 0:
-                for j, sample in candidate_samples:
                     if SequenceMatcher(None, sample['question'].strip().lower(), avdn_question).ratio() > 0.9 and \
                         SequenceMatcher(None, sample['first_instruction'].strip().lower(), first_instruction).ratio() > 0.9:
                         best_match = j
                         break
-            else:
-                # Debug: No samples found for this map_name
-                if i < 10 and rank == 0:
-                    print(f"⚠️  No formatted samples found for map_name: {map_name}, {avdn_turn_id}")
-                
-
+            
             if best_match is not None:
                 mapping[i] = best_match
                 matched_count += 1
                 
                 if matched_count <= 5 and rank == 0:
-                    print(f"✅ Match {matched_count}: AVDN[{i}] map:{map_name} route:{route_index} -> Formatted[{best_match}]")
-                    print(f"   Answer: {avdn_answer[:50]}...")
-                    print(f"   Question: {avdn_question[:50]}...")
-            else:
-                if matched_count < 5:
-                    print(f"❌ No match found for AVDN[{i}] map:{map_name} route:{route_index}")
-                    print(f"   Answer: {avdn_answer[:50]}...")
+                    print(f"✅ Hash Match {matched_count}: AVDN[{i}] -> Formatted[{best_match}]")
+                    print(f"   Map: {map_name}, Route: {route_index}")
         
-        total_qa_samples = qa_samples_count
-        skipped_samples = total_qa_samples - matched_count
-        
-        print(f"\n📊 Mapping Summary:")
-        print(f"🔍 Q&A samples to process: {total_qa_samples}/{len(avdn_data)} total samples")
-        print(f"✅ Successfully matched: {matched_count}/{total_qa_samples} Q&A samples ({matched_count/total_qa_samples*100:.1f}%)")
-        print(f"⚠️  No match found: {skipped_samples} Q&A samples ({skipped_samples/total_qa_samples*100:.1f}%)")
+        print(f"\n🎯 Hash-Based Mapping Results:")
+        print(f"✅ Matched: {matched_count}/{qa_samples_count} ({matched_count/qa_samples_count*100:.1f}%)")
         
         return mapping
     
