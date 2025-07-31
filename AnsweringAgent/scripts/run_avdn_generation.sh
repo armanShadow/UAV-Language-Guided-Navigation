@@ -20,8 +20,8 @@ OUTPUT_DIR="./generated_avdn_dataset"
 
 # Generation parameters
 SPLITS=("train" "val_seen" "val_unseen")
-SAMPLE_RATIO=0.1  # Process 10% of each split
-MAX_SAMPLES=1000  # Limit to 1000 samples per split for testing
+SAMPLE_RATIO=1.0  # Process 100% of each split (full dataset)
+# MAX_SAMPLES=1000  # Remove limit for full dataset processing
 
 # Create output directory
 mkdir -p $OUTPUT_DIR
@@ -33,7 +33,7 @@ echo "AVDN Data Dir: $AVDN_DATA_DIR"
 echo "Output Dir: $OUTPUT_DIR"
 echo "Splits: ${SPLITS[@]}"
 echo "Sample Ratio: $SAMPLE_RATIO"
-echo "Max Samples: $MAX_SAMPLES"
+# echo "Max Samples: $MAX_SAMPLES"  # Not used for full dataset
 echo "GPUs: 10 RTX 2080"
 echo ""
 
@@ -63,12 +63,9 @@ run_avdn_generation() {
         --master_port=12355 \
         src/generate_avdn_with_agent.py \
         --checkpoint $CHECKPOINT_PATH \
-        --avdn_data_dir $AVDN_DATA_DIR \
         --output_dir $OUTPUT_DIR \
         --splits ${SPLITS[@]} \
         --sample_ratio $SAMPLE_RATIO \
-        --max_samples $MAX_SAMPLES \
-
         --seed 42
     
     if [ $? -eq 0 ]; then
