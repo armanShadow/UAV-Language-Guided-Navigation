@@ -406,22 +406,19 @@ class AVDNGeneratorWithAgent:
         if world_size == 1:
             return mapping
         
-        # Use all_gather_object to synchronize the mapping
-        gathered_mappings = [None for _ in range(world_size)]
-        
-        # Only rank 0 has the real mapping
+        # Use broadcast_object_list for proper broadcasting
         if rank == 0:
-            local_mapping = mapping
-            if rank == 0:
-                print(f"📡 Broadcasting mapping of {len(mapping)} samples to all {world_size} GPUs")
+            print(f"📡 Broadcasting mapping of {len(mapping)} samples to all {world_size} GPUs")
+            # Convert mapping to list for broadcasting
+            mapping_list = [mapping]
         else:
-            local_mapping = None
+            mapping_list = [None]
         
-        # Gather mappings from all ranks (only rank 0 will have real data)
-        dist.all_gather_object(gathered_mappings, local_mapping)
+        # Broadcast the mapping from rank 0 to all ranks
+        dist.broadcast_object_list(mapping_list, src=0)
         
-        # All ranks take the mapping from rank 0
-        broadcasted_mapping = gathered_mappings[0]
+        # Extract the mapping from the list
+        broadcasted_mapping = mapping_list[0]
         
         if rank == 0:
             print(f"✅ Successfully broadcasted mapping to all ranks")
