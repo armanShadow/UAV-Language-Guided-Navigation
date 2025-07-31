@@ -525,229 +525,142 @@ class AVDNGeneratorWithAgent:
         # All ranks take the data from rank 0
         return gathered_data[0]
     
-    def process_split(self, split: str, sample_ratio: float = 1.0, max_samples: Optional[int] = None, 
+    def broadcast_mapping(self, mapping: Dict[int, int], rank: int, world_size: int) -> Dict[int, int]:
+        """Broadcast mapping from rank 0 to all other ranks."""
+        import torch.distributed as dist
+        
+        if world_size == 1:
+            return mapping
+        
+        # Use all_gather_object to synchronize the mapping
+        gathered_mappings = [None for _ in range(world_size)]
+        
+        # Only rank 0 has the real mapping
+        if rank == 0:
+            local_mapping = mapping
+            if rank == 0:
+                print(f"📡 Broadcasting mapping of {len(mapping)} samples to all {world_size} GPUs")
+        else:
+            local_mapping = None
+        
+        # Gather mappings from all ranks (only rank 0 will have real data)
+        dist.all_gather_object(gathered_mappings, local_mapping)
+        
+        # All ranks take the mapping from rank 0
+        broadcasted_mapping = gathered_mappings[0]
+        
+        if rank == 0:
+            print(f"✅ Successfully broadcasted mapping to all ranks")
+        
+        return broadcasted_mapping
+    
+    def process_split(self, split: str, sample_ratio: float = 1.0, 
                      rank: int = 0, world_size: int = 1) -> List[Dict]:
-        """Process an entire split of the AVDN dataset with distributed generation."""
+        """Process an entire split with simplified distributed generation."""
         if rank == 0:
             print(f"\n🚀 Processing {split} split with {world_size} GPUs...")
         
-        # Load original AVDN data (all ranks need this)
+        # STEP 1: Load all data on all ranks
         avdn_data = self.load_avdn_data(split)
-        
-        # Load formatted dataset for generation inputs (all ranks need this)
         formatted_dataset = self.load_formatted_dataset(split)
         
-        # Only rank 0 does the matching (computationally light)
+        # STEP 2: Create mapping on FULL dataset (rank 0 only), then broadcast
         if rank == 0:
-            print("🔍 Creating AVDN to preprocessed mapping (rank 0 only)...")
-            # Load preprocessed JSON with metadata
+            print("🔍 Creating mapping on full dataset...")
             preprocessed_json = self.load_preprocessed_json(split)
-            
-            # Create mapping between AVDN and preprocessed datasets using metadata
             mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, preprocessed_json, rank)
-            
-            # Store preprocessed_turns for all ranks
             preprocessed_turns = self.preprocessed_turns
         else:
             mapping = {}
             preprocessed_turns = []
         
-        # Broadcast mapping and preprocessed_turns to all ranks
+        # STEP 3: Broadcast mapping to all ranks
         if world_size > 1:
-            if rank == 0:
-                print("📡 Broadcasting mapping to all GPUs...")
-            
-            # Convert mapping to lists for broadcasting
-            mapping_keys = list(mapping.keys()) if rank == 0 else []
-            mapping_values = list(mapping.values()) if rank == 0 else []
-            
-            # Broadcast using torch tensors
-            import torch.distributed as dist
-            
-            # Broadcast mapping size first
-            mapping_size = torch.tensor(len(mapping_keys), device=self.device)
-            dist.broadcast(mapping_size, src=0)
-            
-            if rank != 0:
-                mapping_keys = [0] * mapping_size.item()
-                mapping_values = [0] * mapping_size.item()
-            
-            # Broadcast mapping data
-            if mapping_size.item() > 0:
-                mapping_keys_tensor = torch.tensor(mapping_keys, device=self.device)
-                mapping_values_tensor = torch.tensor(mapping_values, device=self.device)
-                
-                dist.broadcast(mapping_keys_tensor, src=0)
-                dist.broadcast(mapping_values_tensor, src=0)
-                
-                if rank != 0:
-                    mapping = dict(zip(mapping_keys_tensor.cpu().numpy(), mapping_values_tensor.cpu().numpy()))
-            
-            # Broadcast preprocessed_turns (simplified - just the count for now)
-            preprocessed_turns_size = torch.tensor(len(preprocessed_turns), device=self.device)
-            dist.broadcast(preprocessed_turns_size, src=0)
-            
-            if rank != 0:
-                # For non-rank-0, we'll pass the mapping but won't need full preprocessed_turns for generation
-                # The mapping is sufficient for finding the right formatted samples
-                self.preprocessed_turns = [{'episode_id': 'distributed'}] * preprocessed_turns_size.item()
-            else:
-                self.preprocessed_turns = preprocessed_turns
-            
-            if rank == 0:
-                print(f"✅ Broadcasted mapping of {len(mapping)} samples to all {world_size} GPUs")
+            mapping = self.broadcast_mapping(mapping, rank, world_size)
+            self.preprocessed_turns = preprocessed_turns if rank == 0 else [{'episode_id': 'distributed'}] * len(mapping)
         else:
-            # Store for single GPU case
-            self.preprocessed_turns = preprocessed_turns if rank == 0 else []
+            self.preprocessed_turns = preprocessed_turns
         
-        # Apply sampling if requested (on rank 0, then broadcast)
+        # STEP 4: Apply sampling AFTER mapping (on rank 0, then broadcast)
         if rank == 0:
             if sample_ratio < 1.0:
                 num_samples = int(len(avdn_data) * sample_ratio)
                 avdn_data = avdn_data[:num_samples]
-                print(f"Sampled {num_samples} samples from {split}")
-            
-            # Apply max_samples limit if specified
-            if max_samples is not None:
-                avdn_data = avdn_data[:max_samples]
-                print(f"Limited to {max_samples} samples")
+                print(f"📊 Sampled {num_samples}/{len(self.load_avdn_data(split))} samples ({sample_ratio*100:.1f}%)")
         
-        # Synchronize actual data across all ranks (not just size)
+        # STEP 5: Broadcast sampled data to all ranks
         if world_size > 1:
-            # Broadcast the exact sampled data to ensure all ranks have identical datasets
             avdn_data = self.broadcast_data(avdn_data, rank, world_size)
         
-        # Group AVDN samples by episode for proper dialog history management
-        avdn_episodes = {}  # episode_key -> [samples]
-        for i, sample in enumerate(avdn_data):
-            map_name = sample['map_name']
-            route_index = sample['route_index']
-            
-            # Create episode key from map and trajectory
-            route_parts = route_index.split('_')
-            if len(route_parts) >= 2:
-                trajectory_id = route_parts[0]
-                turn_id = int(route_parts[1])
-                episode_key = f"{map_name}_{trajectory_id}"
-                
-                if episode_key not in avdn_episodes:
-                    avdn_episodes[episode_key] = []
-                
-                avdn_episodes[episode_key].append({
-                    'original_index': i,
-                    'turn_id': turn_id,
-                    'sample': sample.copy()
-                })
+        # STEP 6: Distribute work among ranks (simple sample-based distribution)
+        total_samples = len(avdn_data)
+        samples_per_rank = total_samples // world_size
+        extra_samples = total_samples % world_size
         
-        # Sort turns within each episode
-        for episode_key in avdn_episodes:
-            avdn_episodes[episode_key].sort(key=lambda x: x['turn_id'])
-        
-        if rank == 0:
-            print(f"Organized {len(avdn_data)} samples into {len(avdn_episodes)} episodes")
-        
-        # DISTRIBUTED PROCESSING: Each rank processes a subset of episodes
-        episodes_list = list(avdn_episodes.items())
-        episodes_per_rank = len(episodes_list) // world_size
-        extra_episodes = len(episodes_list) % world_size
-        
-        # Calculate start and end indices for this rank
-        if rank < extra_episodes:
-            start_idx = rank * (episodes_per_rank + 1)
-            end_idx = start_idx + episodes_per_rank + 1
+        # Calculate this rank's sample indices
+        if rank < extra_samples:
+            start_idx = rank * (samples_per_rank + 1)
+            end_idx = start_idx + samples_per_rank + 1
         else:
-            start_idx = rank * episodes_per_rank + extra_episodes  
-            end_idx = start_idx + episodes_per_rank
+            start_idx = rank * samples_per_rank + extra_samples
+            end_idx = start_idx + samples_per_rank
         
-        # Get this rank's episodes
-        my_episodes = dict(episodes_list[start_idx:end_idx])
+        my_samples = avdn_data[start_idx:end_idx]
+        my_indices = list(range(start_idx, end_idx))
         
-        # Show episode distribution for all ranks to debug the issue
-        print(f"🔧 Rank {rank}: Processing {len(my_episodes)}/{len(episodes_list)} episodes (indices {start_idx}-{end_idx-1})")
+        print(f"🔧 Rank {rank}: Processing {len(my_samples)}/{total_samples} samples (indices {start_idx}-{end_idx-1})")
         
-        # Process samples episode by episode to maintain dialog history (distributed)
-        local_processed_data = {}  # Will store this rank's processed samples by original_index
+        # STEP 7: Process samples
+        local_processed_data = {}
         local_scores = []
         local_successful_generations = 0
         
-        # Process only this rank's episodes
-        desc = f"Rank {rank} processing {split} episodes"
-        for episode_key, episode_turns in tqdm(my_episodes.items(), desc=desc, disable=(rank != 0)):
-            generated_instructions = {}  # turn_id -> generated_instruction
-            
-            for turn_data in episode_turns:
-                original_index = turn_data['original_index']
-                turn_id = turn_data['turn_id']
-                sample = turn_data['sample']
+        desc = f"Rank {rank} processing {split}"
+        for local_idx, (sample_idx, sample) in enumerate(zip(my_indices, tqdm(my_samples, desc=desc, disable=(rank != 0)))):
+            try:
+                processed_sample = self.process_avdn_sample(sample, formatted_dataset, mapping, sample_idx, rank)
+                local_processed_data[sample_idx] = processed_sample
                 
-                try:
-                    # Update pre_dialogs with previously generated instructions in this episode
-                    if turn_id > 1 and len(sample.get('pre_dialogs', [])) > 0:
-                        updated_pre_dialogs = []
-                        for j, prev_dialog in enumerate(sample['pre_dialogs']):
-                            # Check if this dialog corresponds to a previously generated instruction
-                            prev_turn_id = j + 1  # pre_dialogs[0] = turn 1, pre_dialogs[1] = turn 2, etc.
-                            
-                            if prev_turn_id in generated_instructions:
-                                # Replace with generated instruction
-                                updated_pre_dialogs.append(generated_instructions[prev_turn_id])
-                            else:
-                                # Keep original
-                                updated_pre_dialogs.append(prev_dialog)
-                        
-                        sample['pre_dialogs'] = updated_pre_dialogs
+                # Check if generation was successful
+                if processed_sample['instructions'] != sample['instructions']:
+                    local_successful_generations += 1
                     
-                    # Process the sample
-                    processed_sample = self.process_avdn_sample(sample, formatted_dataset, mapping, original_index, rank)
-                    local_processed_data[original_index] = processed_sample
+                    # Calculate scores
+                    original_instruction = sample['instructions']
+                    if '[INS]' in original_instruction:
+                        original_answer = original_instruction.split('[INS]')[-1].strip()
+                    else:
+                        original_answer = original_instruction.strip()
                     
-                    # Store generated instruction for next turns in this episode
-                    if processed_sample['instructions'] != sample['instructions']:
-                        generated_instructions[turn_id] = processed_sample['instructions']
-                        local_successful_generations += 1
-                        
-                        # Calculate metrics
-                        original_instruction = sample['instructions']
-                        if '[INS]' in original_instruction:
-                            original_answer = original_instruction.split('[INS]')[-1].strip()
-                        else:
-                            original_answer = original_instruction.strip()
-                        
-                        new_instruction = processed_sample['instructions']
-                        if '[INS]' in new_instruction:
-                            generated_answer = new_instruction.split('[INS]')[-1].strip()
-                        else:
-                            generated_answer = new_instruction.strip()
-                        
-                        # Calculate composite score (normalization now handled in evaluation script)
-                        scores = composite_score(generated_answer, original_answer, task_type="precision_short")
-                        local_scores.append(scores)
-                        
-                        # Debug scoring for first few samples (only rank 0)
-                        if local_successful_generations <= 2 and rank == 0:
-                            print(f"\n🔍 Scoring Debug for sample {original_index}:")
-                            print(f"   Original: {original_answer}")
-                            print(f"   Generated: {generated_answer}")
-                            print(f"   Direction score: {scores['direction']}")
-                            print(f"   Movement score: {scores['movement']}")
-                            print(f"   Landmark score: {scores['landmark']}")
+                    new_instruction = processed_sample['instructions']
+                    if '[INS]' in new_instruction:
+                        generated_answer = new_instruction.split('[INS]')[-1].strip()
+                    else:
+                        generated_answer = new_instruction.strip()
                     
-                except Exception as e:
-                    if rank == 0:
-                        print(f"Rank {rank}: Error processing sample {original_index} in episode {episode_key}: {e}")
-                    # Keep original sample if generation fails
-                    local_processed_data[original_index] = sample
+                    scores = composite_score(generated_answer, original_answer, task_type="precision_short")
+                    local_scores.append(scores)
+                    
+                    # Debug scoring for first few samples (only rank 0)
+                    if local_successful_generations <= 2 and rank == 0:
+                        print(f"\n🔍 Scoring Debug for sample {sample_idx}:")
+                        print(f"   Original: {original_answer}")
+                        print(f"   Generated: {generated_answer}")
+                        print(f"   Direction score: {scores['direction']}")
+                        print(f"   Movement score: {scores['movement']}")
+                        print(f"   Landmark score: {scores['landmark']}")
+                
+            except Exception as e:
+                print(f"⚠️ Rank {rank}: Error processing sample {sample_idx}: {e}")
+                local_processed_data[sample_idx] = sample
         
-        # Only show completion stats on rank 0 for cleaner output
-        if rank == 0:
-            print(f"🔧 Rank {rank}: Completed processing. Generated {local_successful_generations} samples")
+        print(f"🔧 Rank {rank}: Completed processing. Generated {local_successful_generations} samples")
         
-        # GATHER RESULTS FROM ALL RANKS
+        # STEP 8: Gather results from all ranks
         if world_size > 1:
             if rank == 0:
                 print("🔄 Gathering results from all ranks...")
             
-            # Gather all processed data using all_gather
             gathered_data = [None for _ in range(world_size)]
             gathered_scores = [None for _ in range(world_size)]
             gathered_stats = [None for _ in range(world_size)]
@@ -759,8 +672,8 @@ class AVDNGeneratorWithAgent:
                 'rank': rank
             })
             
-            # Combine results on all ranks
-            processed_data = [None] * len(avdn_data)
+            # Combine results
+            processed_data = [None] * total_samples
             all_scores = []
             successful_generations = 0
             
@@ -776,14 +689,12 @@ class AVDNGeneratorWithAgent:
             
             if rank == 0:
                 print(f"✅ Gathered results: {successful_generations} successful generations across {world_size} GPUs")
-                # Only show per-rank stats if there are issues
-                if successful_generations < 10:  # If very few generations, show per-rank breakdown
-                    print(f"📊 Per-rank stats:")
-                    for i, stats in enumerate(gathered_stats):
-                        print(f"   Rank {i}: {stats['successful_generations']} generations")
+                print(f"📊 Per-rank stats:")
+                for i, stats in enumerate(gathered_stats):
+                    print(f"   Rank {i}: {stats['successful_generations']} generations")
         else:
             # Single GPU case
-            processed_data = [None] * len(avdn_data)
+            processed_data = [None] * total_samples
             for idx, sample in local_processed_data.items():
                 processed_data[idx] = sample
             all_scores = local_scores
@@ -794,11 +705,11 @@ class AVDNGeneratorWithAgent:
             if sample is None:
                 processed_data[i] = avdn_data[i]
         
-        # Print some examples (only on rank 0)
+        # Print examples and final metrics (only rank 0)
         if rank == 0:
             examples_shown = 0
             for i, (original, processed) in enumerate(zip(avdn_data, processed_data)):
-                if examples_shown >= 2:  # Reduced from 3
+                if examples_shown >= 2:
                     break
                 if processed['instructions'] != original['instructions']:
                     examples_shown += 1
@@ -807,10 +718,7 @@ class AVDNGeneratorWithAgent:
                     print(f"Original: {original['instructions']}")
                     print(f"Generated: {processed['instructions']}")
                     print("-" * 80)
-        
-        # Report final metrics for this split (only on rank 0)
-        if rank == 0:
-            total_samples = len(avdn_data)
+            
             if all_scores:
                 avg_composite = sum(s['total'] for s in all_scores) / len(all_scores)
                 avg_direction = sum(s['direction'] for s in all_scores) / len(all_scores)
@@ -827,8 +735,6 @@ class AVDNGeneratorWithAgent:
                 print(f"Average Movement Score: {avg_movement:.4f}")
                 print(f"Average Landmark Score: {avg_landmark:.4f}")
                 print(f"Average Attribute Score: {avg_attribute:.4f}")
-            else:
-                print(f"\n⚠️ No successful generations for {split} split")
         
         return processed_data, all_scores
     
@@ -892,12 +798,12 @@ class AVDNGeneratorWithAgent:
                 print(f"No scores available to save metrics for {split}")
     
     def process_all_splits(self, splits: List[str], sample_ratio: float = 1.0, 
-                          max_samples: Optional[int] = None, rank: int = 0, world_size: int = 1):
+                          rank: int = 0, world_size: int = 1):
         """Process all specified splits with distributed processing."""
         overall_metrics = {}
         
         for split in splits:
-            processed_data, scores = self.process_split(split, sample_ratio, max_samples, rank, world_size)
+            processed_data, scores = self.process_split(split, sample_ratio, rank, world_size)
             
             # Only save on rank 0 to avoid conflicts
             if rank == 0:
@@ -974,8 +880,6 @@ def main():
                        help="Dataset splits to process")
     parser.add_argument("--sample_ratio", type=float, default=1.0,
                        help="Ratio of dataset to sample (default: 1.0 = 100%)")
-    parser.add_argument("--max_samples", type=int, default=None,
-                       help="Maximum samples to process per split")
     parser.add_argument("--seed", type=int, default=42,
                        help="Random seed for reproducibility")
 
@@ -1061,7 +965,6 @@ def main():
     generator.process_all_splits(
         splits=args.splits,
         sample_ratio=args.sample_ratio,
-        max_samples=args.max_samples,
         rank=rank,
         world_size=world_size
     )
