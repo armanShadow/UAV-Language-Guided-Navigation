@@ -286,36 +286,17 @@ class AVDNGeneratorWithAgent:
                 if rank == 0:
                     print(f"  🔄 Updating pre_dialogs with {len(instruction_updates)} new instructions")
                 
-                # Create mapping of [INS] parts: old [INS] -> new [INS]
-                ins_updates = {}
-                for old_full, new_full in instruction_updates.items():
-                    # Extract [INS] part from old instruction
-                    if '[INS]' in old_full:
-                        old_ins = old_full.split('[INS]')[-1].strip()
-                        old_ins_formatted = f" [INS] {old_ins}  "  # Match pre_dialogs format
-                    else:
-                        continue
-                    
-                    # Extract [INS] part from new instruction  
-                    if '[INS]' in new_full:
-                        new_ins = new_full.split('[INS]')[-1].strip()
-                        new_ins_formatted = f" [INS] {new_ins}  "  # Match pre_dialogs format
-                    else:
-                        continue
-                    
-                    ins_updates[old_ins_formatted] = new_ins_formatted
-                
                 for turn_idx, (sample_idx, sample) in enumerate(episode_samples):
                     # Update pre_dialogs in this sample
                     updated_pre_dialogs = []
                     original_pre_dialogs = processed_data[sample_idx]['pre_dialogs']
                     
                     for dialog in original_pre_dialogs:
-                        # Check if this dialog matches any updated [INS] part
+                        # Check if this dialog matches any updated instruction
                         updated_dialog = dialog
-                        for old_ins, new_ins in ins_updates.items():
-                            if dialog.strip() == old_ins.strip():
-                                updated_dialog = new_ins
+                        for old_inst, new_inst in instruction_updates.items():
+                            if dialog == old_inst:
+                                updated_dialog = new_inst
                                 break
                         updated_pre_dialogs.append(updated_dialog)
                     
@@ -325,10 +306,6 @@ class AVDNGeneratorWithAgent:
                     if rank == 0 and turn_idx < 3:  # Debug first few turns
                         updates_made = sum(1 for old, new in zip(original_pre_dialogs, updated_pre_dialogs) if old != new)
                         print(f"  🔄 Turn {turn_idx + 1}: Updated {updates_made}/{len(updated_pre_dialogs)} pre_dialogs")
-                        if updates_made > 0:
-                            for i, (old, new) in enumerate(zip(original_pre_dialogs, updated_pre_dialogs)):
-                                if old != new:
-                                    print(f"    Changed [{i+1}]: {old[:60]}... -> {new[:60]}...")
         
         # Validate dialog history updates (only on rank 0)
         if rank == 0:
