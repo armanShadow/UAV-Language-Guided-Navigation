@@ -293,14 +293,6 @@ class AVDNGeneratorWithAgent:
                         next_processed_sample = next_sample.copy()
                         next_processed_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
                         processed_data[next_sample_idx] = next_processed_sample
-                
-                # Debug: Show what we're updating
-                if rank == 0 and turn_idx < 3:
-                    print(f"  🔄 Turn {turn_idx + 1}: Updated dialog history for next turn")
-                    print(f"     Current dialog history: {len(episode_dialog_history[episode_key])} items")
-                    if turn_idx + 1 < len(episode_samples):
-                        next_idx = episode_samples[turn_idx + 1][0]
-                        print(f"     Will update turn {turn_idx + 2} (index {next_idx})")
         
         # Fill in any None values with original samples
         for i, sample in enumerate(processed_data):
@@ -357,15 +349,8 @@ class AVDNGeneratorWithAgent:
                 if turn_idx > 0:  # Check if dialog history was updated
                     if len(processed_sample['pre_dialogs']) > len(original_sample['pre_dialogs']):
                         print(f"    ✅ Dialog history updated with {len(processed_sample['pre_dialogs']) - len(original_sample['pre_dialogs'])} new instructions")
-                    elif len(processed_sample['pre_dialogs']) == len(original_sample['pre_dialogs']):
-                        print(f"    ⚠️  Dialog history not updated (same length)")
-                        # Check if content is different
-                        if processed_sample['pre_dialogs'] != original_sample['pre_dialogs']:
-                            print(f"    📝 But content was updated")
-                        else:
-                            print(f"    ❌ Content also not updated")
                     else:
-                        print(f"    ❌ Dialog history reduced from {len(original_sample['pre_dialogs'])} to {len(processed_sample['pre_dialogs'])}")
+                        print(f"    ⚠️  Dialog history not updated")
             
             checked_episodes += 1
     
