@@ -242,7 +242,6 @@ class AVDNGeneratorWithAgent:
         # Process each AVDN sample
         print(f"🔍 Processing {len(avdn_data)} AVDN samples against {len(formatted_dataset)} formatted samples...")
         
-        
         for i, avdn_sample in enumerate(avdn_data):
             if i % 100 == 0 and rank == 0:  # Progress update every 100 samples
                 print(f"📊 Processing AVDN sample {i}/{len(avdn_data)}...")
@@ -274,18 +273,25 @@ class AVDNGeneratorWithAgent:
             matching_samples = []
             for j in range(len(formatted_dataset)):
                 sample = formatted_dataset[j]
-                if sample['map_name'] == map_name and 'aug_pattern' not in sample['episode_id']:
+                turn_id = sample['turn_id']
+                avdn_turn_id = route_index[route_index.find('_')+1:]
+                if sample['map_name'] == map_name and 'aug_pattern' not in sample['episode_id'] and turn_id == avdn_turn_id:
                     matching_samples.append((j, sample))
             
             # Now check fuzzy matches only on pre-filtered samples
+            candidate_samples = []
             if len(matching_samples) > 0:
                 for j, sample in matching_samples:
                     # Check Fuzzy text matches (case-insensitive)
                     from difflib import SequenceMatcher
+                    if SequenceMatcher(None, sample['answer'].strip().lower(), avdn_answer).ratio() > 0.9:
+                        candidate_samples.append((j, sample))
+
+            if len(candidate_samples) > 0:
+                for j, sample in candidate_samples:
                     if SequenceMatcher(None, sample['question'].strip().lower(), avdn_question).ratio() > 0.9 and \
-                        SequenceMatcher(None, sample['answer'].strip().lower(), avdn_answer).ratio() > 0.9 and \
                         SequenceMatcher(None, sample['first_instruction'].strip().lower(), first_instruction).ratio() > 0.9:
-                        best_match = j  # Store the index, not the sample
+                        best_match = j
                         break
             else:
                 # Debug: No samples found for this map_name
