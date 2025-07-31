@@ -503,6 +503,28 @@ class AVDNGeneratorWithAgent:
         
         return new_sample
     
+    def broadcast_data(self, data, rank: int, world_size: int):
+        """Broadcast data from rank 0 to all other ranks."""
+        import torch.distributed as dist
+        
+        if world_size == 1:
+            return data
+        
+        # Use all_gather_object to synchronize the data
+        gathered_data = [None for _ in range(world_size)]
+        
+        # Only rank 0 has the correctly sampled data
+        if rank == 0:
+            local_data = data
+        else:
+            local_data = None
+        
+        # Gather data from all ranks (only rank 0 will have real data)
+        dist.all_gather_object(gathered_data, local_data)
+        
+        # All ranks take the data from rank 0
+        return gathered_data[0]
+    
     def process_split(self, split: str, sample_ratio: float = 1.0, max_samples: Optional[int] = None, 
                      rank: int = 0, world_size: int = 1) -> List[Dict]:
         """Process an entire split of the AVDN dataset with distributed generation."""
@@ -590,13 +612,10 @@ class AVDNGeneratorWithAgent:
                 avdn_data = avdn_data[:max_samples]
                 print(f"Limited to {max_samples} samples")
         
-        # Synchronize data size across all ranks
+        # Synchronize actual data across all ranks (not just size)
         if world_size > 1:
-            data_size = torch.tensor(len(avdn_data), device=self.device)
-            dist.broadcast(data_size, src=0)
-            
-            if rank != 0:
-                avdn_data = avdn_data[:data_size.item()]
+            # Broadcast the exact sampled data to ensure all ranks have identical datasets
+            avdn_data = self.broadcast_data(avdn_data, rank, world_size)
         
         # Group AVDN samples by episode for proper dialog history management
         avdn_episodes = {}  # episode_key -> [samples]
@@ -643,9 +662,8 @@ class AVDNGeneratorWithAgent:
         # Get this rank's episodes
         my_episodes = dict(episodes_list[start_idx:end_idx])
         
-        # Only show episode distribution on rank 0 for cleaner output
-        if rank == 0:
-            print(f"🔧 Rank {rank}: Processing {len(my_episodes)}/{len(episodes_list)} episodes (indices {start_idx}-{end_idx-1})")
+        # Show episode distribution for all ranks to debug the issue
+        print(f"🔧 Rank {rank}: Processing {len(my_episodes)}/{len(episodes_list)} episodes (indices {start_idx}-{end_idx-1})")
         
         # Process samples episode by episode to maintain dialog history (distributed)
         local_processed_data = {}  # Will store this rank's processed samples by original_index
