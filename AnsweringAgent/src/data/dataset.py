@@ -161,6 +161,20 @@ class AnsweringDataset(Dataset):
                 'previous_views_image': default_views,
             }
             
+            # Add metadata fields for matching
+            if 'episode_id' in item:
+                result['episode_id'] = item['episode_id']
+            if 'map_name' in item:
+                result['map_name'] = item['map_name']
+            if 'turn_id' in item:
+                result['turn_id'] = item['turn_id']
+            if 'question' in item:
+                result['question'] = item['question']
+            if 'answer' in item:
+                result['answer'] = item['answer']
+            if 'first_instruction' in item:
+                result['first_instruction'] = item['first_instruction']
+            
             if 'destination_image' in item:
                 result['destination_image'] = item['destination_image']
 
@@ -197,6 +211,20 @@ class AnsweringDataset(Dataset):
             'current_view_image': current_view,
             'previous_views_image': previous_views_tensor,
         }
+        
+        # Add metadata fields for matching
+        if 'episode_id' in item:
+            result['episode_id'] = item['episode_id']
+        if 'map_name' in item:
+            result['map_name'] = item['map_name']
+        if 'turn_id' in item:
+            result['turn_id'] = item['turn_id']
+        if 'question' in item:
+            result['question'] = item['question']
+        if 'answer' in item:
+            result['answer'] = item['answer']
+        if 'first_instruction' in item:
+            result['first_instruction'] = item['first_instruction']
         
         # Add destination image if available
         if 'destination_image' in item:
