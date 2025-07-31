@@ -400,7 +400,7 @@ class AVDNGeneratorWithAgent:
                 mapping[i] = final_match
                 matched_count += 1
                 
-                if matched_count <= 10:  # Debug first few matches
+                if matched_count <= 5 and rank == 0:  # Debug first few matches (reduced from 10)
                     turn_data = preprocessed_turns[final_match]
                     match_symbol = "✅" if match_type == "full" else "📝"
                     print(f"{match_symbol} Match {matched_count} ({match_type}): AVDN[{i}] map:{map_name} -> Preprocessed[{final_match}] {turn_data['episode_id']}")
@@ -441,7 +441,7 @@ class AVDNGeneratorWithAgent:
                 # The formatted dataset should have the same indexing as our flattened turns
                 matching_sample = formatted_dataset[turn_index]
                 
-                if avdn_index < 3 and rank == 0:  # Debug first few matches
+                if avdn_index < 2 and rank == 0:  # Debug first few matches (reduced from 3)
                     turn_data = self.preprocessed_turns[turn_index]
                     dialog_context = self.decode_tokenized_text(matching_sample['text_input'])
                     formatted_answer = self.decode_tokenized_text(matching_sample['text_label'])
@@ -643,7 +643,9 @@ class AVDNGeneratorWithAgent:
         # Get this rank's episodes
         my_episodes = dict(episodes_list[start_idx:end_idx])
         
-        print(f"🔧 Rank {rank}: Processing {len(my_episodes)}/{len(episodes_list)} episodes (indices {start_idx}-{end_idx-1})")
+        # Only show episode distribution on rank 0 for cleaner output
+        if rank == 0:
+            print(f"🔧 Rank {rank}: Processing {len(my_episodes)}/{len(episodes_list)} episodes (indices {start_idx}-{end_idx-1})")
         
         # Process samples episode by episode to maintain dialog history (distributed)
         local_processed_data = {}  # Will store this rank's processed samples by original_index
@@ -652,7 +654,6 @@ class AVDNGeneratorWithAgent:
         
         # Process only this rank's episodes
         desc = f"Rank {rank} processing {split} episodes"
-        print(f"🔧 Rank {rank}: Starting processing of {len(my_episodes)} episodes")
         for episode_key, episode_turns in tqdm(my_episodes.items(), desc=desc, disable=(rank != 0)):
             generated_instructions = {}  # turn_id -> generated_instruction
             
@@ -705,7 +706,7 @@ class AVDNGeneratorWithAgent:
                         local_scores.append(scores)
                         
                         # Debug scoring for first few samples (only rank 0)
-                        if local_successful_generations <= 3 and rank == 0:
+                        if local_successful_generations <= 2 and rank == 0:
                             print(f"\n🔍 Scoring Debug for sample {original_index}:")
                             print(f"   Original: {original_answer}")
                             print(f"   Generated: {generated_answer}")
@@ -719,7 +720,9 @@ class AVDNGeneratorWithAgent:
                     # Keep original sample if generation fails
                     local_processed_data[original_index] = sample
         
-        print(f"🔧 Rank {rank}: Completed processing. Generated {local_successful_generations} samples")
+        # Only show completion stats on rank 0 for cleaner output
+        if rank == 0:
+            print(f"🔧 Rank {rank}: Completed processing. Generated {local_successful_generations} samples")
         
         # GATHER RESULTS FROM ALL RANKS
         if world_size > 1:
@@ -755,9 +758,11 @@ class AVDNGeneratorWithAgent:
             
             if rank == 0:
                 print(f"✅ Gathered results: {successful_generations} successful generations across {world_size} GPUs")
-                print(f"📊 Per-rank stats:")
-                for i, stats in enumerate(gathered_stats):
-                    print(f"   Rank {i}: {stats['successful_generations']} generations")
+                # Only show per-rank stats if there are issues
+                if successful_generations < 10:  # If very few generations, show per-rank breakdown
+                    print(f"📊 Per-rank stats:")
+                    for i, stats in enumerate(gathered_stats):
+                        print(f"   Rank {i}: {stats['successful_generations']} generations")
         else:
             # Single GPU case
             processed_data = [None] * len(avdn_data)
@@ -775,7 +780,7 @@ class AVDNGeneratorWithAgent:
         if rank == 0:
             examples_shown = 0
             for i, (original, processed) in enumerate(zip(avdn_data, processed_data)):
-                if examples_shown >= 3:
+                if examples_shown >= 2:  # Reduced from 3
                     break
                 if processed['instructions'] != original['instructions']:
                     examples_shown += 1
