@@ -205,131 +205,11 @@ class AVDNGeneratorWithAgent:
         # Update the instruction
         new_sample['instructions'] = new_instruction
         
-        # ✅ DIALOG HISTORY IS NOW HANDLED AT EPISODE LEVEL
-        # The process_episodes_with_dialog_history method properly updates
-        # pre_dialogs for subsequent turns with the NEW generated instructions
+        # Dialog history will be updated at the episode level during processing
+        # Individual sample updates only change the current instruction
+        # The pre_dialogs will be updated when processing subsequent turns in the same episode
         
         return new_sample
-    
-    def process_episodes_with_dialog_history(self, avdn_data: List[Dict], formatted_dataset: AnsweringDataset, 
-                                           mapping: Dict[int, int], rank: int = 0) -> List[Dict]:
-        """Process episodes in order to properly update dialog history for subsequent turns."""
-        print("🔄 Processing episodes with dialog history updates...")
-        
-        # Group samples by episode
-        episodes = {}
-        for i, sample in enumerate(avdn_data):
-            map_name = sample['map_name']
-            route_index = sample['route_index']
-            
-            # Extract episode key (e.g., "1432_6" from "1432_6_2")
-            episode_key = route_index.rsplit('_', 1)[0]  # Remove turn number
-            full_episode_key = f"{map_name}_{episode_key}"
-            
-            if full_episode_key not in episodes:
-                episodes[full_episode_key] = []
-            episodes[full_episode_key].append((i, sample))
-        
-        # Sort episodes by turn number for proper processing order
-        for episode_key in episodes:
-            episodes[episode_key].sort(key=lambda x: int(x[1]['route_index'].split('_')[-1]))
-        
-        print(f"📊 Found {len(episodes)} episodes to process")
-        
-        # Process each episode in order
-        processed_data = [None] * len(avdn_data)
-        episode_dialog_history = {}  # Track dialog history per episode
-        
-        for episode_key, episode_samples in episodes.items():
-            if rank == 0:
-                print(f"🔄 Processing episode {episode_key} with {len(episode_samples)} turns")
-            
-            # Initialize dialog history for this episode
-            episode_dialog_history[episode_key] = []
-            
-            # Process each turn in the episode
-            for turn_idx, (sample_idx, sample) in enumerate(episode_samples):
-                # Create a copy of the sample for processing
-                current_sample = sample.copy()
-                
-                # Update pre_dialogs with accumulated dialog history
-                if episode_dialog_history[episode_key]:
-                    current_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
-                
-                # Generate new instruction for this turn
-                processed_sample = self.process_avdn_sample(current_sample, formatted_dataset, mapping, sample_idx, rank)
-                
-                # Check if new instruction was generated
-                if processed_sample['instructions'] != sample['instructions']:
-                    # New instruction was generated - add to dialog history
-                    new_instruction = processed_sample['instructions']
-                    episode_dialog_history[episode_key].append(new_instruction)
-                    
-                    if rank == 0 and turn_idx < 3:  # Debug first few turns
-                        print(f"  ✅ Turn {turn_idx + 1}: Generated new instruction")
-                        print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
-                else:
-                    # No new instruction generated - keep original
-                    processed_sample = sample.copy()
-                    if episode_dialog_history[episode_key]:
-                        processed_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
-                
-                # Store the processed sample
-                processed_data[sample_idx] = processed_sample
-        
-        # Fill in any None values with original samples
-        for i, sample in enumerate(processed_data):
-            if sample is None:
-                processed_data[i] = avdn_data[i]
-        
-        # Validate dialog history updates (only on rank 0)
-        if rank == 0:
-            self.validate_dialog_history_updates(avdn_data, processed_data, rank)
-        
-        return processed_data
-    
-    def validate_dialog_history_updates(self, original_data: List[Dict], processed_data: List[Dict], rank: int = 0):
-        """Validate that dialog history was properly updated for subsequent turns."""
-        if rank != 0:
-            return
-            
-        print("🔍 Validating dialog history updates...")
-        
-        # Group by episode and check dialog history
-        episodes = {}
-        for i, sample in enumerate(original_data):
-            map_name = sample['map_name']
-            route_index = sample['route_index']
-            episode_key = route_index.rsplit('_', 1)[0]
-            full_episode_key = f"{map_name}_{episode_key}"
-            
-            if full_episode_key not in episodes:
-                episodes[full_episode_key] = []
-            episodes[full_episode_key].append((i, sample))
-        
-        # Check a few episodes
-        checked_episodes = 0
-        for episode_key, episode_samples in episodes.items():
-            if checked_episodes >= 3:  # Only check first 3 episodes
-                break
-                
-            print(f"\n📊 Episode {episode_key}:")
-            episode_samples.sort(key=lambda x: int(x[1]['route_index'].split('_')[-1]))
-            
-            for turn_idx, (sample_idx, original_sample) in enumerate(episode_samples):
-                processed_sample = processed_data[sample_idx]
-                
-                print(f"  Turn {turn_idx + 1} ({original_sample['route_index']}):")
-                print(f"    Original pre_dialogs: {len(original_sample['pre_dialogs'])} items")
-                print(f"    Processed pre_dialogs: {len(processed_sample['pre_dialogs'])} items")
-                
-                if turn_idx > 0:  # Check if dialog history was updated
-                    if len(processed_sample['pre_dialogs']) > len(original_sample['pre_dialogs']):
-                        print(f"    ✅ Dialog history updated with {len(processed_sample['pre_dialogs']) - len(original_sample['pre_dialogs'])} new instructions")
-                    else:
-                        print(f"    ⚠️  Dialog history not updated")
-            
-            checked_episodes += 1
     
 
     
@@ -600,49 +480,49 @@ class AVDNGeneratorWithAgent:
         
         print(f"🔧 Rank {rank}: Processing {len(my_samples)}/{total_samples} samples (indices {start_idx}-{end_idx-1})")
         
-        # STEP 7: Process samples with episode-level dialog history updates
-        print(f"🔄 Rank {rank}: Processing {len(my_samples)} samples with dialog history updates...")
-        
-        # Use episode-level processing to properly update dialog history
-        local_processed_data_list = self.process_episodes_with_dialog_history(my_samples, formatted_dataset, mapping, rank)
-        
-        # Convert list back to dict for consistency
+        # STEP 7: Process samples
         local_processed_data = {}
         local_scores = []
         local_successful_generations = 0
         
-        for local_idx, (sample_idx, processed_sample) in enumerate(zip(my_indices, local_processed_data_list)):
-            local_processed_data[sample_idx] = processed_sample
-            
-            # Check if generation was successful
-            original_sample = my_samples[local_idx]
-            if processed_sample['instructions'] != original_sample['instructions']:
-                local_successful_generations += 1
+        desc = f"Rank {rank} processing {split}"
+        for local_idx, (sample_idx, sample) in enumerate(zip(my_indices, tqdm(my_samples, desc=desc, disable=(rank != 0)))):
+            try:
+                processed_sample = self.process_avdn_sample(sample, formatted_dataset, mapping, sample_idx, rank)
+                local_processed_data[sample_idx] = processed_sample
                 
-                # Calculate scores
-                original_instruction = original_sample['instructions']
-                if '[INS]' in original_instruction:
-                    original_answer = original_instruction.split('[INS]')[-1].strip()
-                else:
-                    original_answer = original_instruction.strip()
+                # Check if generation was successful
+                if processed_sample['instructions'] != sample['instructions']:
+                    local_successful_generations += 1
+                    
+                    # Calculate scores
+                    original_instruction = sample['instructions']
+                    if '[INS]' in original_instruction:
+                        original_answer = original_instruction.split('[INS]')[-1].strip()
+                    else:
+                        original_answer = original_instruction.strip()
+                    
+                    new_instruction = processed_sample['instructions']
+                    if '[INS]' in new_instruction:
+                        generated_answer = new_instruction.split('[INS]')[-1].strip()
+                    else:
+                        generated_answer = new_instruction.strip()
+                    
+                    scores = composite_score(generated_answer, original_answer, task_type="precision_short")
+                    local_scores.append(scores)
+                    
+                    # Debug scoring for first few samples (only rank 0)
+                    if local_successful_generations <= 2 and rank == 0:
+                        print(f"\n🔍 Scoring Debug for sample {sample_idx}:")
+                        print(f"   Original: {original_answer}")
+                        print(f"   Generated: {generated_answer}")
+                        print(f"   Direction score: {scores['direction']}")
+                        print(f"   Movement score: {scores['movement']}")
+                        print(f"   Landmark score: {scores['landmark']}")
                 
-                new_instruction = processed_sample['instructions']
-                if '[INS]' in new_instruction:
-                    generated_answer = new_instruction.split('[INS]')[-1].strip()
-                else:
-                    generated_answer = new_instruction.strip()
-                
-                scores = composite_score(generated_answer, original_answer, task_type="precision_short")
-                local_scores.append(scores)
-                
-                # Debug scoring for first few samples (only rank 0)
-                if local_successful_generations <= 2 and rank == 0:
-                    print(f"\n🔍 Scoring Debug for sample {sample_idx}:")
-                    print(f"   Original: {original_answer}")
-                    print(f"   Generated: {generated_answer}")
-                    print(f"   Direction score: {scores['direction']}")
-                    print(f"   Movement score: {scores['movement']}")
-                    print(f"   Landmark score: {scores['landmark']}")
+            except Exception as e:
+                print(f"⚠️ Rank {rank}: Error processing sample {sample_idx}: {e}")
+                local_processed_data[sample_idx] = sample
         
         print(f"🔧 Rank {rank}: Completed processing. Generated {local_successful_generations} samples")
         
