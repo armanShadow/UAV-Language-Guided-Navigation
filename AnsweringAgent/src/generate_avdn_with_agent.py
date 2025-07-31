@@ -254,14 +254,13 @@ class AVDNGeneratorWithAgent:
         return data
     
     def create_avdn_to_preprocessed_mapping(self, avdn_data: List[Dict], preprocessed_json: List[Dict], rank: int = 0) -> Dict[int, int]:
-        """Create simple mapping based on exact map name and answer matching."""
-        print("Creating AVDN to preprocessed dataset mapping using simple map+answer matching...")
+        """Create mapping based on episode structure and content matching."""
+        print("Creating AVDN to preprocessed dataset mapping using episode structure matching...")
         
         mapping = {}
         
         # Parse preprocessed episodes and create flattened turn index
         preprocessed_turns = []
-        map_to_turns = {}  # map_name -> [turn_indices]
         
         for episode in preprocessed_json:
             episode_id = episode.get('episode_id', '')
@@ -294,13 +293,8 @@ class AVDNGeneratorWithAgent:
                     'preprocessed_index': len(preprocessed_turns)
                 }
                 preprocessed_turns.append(turn_data)
-                
-                # Group by map name for easy lookup
-                if map_name not in map_to_turns:
-                    map_to_turns[map_name] = []
-                map_to_turns[map_name].append(len(preprocessed_turns) - 1)
         
-        print(f"Found {len(preprocessed_turns)} non-augmented dialog turns across {len(map_to_turns)} maps")
+        print(f"Found {len(preprocessed_turns)} non-augmented dialog turns")
         
         matched_count = 0
         qa_samples_count = 0
@@ -309,6 +303,7 @@ class AVDNGeneratorWithAgent:
         for i, avdn_sample in enumerate(avdn_data):
             instruction = avdn_sample['instructions']
             map_name = avdn_sample['map_name']
+            route_index = avdn_sample['route_index']
             
             # Only process entries with both question and answer (not first instructions)
             if '[QUE]' not in instruction or '[INS]' not in instruction:
@@ -322,6 +317,14 @@ class AVDNGeneratorWithAgent:
             avdn_question = instruction[que_start+5:ins_start].strip()
             avdn_answer = instruction[ins_start+5:].strip()
             
+            # Parse route_index to get trajectory and turn
+            route_parts = route_index.split('_')
+            if len(route_parts) >= 2:
+                avdn_trajectory = route_parts[0]
+                avdn_turn = int(route_parts[1])
+            else:
+                continue
+            
             # Get first instruction from pre_dialogs
             avdn_first_instruction = ""
             if avdn_sample.get('pre_dialogs') and len(avdn_sample['pre_dialogs']) > 0:
@@ -331,90 +334,77 @@ class AVDNGeneratorWithAgent:
                 else:
                     avdn_first_instruction = first_dialog.strip()
             
-            # Find all processed turns for this map
-            if map_name not in map_to_turns:
-                if matched_count < 5:
-                    print(f"❌ No processed data found for map {map_name}")
-                continue
-            
-            # Look for exact answer match
+            # Find matching turn with strict episode structure matching
             best_match = None
-            fallback_match = None
             
-            for turn_idx in map_to_turns[map_name]:
-                turn_data = preprocessed_turns[turn_idx]
+            for turn_idx, turn_data in enumerate(preprocessed_turns):
+                # Check map name match
+                if turn_data['map_name'] != map_name:
+                    continue
                 
-                # Check if answers match exactly (case-insensitive)
-                if turn_data['answer'].lower().strip() == avdn_answer.lower().strip():
-                    # Primary sanity check: verify question match
-                    question_match = (turn_data['question'].lower().strip() == 
-                                    avdn_question.lower().strip())
-                    
-                    if question_match:
-                        # Store as fallback match (answer + question match)
-                        if fallback_match is None:
-                            fallback_match = turn_idx
-                        
-                        # More flexible first instruction matching - check for substantial overlap
-                        def normalize_text(text):
-                            # Remove extra spaces, punctuation, and normalize
-                            import re
-                            text = re.sub(r'[^\w\s]', ' ', text.lower())
-                            return ' '.join(text.split())
-                        
-                        norm_proc_first = normalize_text(turn_data['first_instruction'])
-                        norm_avdn_first = normalize_text(avdn_first_instruction)
-                        
-                        # Check if there's substantial overlap (at least 50% of words match - more lenient)
-                        proc_words = set(norm_proc_first.split())
-                        avdn_words = set(norm_avdn_first.split())
-                        
-                        if len(avdn_words) > 0:
-                            overlap = len(proc_words & avdn_words) / len(avdn_words)
-                            first_instruction_flexible_match = overlap >= 0.9  # Lowered threshold
-                        else:
-                            overlap = 1.0 if len(proc_words) == 0 else 0.0
-                            first_instruction_flexible_match = len(proc_words) == 0
-                        
-                        if first_instruction_flexible_match:
-                            best_match = turn_idx
-                            break
-                        elif matched_count < 5:
-                            print(f"⚠️  Answer+Question match found but first instruction mismatch for AVDN[{i}]:")
-                            print(f"   First instruction overlap: {overlap:.2f} (need ≥0.5)")
-                            print(f"   AVDN first: {norm_avdn_first[:60]}...")
-                            print(f"   Proc first: {norm_proc_first[:60]}...")
-            
-            # Use best match if found, otherwise use fallback (answer + question only)
-            final_match = None
-            match_type = ""
+                # Check episode structure match (trajectory should match episode number)
+                episode_parts = turn_data['episode_id'].split('_')
+                if len(episode_parts) >= 2:
+                    episode_number = episode_parts[1]  # Get episode number from "1432_6"
+                    if episode_number != avdn_trajectory:
+                        continue
+                else:
+                    continue
+                
+                # Check turn number match
+                if turn_data['turn_id'] != avdn_turn:
+                    continue
+                
+                # Check answer text match (case-insensitive)
+                if turn_data['answer'].lower().strip() != avdn_answer.lower().strip():
+                    continue
+                
+                # Check question text match (case-insensitive)
+                if turn_data['question'].lower().strip() != avdn_question.lower().strip():
+                    continue
+                
+                # Check first instruction match (more flexible)
+                def normalize_text(text):
+                    import re
+                    text = re.sub(r'[^\w\s]', ' ', text.lower())
+                    return ' '.join(text.split())
+                
+                norm_proc_first = normalize_text(turn_data['first_instruction'])
+                norm_avdn_first = normalize_text(avdn_first_instruction)
+                
+                # Check if there's substantial overlap (at least 50% of words match)
+                proc_words = set(norm_proc_first.split())
+                avdn_words = set(norm_avdn_first.split())
+                
+                if len(avdn_words) > 0:
+                    overlap = len(proc_words & avdn_words) / len(avdn_words)
+                    first_instruction_match = overlap >= 0.5
+                else:
+                    first_instruction_match = len(proc_words) == 0
+                
+                if first_instruction_match:
+                    best_match = turn_idx
+                    break
             
             if best_match is not None:
-                final_match = best_match
-                match_type = "full"
-            elif fallback_match is not None:
-                final_match = fallback_match
-                match_type = "fallback"
-            
-            if final_match is not None:
-                mapping[i] = final_match
+                mapping[i] = best_match
                 matched_count += 1
                 
-                if matched_count <= 5 and rank == 0:  # Debug first few matches (reduced from 10)
-                    turn_data = preprocessed_turns[final_match]
-                    match_symbol = "✅" if match_type == "full" else "📝"
-                    print(f"{match_symbol} Match {matched_count} ({match_type}): AVDN[{i}] map:{map_name} -> Preprocessed[{final_match}] {turn_data['episode_id']}")
+                if matched_count <= 5 and rank == 0:
+                    turn_data = preprocessed_turns[best_match]
+                    print(f"✅ Match {matched_count}: AVDN[{i}] map:{map_name} route:{route_index} -> Episode:{turn_data['episode_id']} Turn:{turn_data['turn_id']}")
                     print(f"   Answer: {avdn_answer[:50]}...")
                     print(f"   Question: {avdn_question[:50]}...")
             else:
                 if matched_count < 5:
-                    print(f"❌ No exact answer match found for AVDN[{i}] map:{map_name}")
-                    print(f"   Looking for answer: {avdn_answer[:50]}...")
+                    print(f"❌ No match found for AVDN[{i}] map:{map_name} route:{route_index}")
+                    print(f"   Looking for: trajectory={avdn_trajectory}, turn={avdn_turn}")
+                    print(f"   Answer: {avdn_answer[:50]}...")
         
         total_qa_samples = qa_samples_count
         skipped_samples = total_qa_samples - matched_count
         
-        print(f"\n📊 Simple Mapping Summary:")
+        print(f"\n📊 Episode Structure Mapping Summary:")
         print(f"🔍 Q&A samples to process: {total_qa_samples}/{len(avdn_data)} total samples")
         print(f"✅ Successfully matched: {matched_count}/{total_qa_samples} Q&A samples ({matched_count/total_qa_samples*100:.1f}%)")
         print(f"⚠️  No match found: {skipped_samples} Q&A samples ({skipped_samples/total_qa_samples*100:.1f}%)")

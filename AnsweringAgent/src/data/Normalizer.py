@@ -547,6 +547,11 @@ class AnsweringAgentNormalizer:
         result['question'] = question
         result['answer'] = answer
         
+        # Store episode metadata for matching
+        result['episode_id'] = episode['episode_id']
+        result['map_name'] = episode['map_name']
+        result['turn_id'] = dialog_turn['turn_id']
+        
         # Generate MPNet embeddings for knowledge distillation if requested
         if self.generate_mpnet_embeddings:
             # Generate embedding for the unified dialog context
