@@ -47,8 +47,8 @@ def update_pre_dialogs(data: List[Dict]) -> List[Dict]:
         
         # TODO: IMPLEMENT YOUR LOGIC HERE
         for turn_idx, (sample_idx, sample) in enumerate(episode_samples):
-            updated_data[sample_idx].pop('_debug_info')
             if turn_idx > 0 and turn_idx < len(episode_samples) - 1:
+                updated_data[sample_idx].pop('_debug_info')
                 new_instruction = sample['instructions']
                 for next_turn_idx in range(turn_idx+1, len(episode_samples)):
                     updated_data[sample_idx+next_turn_idx]['pre_dialogs'][turn_idx] = new_instruction
