@@ -314,10 +314,6 @@ class AVDNGeneratorWithAgent:
             if sample is None:
                 processed_data[i] = avdn_data[i]
         
-        # Validate dialog history updates (only on rank 0)
-        if rank == 0:
-            self.validate_dialog_history_updates(avdn_data, processed_data, rank)
-        
         return processed_data
     
     def validate_dialog_history_updates(self, original_data: List[Dict], processed_data: List[Dict], rank: int = 0):
@@ -653,8 +649,12 @@ class AVDNGeneratorWithAgent:
         # STEP 7: Process samples with episode-level dialog history updates
         print(f"🔄 Rank {rank}: Processing {len(my_samples)} samples with dialog history updates...")
         
-        # Use episode-level processing to properly update dialog history
-        local_processed_data_list = self.process_episodes_with_dialog_history(my_samples, formatted_dataset, mapping, rank)
+        # Use simpler individual sample processing for now to avoid distributed complexity
+        local_processed_data_list = []
+        for i, sample in enumerate(my_samples):
+            sample_idx = my_indices[i]  # Get the original sample index
+            processed_sample = self.process_avdn_sample(sample, formatted_dataset, mapping, sample_idx, rank)
+            local_processed_data_list.append(processed_sample)
         
         # Convert list back to dict for consistency
         local_processed_data = {}
