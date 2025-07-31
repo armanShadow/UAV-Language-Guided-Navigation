@@ -252,7 +252,7 @@ class AVDNGeneratorWithAgent:
                 # Create a copy of the sample for processing
                 current_sample = sample.copy()
                 
-                # Update pre_dialogs with accumulated dialog history
+                # Update pre_dialogs with accumulated dialog history from previous turns
                 if episode_dialog_history[episode_key]:
                     current_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
                 
@@ -261,7 +261,7 @@ class AVDNGeneratorWithAgent:
                 
                 # Check if new instruction was generated
                 if processed_sample['instructions'] != sample['instructions']:
-                    # New instruction was generated - add to dialog history
+                    # New instruction was generated - add to dialog history for NEXT turn
                     new_instruction = processed_sample['instructions']
                     episode_dialog_history[episode_key].append(new_instruction)
                     
@@ -269,7 +269,7 @@ class AVDNGeneratorWithAgent:
                         print(f"  ✅ Turn {turn_idx + 1}: Generated new instruction")
                         print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
                 else:
-                    # No new instruction generated - add original instruction to dialog history
+                    # No new instruction generated - add original instruction to dialog history for NEXT turn
                     original_instruction = sample['instructions']
                     episode_dialog_history[episode_key].append(original_instruction)
                     
@@ -277,11 +277,22 @@ class AVDNGeneratorWithAgent:
                         print(f"  📝 Turn {turn_idx + 1}: Using original instruction")
                         print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
                 
-                # Always update pre_dialogs for the processed sample with current dialog history
-                processed_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
-                
-                # Store the processed sample
+                # Store the processed sample (keep original pre_dialogs for current turn)
                 processed_data[sample_idx] = processed_sample
+                
+                # Update pre_dialogs for the NEXT turn in this episode (not current turn)
+                if turn_idx + 1 < len(episode_samples):
+                    next_sample_idx = episode_samples[turn_idx + 1][0]
+                    next_sample = episode_samples[turn_idx + 1][1]
+                    
+                    # Create or update the next sample with new dialog history
+                    if next_sample_idx < len(processed_data) and processed_data[next_sample_idx] is not None:
+                        processed_data[next_sample_idx]['pre_dialogs'] = episode_dialog_history[episode_key].copy()
+                    else:
+                        # Create new processed sample for next turn
+                        next_processed_sample = next_sample.copy()
+                        next_processed_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
+                        processed_data[next_sample_idx] = next_processed_sample
         
         # Fill in any None values with original samples
         for i, sample in enumerate(processed_data):
