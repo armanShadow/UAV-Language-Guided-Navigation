@@ -240,7 +240,13 @@ class AVDNGeneratorWithAgent:
         qa_samples_count = 0
         
         # Process each AVDN sample
+        print(f"🔍 Processing {len(avdn_data)} AVDN samples against {len(formatted_dataset)} formatted samples...")
+        
+        
         for i, avdn_sample in enumerate(avdn_data):
+            if i % 100 == 0 and rank == 0:  # Progress update every 100 samples
+                print(f"📊 Processing AVDN sample {i}/{len(avdn_data)}...")
+                
             instruction = avdn_sample['instructions']
             map_name = avdn_sample['map_name']
             route_index = avdn_sample['route_index']
@@ -263,24 +269,28 @@ class AVDNGeneratorWithAgent:
 
             # Find matching sample in formatted dataset
             best_match = None
+            
+            # Pre-filter by map_name for efficiency
+            matching_samples = []
             for j in range(len(formatted_dataset)):
                 sample = formatted_dataset[j]
-                
-                # Skip if map name doesn't match
-                if sample['map_name'] != map_name:
-                    continue
-                    
-                # Skip augmented episodes
-                if 'aug_pattern' in sample['episode_id']:
-                    continue
-                    
-                # Check Fuzzy text matches (case-insensitive)
-                from difflib import SequenceMatcher
-                if SequenceMatcher(None, sample['question'].strip().lower(), avdn_question).ratio() > 0.9 and \
-                    SequenceMatcher(None, sample['answer'].strip().lower(), avdn_answer).ratio() > 0.9 and \
-                    SequenceMatcher(None, sample['first_instruction'].strip().lower(), first_instruction).ratio() > 0.9:
-                    best_match = j  # Store the index, not the sample
-                    break
+                if sample['map_name'] == map_name and 'aug_pattern' not in sample['episode_id']:
+                    matching_samples.append((j, sample))
+            
+            # Now check fuzzy matches only on pre-filtered samples
+            if len(matching_samples) > 0:
+                for j, sample in matching_samples:
+                    # Check Fuzzy text matches (case-insensitive)
+                    from difflib import SequenceMatcher
+                    if SequenceMatcher(None, sample['question'].strip().lower(), avdn_question).ratio() > 0.9 and \
+                        SequenceMatcher(None, sample['answer'].strip().lower(), avdn_answer).ratio() > 0.9 and \
+                        SequenceMatcher(None, sample['first_instruction'].strip().lower(), first_instruction).ratio() > 0.9:
+                        best_match = j  # Store the index, not the sample
+                        break
+            else:
+                # Debug: No samples found for this map_name
+                if i < 10 and rank == 0:
+                    print(f"⚠️  No formatted samples found for map_name: {map_name}")
                 
 
             if best_match is not None:
