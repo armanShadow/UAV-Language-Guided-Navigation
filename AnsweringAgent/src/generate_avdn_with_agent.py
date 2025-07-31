@@ -286,40 +286,37 @@ class AVDNGeneratorWithAgent:
                 if rank == 0:
                     print(f"  🔄 Updating pre_dialogs with {len(instruction_updates)} new instructions")
                 
+                # Create mapping of [INS] parts: old [INS] -> new [INS]
+                ins_updates = {}
+                for old_full, new_full in instruction_updates.items():
+                    # Extract [INS] part from old instruction
+                    if '[INS]' in old_full:
+                        old_ins = old_full.split('[INS]')[-1].strip()
+                        old_ins_formatted = f" [INS] {old_ins}  "  # Match pre_dialogs format
+                    else:
+                        continue
+                    
+                    # Extract [INS] part from new instruction  
+                    if '[INS]' in new_full:
+                        new_ins = new_full.split('[INS]')[-1].strip()
+                        new_ins_formatted = f" [INS] {new_ins}  "  # Match pre_dialogs format
+                    else:
+                        continue
+                    
+                    ins_updates[old_ins_formatted] = new_ins_formatted
+                
                 for turn_idx, (sample_idx, sample) in enumerate(episode_samples):
                     # Update pre_dialogs in this sample
                     updated_pre_dialogs = []
                     original_pre_dialogs = processed_data[sample_idx]['pre_dialogs']
                     
                     for dialog in original_pre_dialogs:
+                        # Check if this dialog matches any updated [INS] part
                         updated_dialog = dialog
-                        
-                        # Check each instruction update to see if it matches this pre_dialog entry
-                        for old_full_instruction, new_full_instruction in instruction_updates.items():
-                            
-                            # Handle QA format: "[QUE] question.  [INS] answer..  "
-                            if dialog.startswith('[QUE]') and '[INS]' in dialog:
-                                # Extract the full QA pair and compare (ignoring trailing spaces)
-                                if dialog.strip().rstrip('.').strip() == old_full_instruction.strip().rstrip('.').strip():
-                                    # Format new instruction to match pre_dialog format
-                                    que_part = new_full_instruction.split('[INS]')[0].strip()
-                                    ins_part = new_full_instruction.split('[INS]')[1].strip()
-                                    updated_dialog = f"{que_part}.  [INS] {ins_part}..  "
-                                    break
-                            
-                            # Handle first instruction format: " [INS] content..  "
-                            elif dialog.startswith(' [INS]'):
-                                # Extract INS part from old instruction (could be from [INS] tag or full QA)
-                                if '[INS]' in old_full_instruction:
-                                    old_ins_content = old_full_instruction.split('[INS]')[1].strip()
-                                    dialog_ins_content = dialog.replace(' [INS] ', '').strip().rstrip('.').strip()
-                                    
-                                    if dialog_ins_content == old_ins_content.rstrip('.').strip():
-                                        # Extract new INS content and format it
-                                        new_ins_content = new_full_instruction.split('[INS]')[1].strip()
-                                        updated_dialog = f" [INS] {new_ins_content}..  "
-                                        break
-                        
+                        for old_ins, new_ins in ins_updates.items():
+                            if dialog.strip() == old_ins.strip():
+                                updated_dialog = new_ins
+                                break
                         updated_pre_dialogs.append(updated_dialog)
                     
                     # Update the processed sample's pre_dialogs
@@ -331,9 +328,7 @@ class AVDNGeneratorWithAgent:
                         if updates_made > 0:
                             for i, (old, new) in enumerate(zip(original_pre_dialogs, updated_pre_dialogs)):
                                 if old != new:
-                                    print(f"    Changed [{i+1}]:")
-                                    print(f"      Old: {old}")
-                                    print(f"      New: {new}")
+                                    print(f"    Changed [{i+1}]: {old[:60]}... -> {new[:60]}...")
         
         # Validate dialog history updates (only on rank 0)
         if rank == 0:
