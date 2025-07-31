@@ -667,35 +667,34 @@ class AVDNGeneratorWithAgent:
         if rank == 0:
             print(f"\n🚀 Processing {split} split with {world_size} GPUs...")
         
-        # STEP 1: Load and sample data on rank 0, then broadcast
+        # STEP 1: Load data on all ranks
+        avdn_data = self.load_avdn_data(split)
+        formatted_dataset = self.load_formatted_dataset(split)
+        
+        # STEP 2: Apply sampling first to avoid index mismatch (on rank 0, then broadcast)
         if rank == 0:
-            avdn_data = self.load_avdn_data(split)
-            formatted_dataset = self.load_formatted_dataset(split)
-            
-            # Apply sampling first to avoid index mismatch
             if sample_ratio < 1.0:
                 num_samples = int(len(avdn_data) * sample_ratio)
                 original_length = len(avdn_data)
                 avdn_data = avdn_data[:num_samples]
                 print(f"📊 Sampled {num_samples}/{original_length} samples ({sample_ratio*100:.1f}%)")
-            
-            # Create mapping on final dataset
-            print("🔍 Creating mapping on dataset...")
-            mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, formatted_dataset, rank)
-        else:
-            avdn_data = []
-            mapping = {}
         
-        # STEP 2: Broadcast sampled data and mapping to all ranks
+        # STEP 3: Broadcast sampled data to all ranks
         if world_size > 1:
             avdn_data = self.broadcast_data(avdn_data, rank, world_size)
+        
+        # STEP 4: Create mapping on SAMPLED dataset (rank 0 only), then broadcast
+        if rank == 0:
+            print("🔍 Creating mapping on sampled dataset...")
+            mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, formatted_dataset, rank)
+        else:
+            mapping = {}
+        
+        # STEP 5: Broadcast mapping to all ranks
+        if world_size > 1:
             mapping = self.broadcast_mapping(mapping, rank, world_size)
         
-        # Load formatted dataset on all ranks (needed for generation)
-        if rank != 0:
-            formatted_dataset = self.load_formatted_dataset(split)
-        
-        # STEP 3: Distribute work among ranks (simple sample-based distribution)
+        # STEP 6: Distribute work among ranks (simple sample-based distribution)
         total_samples = len(avdn_data)
         samples_per_rank = total_samples // world_size
         extra_samples = total_samples % world_size
@@ -713,7 +712,7 @@ class AVDNGeneratorWithAgent:
         
         print(f"🔧 Rank {rank}: Processing {len(my_samples)}/{total_samples} samples (indices {start_idx}-{end_idx-1})")
         
-        # STEP 4: Process samples with episode-level dialog history updates
+        # STEP 7: Process samples with episode-level dialog history updates
         print(f"🔄 Rank {rank}: Processing {len(my_samples)} samples with dialog history updates...")
         
         # Use episode-level processing to properly update dialog history
@@ -752,7 +751,7 @@ class AVDNGeneratorWithAgent:
         
         print(f"🔧 Rank {rank}: Completed processing. Generated {local_successful_generations} samples")
         
-        # STEP 5: Gather results from all ranks
+        # STEP 8: Gather results from all ranks
         if world_size > 1:
             if rank == 0:
                 print("🔄 Gathering results from all ranks...")
