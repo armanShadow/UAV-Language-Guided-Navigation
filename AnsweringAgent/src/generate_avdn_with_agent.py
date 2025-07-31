@@ -269,10 +269,16 @@ class AVDNGeneratorWithAgent:
                         print(f"  ✅ Turn {turn_idx + 1}: Generated new instruction")
                         print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
                 else:
-                    # No new instruction generated - keep original
-                    processed_sample = sample.copy()
-                    if episode_dialog_history[episode_key]:
-                        processed_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
+                    # No new instruction generated - add original instruction to dialog history
+                    original_instruction = sample['instructions']
+                    episode_dialog_history[episode_key].append(original_instruction)
+                    
+                    if rank == 0 and turn_idx < 3:  # Debug first few turns
+                        print(f"  📝 Turn {turn_idx + 1}: Using original instruction")
+                        print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
+                
+                # Always update pre_dialogs for the processed sample with current dialog history
+                processed_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
                 
                 # Store the processed sample
                 processed_data[sample_idx] = processed_sample
@@ -322,6 +328,12 @@ class AVDNGeneratorWithAgent:
                 print(f"  Turn {turn_idx + 1} ({original_sample['route_index']}):")
                 print(f"    Original pre_dialogs: {len(original_sample['pre_dialogs'])} items")
                 print(f"    Processed pre_dialogs: {len(processed_sample['pre_dialogs'])} items")
+                
+                # Show the actual dialog history content
+                if len(processed_sample['pre_dialogs']) > 0:
+                    print(f"    Dialog history content:")
+                    for i, dialog in enumerate(processed_sample['pre_dialogs']):
+                        print(f"      [{i+1}] {dialog[:100]}...")
                 
                 if turn_idx > 0:  # Check if dialog history was updated
                     if len(processed_sample['pre_dialogs']) > len(original_sample['pre_dialogs']):
@@ -635,14 +647,7 @@ class AVDNGeneratorWithAgent:
                 scores = composite_score(generated_answer, original_answer, task_type="precision_short")
                 local_scores.append(scores)
                 
-                # Debug scoring for first few samples (only rank 0)
-                if local_successful_generations <= 2 and rank == 0:
-                    print(f"\n🔍 Scoring Debug for sample {sample_idx}:")
-                    print(f"   Original: {original_answer}")
-                    print(f"   Generated: {generated_answer}")
-                    print(f"   Direction score: {scores['direction']}")
-                    print(f"   Movement score: {scores['movement']}")
-                    print(f"   Landmark score: {scores['landmark']}")
+
         
         print(f"🔧 Rank {rank}: Completed processing. Generated {local_successful_generations} samples")
         
