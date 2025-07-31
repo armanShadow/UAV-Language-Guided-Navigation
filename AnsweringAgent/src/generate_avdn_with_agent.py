@@ -160,7 +160,7 @@ class AVDNGeneratorWithAgent:
         # Get the actual model (not DDP wrapper) for generation
         model_to_use = self.model.module if hasattr(self.model, 'module') else self.model
         
-        # Generate new answer using the Answering Agent with exact same inputs as evaluation
+        # Generate new answer using the An[[swering Agent with exact same inputs as evaluation
         with torch.no_grad():
             generated_seq = model_to_use.generate_answer(
                 text_input, current_view, previous_views,
@@ -643,8 +643,7 @@ class AVDNGeneratorWithAgent:
         # Get this rank's episodes
         my_episodes = dict(episodes_list[start_idx:end_idx])
         
-        if rank == 0:
-            print(f"🔧 Rank {rank}: Processing {len(my_episodes)}/{len(episodes_list)} episodes (indices {start_idx}-{end_idx-1})")
+        print(f"🔧 Rank {rank}: Processing {len(my_episodes)}/{len(episodes_list)} episodes (indices {start_idx}-{end_idx-1})")
         
         # Process samples episode by episode to maintain dialog history (distributed)
         local_processed_data = {}  # Will store this rank's processed samples by original_index
@@ -653,6 +652,7 @@ class AVDNGeneratorWithAgent:
         
         # Process only this rank's episodes
         desc = f"Rank {rank} processing {split} episodes"
+        print(f"🔧 Rank {rank}: Starting processing of {len(my_episodes)} episodes")
         for episode_key, episode_turns in tqdm(my_episodes.items(), desc=desc, disable=(rank != 0)):
             generated_instructions = {}  # turn_id -> generated_instruction
             
@@ -719,6 +719,8 @@ class AVDNGeneratorWithAgent:
                     # Keep original sample if generation fails
                     local_processed_data[original_index] = sample
         
+        print(f"🔧 Rank {rank}: Completed processing. Generated {local_successful_generations} samples")
+        
         # GATHER RESULTS FROM ALL RANKS
         if world_size > 1:
             if rank == 0:
@@ -753,6 +755,9 @@ class AVDNGeneratorWithAgent:
             
             if rank == 0:
                 print(f"✅ Gathered results: {successful_generations} successful generations across {world_size} GPUs")
+                print(f"📊 Per-rank stats:")
+                for i, stats in enumerate(gathered_stats):
+                    print(f"   Rank {i}: {stats['successful_generations']} generations")
         else:
             # Single GPU case
             processed_data = [None] * len(avdn_data)
