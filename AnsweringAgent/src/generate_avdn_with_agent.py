@@ -211,91 +211,31 @@ class AVDNGeneratorWithAgent:
         
         return new_sample
     
-    def load_preprocessed_json(self, split: str) -> List[Dict]:
-        """Load the JSON format of preprocessed dataset with metadata."""
-        # Use the config's JSON paths
-        if split == 'train':
-            json_file = self.config.data.train_json_path
-        elif split == 'val_seen':
-            json_file = self.config.data.val_seen_json_path
-        elif split == 'val_unseen':
-            json_file = self.config.data.val_unseen_json_path
-        else:
-            raise ValueError(f"Unknown split: {split}")
-        
-        print(f"Loading preprocessed JSON from: {json_file}")
-        
-        if not os.path.exists(json_file):
-            # Try alternative paths
-            alt_paths = [
-                f"../datasets/{split}_data.json",
-                f"./datasets/{split}_data.json", 
-                f"./processed_data/{split}_data.json",
-                f"/app/datasets/{split}_data.json",
-                f"/app/UAV-Language-Guided-Navigation/AnsweringAgent/src/data/processed_data/{split}_data.json"
-            ]
-            
-            for alt_path in alt_paths:
-                if os.path.exists(alt_path):
-                    json_file = alt_path
-                    print(f"Found JSON file at alternative path: {json_file}")
-                    break
-            else:
-                print(f"❌ Could not find preprocessed JSON file for {split}")
-                print(f"Looked in: {json_file}")
-                for path in alt_paths:
-                    print(f"  Also tried: {path}")
-                return []
-        
-        with open(json_file, 'r') as f:
-            data = json.load(f)
-        
-        print(f"✅ Loaded {len(data)} preprocessed samples from JSON")
-        return data
+
     
-    def create_avdn_to_preprocessed_mapping(self, avdn_data: List[Dict], preprocessed_json: List[Dict], rank: int = 0) -> Dict[int, int]:
-        """Create mapping based on episode structure and content matching."""
-        print("Creating AVDN to preprocessed dataset mapping using episode structure matching...")
+    def create_avdn_to_preprocessed_mapping(self, avdn_data: List[Dict], formatted_dataset: AnsweringDataset, rank: int = 0) -> Dict[int, int]:
+        """Create mapping between AVDN and formatted dataset using PKL files."""
+        print("Creating AVDN to formatted dataset mapping...")
         
         mapping = {}
         
-        # Parse preprocessed episodes and create flattened turn index
-        preprocessed_turns = []
-        
-        for episode in preprocessed_json:
-            episode_id = episode.get('episode_id', '')
-            
-            # Skip augmented episodes (contains "aug_pattern")
-            if 'aug_pattern' in episode_id:
-                continue
-                
-            map_name = episode.get('map_name', '')
-            first_instruction = episode.get('first_instruction', '').strip()
-            
-            # Process each dialog turn in the episode
-            for dialog in episode.get('dialogs', []):
-                turn_id = dialog.get('turn_id', 0)
-                
-                # Skip turn 0 (usually just observation, no Q&A)
-                if turn_id == 0:
-                    continue
-                    
-                answer = dialog.get('answer', '').strip()
-                question = dialog.get('question', '').strip()
-                
-                turn_data = {
-                    'episode_id': episode_id,
-                    'map_name': map_name,
-                    'turn_id': turn_id,
-                    'answer': answer,
-                    'question': question,
-                    'first_instruction': first_instruction,
-                    'preprocessed_index': len(preprocessed_turns)
-                }
-                preprocessed_turns.append(turn_data)
-        
-        print(f"Found {len(preprocessed_turns)} non-augmented dialog turns")
-        
+        # TODO: IMPLEMENT YOUR OWN MATCHING LOGIC HERE
+        # 
+        # You now have access to:
+        # - avdn_data: Original AVDN dataset with 'map_name', 'route_index', 'instructions', 'pre_dialogs'
+        # - formatted_dataset: AnsweringDataset object with PKL data
+        # 
+        # You can access formatted dataset samples like:
+        # sample = formatted_dataset[i]  # Returns dict with 'text_input', 'text_label', 'current_view_image', etc.
+        # 
+        # Example matching criteria you might want to consider:
+        # 1. Map name matching
+        # 2. Answer text matching (decode text_label)
+        # 3. Question text matching (parse from text_input)
+        # 4. Route index to episode mapping
+        # 5. Visual feature similarity
+        # 
+        # For now, this will find no matches until you implement your logic
         matched_count = 0
         qa_samples_count = 0
         
@@ -304,6 +244,7 @@ class AVDNGeneratorWithAgent:
             instruction = avdn_sample['instructions']
             map_name = avdn_sample['map_name']
             route_index = avdn_sample['route_index']
+            pre_dialogs = avdn_sample['pre_dialogs']
             
             # Only process entries with both question and answer (not first instructions)
             if '[QUE]' not in instruction or '[INS]' not in instruction:
@@ -314,103 +255,54 @@ class AVDNGeneratorWithAgent:
             # Extract question and answer from AVDN instruction
             que_start = instruction.find('[QUE]')
             ins_start = instruction.find('[INS]')
-            avdn_question = instruction[que_start+5:ins_start].strip()
-            avdn_answer = instruction[ins_start+5:].strip()
-            
-            # Parse route_index to get trajectory and turn
-            route_parts = route_index.split('_')
-            if len(route_parts) >= 2:
-                avdn_trajectory = route_parts[0]
-                avdn_turn = int(route_parts[1])
-            else:
-                continue
-            
-            # Get first instruction from pre_dialogs
-            avdn_first_instruction = ""
-            if avdn_sample.get('pre_dialogs') and len(avdn_sample['pre_dialogs']) > 0:
-                first_dialog = avdn_sample['pre_dialogs'][0]
-                if '[INS]' in first_dialog:
-                    avdn_first_instruction = first_dialog.replace('[INS]', '').strip()
-                else:
-                    avdn_first_instruction = first_dialog.strip()
-            
-            # Find matching turn with strict episode structure matching
+            avdn_question = instruction[que_start+5:ins_start].strip().lower()
+            avdn_answer = instruction[ins_start+5:].strip().lower()
+
+            first_ins_start = pre_dialogs[0].find('[INS]')
+            first_instruction = pre_dialogs[0][first_ins_start+5:].strip().lower()
+
+            # Find matching sample in formatted dataset
             best_match = None
-            
-            for turn_idx, turn_data in enumerate(preprocessed_turns):
-                # Check map name match
-                if turn_data['map_name'] != map_name:
+            for j in range(len(formatted_dataset)):
+                sample = formatted_dataset[j]
+                
+                # Skip if map name doesn't match
+                if sample['map_name'] != map_name:
                     continue
-                
-                # Check episode structure match (trajectory should match episode number)
-                episode_parts = turn_data['episode_id'].split('_')
-                if len(episode_parts) >= 2:
-                    episode_number = episode_parts[1]  # Get episode number from "1432_6"
-                    if episode_number != avdn_trajectory:
-                        continue
-                else:
+                    
+                # Skip augmented episodes
+                if 'aug_pattern' in sample['episode_id']:
                     continue
-                
-                # Check turn number match
-                if turn_data['turn_id'] != avdn_turn:
-                    continue
-                
-                # Check answer text match (case-insensitive)
-                if turn_data['answer'].lower().strip() != avdn_answer.lower().strip():
-                    continue
-                
-                # Check question text match (case-insensitive)
-                if turn_data['question'].lower().strip() != avdn_question.lower().strip():
-                    continue
-                
-                # Check first instruction match (more flexible)
-                def normalize_text(text):
-                    import re
-                    text = re.sub(r'[^\w\s]', ' ', text.lower())
-                    return ' '.join(text.split())
-                
-                norm_proc_first = normalize_text(turn_data['first_instruction'])
-                norm_avdn_first = normalize_text(avdn_first_instruction)
-                
-                # Check if there's substantial overlap (at least 50% of words match)
-                proc_words = set(norm_proc_first.split())
-                avdn_words = set(norm_avdn_first.split())
-                
-                if len(avdn_words) > 0:
-                    overlap = len(proc_words & avdn_words) / len(avdn_words)
-                    first_instruction_match = overlap >= 0.5
-                else:
-                    first_instruction_match = len(proc_words) == 0
-                
-                if first_instruction_match:
-                    best_match = turn_idx
+                    
+                # Check Fuzzy text matches (case-insensitive)
+                from difflib import SequenceMatcher
+                if SequenceMatcher(None, sample['question'].strip().lower(), avdn_question).ratio() > 0.9 and \
+                    SequenceMatcher(None, sample['answer'].strip().lower(), avdn_answer).ratio() > 0.9 and \
+                    SequenceMatcher(None, sample['first_instruction'].strip().lower(), first_instruction).ratio() > 0.9:
+                    best_match = j  # Store the index, not the sample
                     break
-            
+                
+
             if best_match is not None:
                 mapping[i] = best_match
                 matched_count += 1
                 
                 if matched_count <= 5 and rank == 0:
-                    turn_data = preprocessed_turns[best_match]
-                    print(f"✅ Match {matched_count}: AVDN[{i}] map:{map_name} route:{route_index} -> Episode:{turn_data['episode_id']} Turn:{turn_data['turn_id']}")
+                    print(f"✅ Match {matched_count}: AVDN[{i}] map:{map_name} route:{route_index} -> Formatted[{best_match}]")
                     print(f"   Answer: {avdn_answer[:50]}...")
                     print(f"   Question: {avdn_question[:50]}...")
             else:
                 if matched_count < 5:
                     print(f"❌ No match found for AVDN[{i}] map:{map_name} route:{route_index}")
-                    print(f"   Looking for: trajectory={avdn_trajectory}, turn={avdn_turn}")
                     print(f"   Answer: {avdn_answer[:50]}...")
         
         total_qa_samples = qa_samples_count
         skipped_samples = total_qa_samples - matched_count
         
-        print(f"\n📊 Episode Structure Mapping Summary:")
+        print(f"\n📊 Mapping Summary:")
         print(f"🔍 Q&A samples to process: {total_qa_samples}/{len(avdn_data)} total samples")
         print(f"✅ Successfully matched: {matched_count}/{total_qa_samples} Q&A samples ({matched_count/total_qa_samples*100:.1f}%)")
         print(f"⚠️  No match found: {skipped_samples} Q&A samples ({skipped_samples/total_qa_samples*100:.1f}%)")
-        
-        # Store preprocessed_turns for later use
-        self.preprocessed_turns = preprocessed_turns
         
         return mapping
     
@@ -425,18 +317,13 @@ class AVDNGeneratorWithAgent:
         matching_sample = None
         if avdn_index in mapping:
             try:
-                turn_index = mapping[avdn_index]
-                # The turn_index corresponds to our flattened preprocessed_turns
-                # But we need to map this to the formatted_dataset index
-                # The formatted dataset should have the same indexing as our flattened turns
-                matching_sample = formatted_dataset[turn_index]
+                formatted_index = mapping[avdn_index]
+                matching_sample = formatted_dataset[formatted_index]
                 
-                if avdn_index < 2 and rank == 0:  # Debug first few matches (reduced from 3)
-                    turn_data = self.preprocessed_turns[turn_index]
+                if avdn_index < 2 and rank == 0:  # Debug first few matches
                     dialog_context = self.decode_tokenized_text(matching_sample['text_input'])
                     formatted_answer = self.decode_tokenized_text(matching_sample['text_label'])
-                    print(f"Mapped match {avdn_index}: AVDN({map_name}, {route_index}) -> Turn {turn_index}")
-                    print(f"  Episode: {turn_data['episode_id']}, Turn: {turn_data['turn_id']}")
+                    print(f"Mapped match {avdn_index}: AVDN({map_name}, {route_index}) -> Formatted[{formatted_index}]")
                     print(f"  Context: {dialog_context[:100]}...")
                     print(f"  Answer: {formatted_answer}")
                     
@@ -464,32 +351,29 @@ class AVDNGeneratorWithAgent:
         
         # Add debug information for verification
         if avdn_index in mapping:
-            turn_index = mapping[avdn_index]
-            if turn_index < len(self.preprocessed_turns):
-                turn_data = self.preprocessed_turns[turn_index]
-                
-                # Add debug fields to the output for verification
-                new_sample['_debug_info'] = {
-                    'matched_episode_id': turn_data['episode_id'],
-                    'matched_turn_id': turn_data['turn_id'],
-                    'original_context_preview': self.decode_tokenized_text(matching_sample['text_input'])[:200] + "...",
-                    'original_answer': avdn_sample['instructions'],
-                    'generated_answer': new_answer,
-                    'preprocessed_answer': turn_data['answer'],
-                    'avdn_route_index': avdn_sample['route_index']
-                }
-                
-                # Calculate generation score for this sample
-                if '[INS]' in avdn_sample['instructions']:
-                    original_answer = avdn_sample['instructions'].split('[INS]')[-1].strip()
-                else:
-                    original_answer = avdn_sample['instructions'].strip()
-                
-                try:
-                    scores = composite_score(new_answer, original_answer, task_type="precision_short")
-                    new_sample['_debug_info']['generation_scores'] = scores
-                except Exception as e:
-                    new_sample['_debug_info']['generation_scores'] = {'error': str(e)}
+            formatted_index = mapping[avdn_index]
+            
+            # Add debug fields to the output for verification
+            new_sample['_debug_info'] = {
+                'matched_formatted_index': formatted_index,
+                'original_context_preview': self.decode_tokenized_text(matching_sample['text_input'])[:200] + "...",
+                'original_answer': avdn_sample['instructions'],
+                'generated_answer': new_answer,
+                'formatted_answer': self.decode_tokenized_text(matching_sample['text_label']),
+                'avdn_route_index': avdn_sample['route_index']
+            }
+            
+            # Calculate generation score for this sample
+            if '[INS]' in avdn_sample['instructions']:
+                original_answer = avdn_sample['instructions'].split('[INS]')[-1].strip()
+            else:
+                original_answer = avdn_sample['instructions'].strip()
+            
+            try:
+                scores = composite_score(new_answer, original_answer, task_type="precision_short")
+                new_sample['_debug_info']['generation_scores'] = scores
+            except Exception as e:
+                new_sample['_debug_info']['generation_scores'] = {'error': str(e)}
         
         return new_sample
     
@@ -557,21 +441,13 @@ class AVDNGeneratorWithAgent:
         # STEP 2: Create mapping on FULL dataset (rank 0 only), then broadcast
         if rank == 0:
             print("🔍 Creating mapping on full dataset...")
-            preprocessed_json = self.load_preprocessed_json(split)
-            mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, preprocessed_json, rank)
-            preprocessed_turns = self.preprocessed_turns
+            mapping = self.create_avdn_to_preprocessed_mapping(avdn_data, formatted_dataset, rank)
         else:
             mapping = {}
-            preprocessed_turns = []
         
         # STEP 3: Broadcast mapping to all ranks
         if world_size > 1:
             mapping = self.broadcast_mapping(mapping, rank, world_size)
-            # Also broadcast the preprocessed_turns structure
-            preprocessed_turns = self.broadcast_data(preprocessed_turns, rank, world_size)
-            self.preprocessed_turns = preprocessed_turns
-        else:
-            self.preprocessed_turns = preprocessed_turns
         
         # STEP 4: Apply sampling AFTER mapping (on rank 0, then broadcast)
         if rank == 0:
