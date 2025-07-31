@@ -276,6 +276,7 @@ class AVDNGeneratorWithAgent:
                 turn_id = sample['turn_id']
                 avdn_turn_id = route_index[route_index.find('_')+1:]
                 if sample['map_name'] == map_name and 'aug_pattern' not in sample['episode_id'] and turn_id + 1 == avdn_turn_id:
+                    print(f"map_name: {map_name}, turn_id: {turn_id}, avdn_turn_id: {avdn_turn_id}")
                     matching_samples.append((j, sample))
             
             # Now check fuzzy matches only on pre-filtered samples
