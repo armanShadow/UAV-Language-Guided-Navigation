@@ -47,9 +47,11 @@ def update_pre_dialogs(data: List[Dict]) -> List[Dict]:
         
         # TODO: IMPLEMENT YOUR LOGIC HERE
         for turn_idx, (sample_idx, sample) in enumerate(episode_samples):
+            updated_data[sample_idx].drop(columns=['_debug_info'])
             if turn_idx > 0 and turn_idx < len(episode_samples) - 1:
                 new_instruction = sample['instructions']
-                updated_data[sample_idx+1]['pre_dialogs'][turn_idx] = new_instruction
+                for next_turn_idx in range(turn_idx+1, len(episode_samples)):
+                    updated_data[sample_idx+next_turn_idx]['pre_dialogs'][turn_idx] = new_instruction
         
     
     return updated_data
@@ -57,7 +59,7 @@ def update_pre_dialogs(data: List[Dict]) -> List[Dict]:
 def main():
     """Main function to update pre_dialogs in generated AVDN dataset."""
     import argparse
-    
+
     args = argparse.ArgumentParser()
     args.add_argument("--split", type=str, default="train")
     args = args.parse_args()
