@@ -231,7 +231,13 @@ class AVDNGeneratorWithAgent:
                 continue
                 
             # Create a simple hash key from answer (most distinctive)
-            answer_hash = hashlib.md5(sample['answer'].strip().lower().encode()).hexdigest()[:8]
+            formatted_answer = sample['answer'].strip().lower()
+            
+            # Debug: Print first few formatted answers
+            if j < 3 and rank == 0:
+                print(f"🔍 Formatted Answer {j}: '{formatted_answer[:100]}'")
+                
+            answer_hash = hashlib.md5(formatted_answer.encode()).hexdigest()[:8]
             
             if answer_hash not in hash_to_index:
                 hash_to_index[answer_hash] = []
@@ -272,8 +278,16 @@ class AVDNGeneratorWithAgent:
             map_name = avdn_sample['map_name']
             route_index = avdn_sample['route_index']
             avdn_turn_id = int(route_index[route_index.find('_')+1:])
-            avdn_question = avdn_sample['instructions'].split('[INS]')[-1].strip()
-            first_instruction = avdn_sample['instructions'].split('[INS]')[0].strip()
+            
+            # Extract question and first instruction properly
+            que_start = instruction.find('[QUE]')
+            ins_start = instruction.find('[INS]')
+            avdn_question = instruction[que_start+5:ins_start].strip().lower()
+            
+            # Get first instruction from pre_dialogs
+            pre_dialogs = avdn_sample['pre_dialogs']
+            first_ins_start = pre_dialogs[0].find('[INS]')
+            first_instruction = pre_dialogs[0][first_ins_start+5:].strip().lower()
             
             for j, sample in candidates:
                 if (sample['map_name'] == map_name and 
