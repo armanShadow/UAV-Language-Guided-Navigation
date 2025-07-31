@@ -157,9 +157,12 @@ class AVDNGeneratorWithAgent:
         current_view = current_view_image.unsqueeze(0).to(self.device)  # Add batch dimension
         previous_views = previous_views_image.unsqueeze(0).to(self.device)  # Add batch dimension
         
+        # Get the actual model (not DDP wrapper) for generation
+        model_to_use = self.model.module if hasattr(self.model, 'module') else self.model
+        
         # Generate new answer using the Answering Agent with exact same inputs as evaluation
         with torch.no_grad():
-            generated_seq = self.model.generate_answer(
+            generated_seq = model_to_use.generate_answer(
                 text_input, current_view, previous_views,
                 **self.generation_params
             )
@@ -438,7 +441,7 @@ class AVDNGeneratorWithAgent:
                 # The formatted dataset should have the same indexing as our flattened turns
                 matching_sample = formatted_dataset[turn_index]
                 
-                if avdn_index < 3:  # Debug first few matches
+                if avdn_index < 3 and rank == 0:  # Debug first few matches
                     turn_data = self.preprocessed_turns[turn_index]
                     dialog_context = self.decode_tokenized_text(matching_sample['text_input'])
                     formatted_answer = self.decode_tokenized_text(matching_sample['text_label'])
@@ -452,7 +455,7 @@ class AVDNGeneratorWithAgent:
         
         if matching_sample is None:
             # If no mapping found, skip this sample (return original unchanged)
-            if avdn_index < 10:  # Only log first few skipped samples to avoid spam
+            if avdn_index < 10 and rank == 0:  # Only log first few skipped samples to avoid spam
                 print(f"⚠️  No mapping found for AVDN sample {avdn_index} ({map_name}_{route_index}), keeping original")
             return avdn_sample  # Return original sample unchanged
         
@@ -640,7 +643,8 @@ class AVDNGeneratorWithAgent:
         # Get this rank's episodes
         my_episodes = dict(episodes_list[start_idx:end_idx])
         
-        print(f"🔧 Rank {rank}: Processing {len(my_episodes)}/{len(episodes_list)} episodes (indices {start_idx}-{end_idx-1})")
+        if rank == 0:
+            print(f"🔧 Rank {rank}: Processing {len(my_episodes)}/{len(episodes_list)} episodes (indices {start_idx}-{end_idx-1})")
         
         # Process samples episode by episode to maintain dialog history (distributed)
         local_processed_data = {}  # Will store this rank's processed samples by original_index
@@ -710,7 +714,8 @@ class AVDNGeneratorWithAgent:
                             print(f"   Landmark score: {scores['landmark']}")
                     
                 except Exception as e:
-                    print(f"Rank {rank}: Error processing sample {original_index} in episode {episode_key}: {e}")
+                    if rank == 0:
+                        print(f"Rank {rank}: Error processing sample {original_index} in episode {episode_key}: {e}")
                     # Keep original sample if generation fails
                     local_processed_data[original_index] = sample
         
@@ -761,39 +766,41 @@ class AVDNGeneratorWithAgent:
             if sample is None:
                 processed_data[i] = avdn_data[i]
         
-        # Print some examples
-        examples_shown = 0
-        for i, (original, processed) in enumerate(zip(avdn_data, processed_data)):
-            if examples_shown >= 3:
-                break
-            if processed['instructions'] != original['instructions']:
-                examples_shown += 1
-                print(f"\nGenerated Example {examples_shown}:")
-                print(f"Map: {original['map_name']}, Route: {original['route_index']}")
-                print(f"Original: {original['instructions']}")
-                print(f"Generated: {processed['instructions']}")
-                print("-" * 80)
+        # Print some examples (only on rank 0)
+        if rank == 0:
+            examples_shown = 0
+            for i, (original, processed) in enumerate(zip(avdn_data, processed_data)):
+                if examples_shown >= 3:
+                    break
+                if processed['instructions'] != original['instructions']:
+                    examples_shown += 1
+                    print(f"\nGenerated Example {examples_shown}:")
+                    print(f"Map: {original['map_name']}, Route: {original['route_index']}")
+                    print(f"Original: {original['instructions']}")
+                    print(f"Generated: {processed['instructions']}")
+                    print("-" * 80)
         
-        # Report final metrics for this split
-        total_samples = len(avdn_data)
-        if all_scores:
-            avg_composite = sum(s['total'] for s in all_scores) / len(all_scores)
-            avg_direction = sum(s['direction'] for s in all_scores) / len(all_scores)
-            avg_movement = sum(s['movement'] for s in all_scores) / len(all_scores)
-            avg_landmark = sum(s['landmark'] for s in all_scores) / len(all_scores)
-            avg_attribute = sum(s['attribute'] for s in all_scores) / len(all_scores)
-            
-            print(f"\n📊 {split.upper()} GENERATION METRICS:")
-            print(f"Total Samples: {total_samples}")
-            print(f"Successful Generations: {successful_generations}")
-            print(f"Success Rate: {successful_generations/total_samples*100:.1f}%")
-            print(f"Average Composite Score: {avg_composite:.4f}")
-            print(f"Average Direction Score: {avg_direction:.4f}")
-            print(f"Average Movement Score: {avg_movement:.4f}")
-            print(f"Average Landmark Score: {avg_landmark:.4f}")
-            print(f"Average Attribute Score: {avg_attribute:.4f}")
-        else:
-            print(f"\n⚠️ No successful generations for {split} split")
+        # Report final metrics for this split (only on rank 0)
+        if rank == 0:
+            total_samples = len(avdn_data)
+            if all_scores:
+                avg_composite = sum(s['total'] for s in all_scores) / len(all_scores)
+                avg_direction = sum(s['direction'] for s in all_scores) / len(all_scores)
+                avg_movement = sum(s['movement'] for s in all_scores) / len(all_scores)
+                avg_landmark = sum(s['landmark'] for s in all_scores) / len(all_scores)
+                avg_attribute = sum(s['attribute'] for s in all_scores) / len(all_scores)
+                
+                print(f"\n📊 {split.upper()} GENERATION METRICS:")
+                print(f"Total Samples: {total_samples}")
+                print(f"Successful Generations: {successful_generations}")
+                print(f"Success Rate: {successful_generations/total_samples*100:.1f}%")
+                print(f"Average Composite Score: {avg_composite:.4f}")
+                print(f"Average Direction Score: {avg_direction:.4f}")
+                print(f"Average Movement Score: {avg_movement:.4f}")
+                print(f"Average Landmark Score: {avg_landmark:.4f}")
+                print(f"Average Attribute Score: {avg_attribute:.4f}")
+            else:
+                print(f"\n⚠️ No successful generations for {split} split")
         
         return processed_data, all_scores
     
@@ -879,15 +886,16 @@ class AVDNGeneratorWithAgent:
                 'avg_attribute_score': 0.0
             }
         
-        # Print overall summary
-        print(f"\n🎯 OVERALL GENERATION SUMMARY:")
-        print("=" * 60)
-        for split, metrics in overall_metrics.items():
-            success_rate = metrics['successful_generations'] / metrics['total_samples'] * 100 if metrics['total_samples'] > 0 else 0
-            print(f"{split.upper()}: {metrics['successful_generations']}/{metrics['total_samples']} ({success_rate:.1f}% success)")
-        
-        print(f"\n✅ Generation completed for all splits!")
-        print(f"📁 Generated datasets saved to: {self.output_dir}")
+        # Print overall summary (only on rank 0)
+        if rank == 0:
+            print(f"\n🎯 OVERALL GENERATION SUMMARY:")
+            print("=" * 60)
+            for split, metrics in overall_metrics.items():
+                success_rate = metrics['successful_generations'] / metrics['total_samples'] * 100 if metrics['total_samples'] > 0 else 0
+                print(f"{split.upper()}: {metrics['successful_generations']}/{metrics['total_samples']} ({success_rate:.1f}% success)")
+            
+            print(f"\n✅ Generation completed for all splits!")
+            print(f"📁 Generated datasets saved to: {self.output_dir}")
 
 
 # -------------------------
