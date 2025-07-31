@@ -237,69 +237,75 @@ class AVDNGeneratorWithAgent:
         print(f"📊 Found {len(episodes)} episodes to process")
         
         # Process each episode in order
-        processed_data = [None] * len(avdn_data)
-        episode_dialog_history = {}  # Track dialog history per episode
+        processed_data = [sample.copy() for sample in avdn_data]  # Start with copies of original data
         
         for episode_key, episode_samples in episodes.items():
             if rank == 0:
                 print(f"🔄 Processing episode {episode_key} with {len(episode_samples)} turns")
             
-            # Initialize dialog history for this episode
-            episode_dialog_history[episode_key] = []
+            # Track instruction updates in this episode
+            instruction_updates = {}  # Maps original instruction -> new instruction
             
-            # Process each turn in the episode
+            # STEP 1: Process each turn and generate new instructions
             for turn_idx, (sample_idx, sample) in enumerate(episode_samples):
-                # Create a copy of the sample for processing with CURRENT dialog history
-                current_sample = sample.copy()
-                current_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
-                
-                # Generate new instruction for this turn using the original sample index
-                global_sample_idx = sample_idx
-                processed_sample = self.process_avdn_sample(current_sample, formatted_dataset, mapping, global_sample_idx, rank)
-                
-                # Ensure the processed sample has the correct pre_dialogs
-                processed_sample['pre_dialogs'] = episode_dialog_history[episode_key].copy()
-                
-                # Only add to dialog history if this is a Q&A turn (not first instruction)
                 instruction = sample['instructions']
+                
+                # Only process Q&A entries
                 if '[QUE]' in instruction and '[INS]' in instruction:
+                    # Generate new instruction for this turn
+                    generated_sample = self.process_avdn_sample(sample, formatted_dataset, mapping, sample_idx, rank)
+                    
                     # Check if new instruction was generated
-                    if processed_sample and 'instructions' in processed_sample and processed_sample['instructions'] != sample['instructions']:
-                        # New instruction was generated - add to dialog history
-                        new_instruction = processed_sample['instructions']
-                        episode_dialog_history[episode_key].append(new_instruction)
+                    if generated_sample and 'instructions' in generated_sample and generated_sample['instructions'] != sample['instructions']:
+                        # New instruction was generated
+                        new_instruction = generated_sample['instructions']
+                        original_instruction = sample['instructions']
+                        
+                        # Track this update
+                        instruction_updates[original_instruction] = new_instruction
+                        
+                        # Update the processed sample
+                        processed_data[sample_idx] = generated_sample
                         
                         if rank == 0 and turn_idx < 3:  # Debug first few turns
                             print(f"  ✅ Turn {turn_idx + 1}: Generated new Q&A instruction")
-                            print(f"     Generated: {new_instruction[:100]}...")
-                            print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
-                    else:
-                        # No new instruction generated - add original instruction to dialog history
-                        original_instruction = sample['instructions']
-                        episode_dialog_history[episode_key].append(original_instruction)
-                        
-                        if rank == 0 and turn_idx < 3:  # Debug first few turns
-                            print(f"  📝 Turn {turn_idx + 1}: Using original Q&A instruction")
                             print(f"     Original: {original_instruction[:100]}...")
-                            print(f"     Dialog history now has {len(episode_dialog_history[episode_key])} instructions")
+                            print(f"     Generated: {new_instruction[:100]}...")
+                    else:
+                        # No new instruction generated or no mapping found
+                        if rank == 0 and turn_idx < 3:  # Debug first few turns
+                            print(f"  📝 Turn {turn_idx + 1}: Keeping original Q&A instruction")
+                            print(f"     Original: {instruction[:100]}...")
                 else:
-                    # This is a first instruction - don't add to dialog history
+                    # This is a first instruction - keep original
                     if rank == 0 and turn_idx < 3:  # Debug first few turns
-                        print(f"  🚫 Turn {turn_idx + 1}: Skipping first instruction (no Q&A)")
+                        print(f"  🚫 Turn {turn_idx + 1}: Keeping first instruction (no Q&A)")
+            
+            # STEP 2: Update pre_dialogs for all turns in this episode with new instructions
+            if instruction_updates:
+                if rank == 0:
+                    print(f"  🔄 Updating pre_dialogs with {len(instruction_updates)} new instructions")
                 
-                # Store the processed sample with the updated pre_dialogs
-                processed_data[sample_idx] = processed_sample
-                
-                # Debug: Show current state
-                if rank == 0 and turn_idx < 3:
-                    print(f"  🔄 Turn {turn_idx + 1}: Stored sample with {len(processed_sample['pre_dialogs'])} pre_dialogs")
-                    if len(processed_sample['pre_dialogs']) > 0:
-                        print(f"     Last dialog: {processed_sample['pre_dialogs'][-1][:100]}...")
-        
-        # Fill in any None values with original samples
-        for i, sample in enumerate(processed_data):
-            if sample is None:
-                processed_data[i] = avdn_data[i]
+                for turn_idx, (sample_idx, sample) in enumerate(episode_samples):
+                    # Update pre_dialogs in this sample
+                    updated_pre_dialogs = []
+                    original_pre_dialogs = processed_data[sample_idx]['pre_dialogs']
+                    
+                    for dialog in original_pre_dialogs:
+                        # Check if this dialog matches any updated instruction
+                        updated_dialog = dialog
+                        for old_inst, new_inst in instruction_updates.items():
+                            if dialog == old_inst:
+                                updated_dialog = new_inst
+                                break
+                        updated_pre_dialogs.append(updated_dialog)
+                    
+                    # Update the processed sample's pre_dialogs
+                    processed_data[sample_idx]['pre_dialogs'] = updated_pre_dialogs
+                    
+                    if rank == 0 and turn_idx < 3:  # Debug first few turns
+                        updates_made = sum(1 for old, new in zip(original_pre_dialogs, updated_pre_dialogs) if old != new)
+                        print(f"  🔄 Turn {turn_idx + 1}: Updated {updates_made}/{len(updated_pre_dialogs)} pre_dialogs")
         
         # Validate dialog history updates (only on rank 0)
         if rank == 0:
@@ -352,28 +358,22 @@ class AVDNGeneratorWithAgent:
                     for i, dialog in enumerate(processed_sample['pre_dialogs']):
                         print(f"      [{i+1}] {dialog[:100]}...")
                 
-                if turn_idx > 0:  # Check if dialog history was updated (skip first turn)
-                    if len(processed_sample['pre_dialogs']) > len(original_sample['pre_dialogs']):
-                        print(f"    ✅ Dialog history updated with {len(processed_sample['pre_dialogs']) - len(original_sample['pre_dialogs'])} new instructions")
+                # Always check for dialog history changes
+                if len(processed_sample['pre_dialogs']) > len(original_sample['pre_dialogs']):
+                    print(f"    ✅ Dialog history expanded with {len(processed_sample['pre_dialogs']) - len(original_sample['pre_dialogs'])} new instructions")
+                    total_updates += 1
+                elif len(processed_sample['pre_dialogs']) == len(original_sample['pre_dialogs']):
+                    # Check if content is different (instructions were updated in place)
+                    content_updates = sum(1 for old, new in zip(original_sample['pre_dialogs'], processed_sample['pre_dialogs']) if old != new)
+                    if content_updates > 0:
+                        print(f"    ✅ Dialog history updated: {content_updates}/{len(processed_sample['pre_dialogs'])} instructions modified")
                         total_updates += 1
-                    elif len(processed_sample['pre_dialogs']) == len(original_sample['pre_dialogs']):
-                        # Check if content is different
-                        if processed_sample['pre_dialogs'] != original_sample['pre_dialogs']:
-                            print(f"    📝 Dialog history content was updated (same length)")
-                            total_updates += 1
-                        else:
-                            print(f"    ❌ Dialog history not updated (same length and content)")
-                            total_unchanged += 1
                     else:
-                        print(f"    ❌ Dialog history reduced from {len(original_sample['pre_dialogs'])} to {len(processed_sample['pre_dialogs'])}")
-                        total_reductions += 1
+                        print(f"    ⚠️  Dialog history unchanged (same length and content)")
+                        total_unchanged += 1
                 else:
-                    # First turn should have accumulated dialog history from previous turns (if any)
-                    expected_length = turn_idx  # Should have 0 for turn 1, 1 for turn 2, etc.
-                    if len(processed_sample['pre_dialogs']) == expected_length:
-                        print(f"    ✅ First turn has correct pre_dialogs length: {expected_length}")
-                    else:
-                        print(f"    ⚠️  First turn has unexpected pre_dialogs length: {len(processed_sample['pre_dialogs'])} (expected {expected_length})")
+                    print(f"    ❌ Dialog history reduced from {len(original_sample['pre_dialogs'])} to {len(processed_sample['pre_dialogs'])}")
+                    total_reductions += 1
             
             checked_episodes += 1
         
