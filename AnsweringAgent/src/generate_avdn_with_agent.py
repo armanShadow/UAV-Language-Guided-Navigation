@@ -49,7 +49,6 @@ class AVDNGeneratorWithAgent:
         
         # Generation parameters for instruction generation
         self.generation_params = {
-            'task_type': 'default',
             'num_beams': 4,
             'do_sample': False,
             'repetition_penalty': 1.1,
