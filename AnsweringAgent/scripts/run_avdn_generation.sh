@@ -10,13 +10,13 @@ export NCCL_IB_DISABLE=1
 export NCCL_P2P_DISABLE=1
 
 # Model checkpoint path (update this to your actual checkpoint path)
-CHECKPOINT_PATH="./checkpoints/best_model.pth"
+CHECKPOINT_PATH="./outputs/checkpoints/Archive/best_model_525_fp32_legacy.pth"
 
 # AVDN dataset path
 AVDN_DATA_DIR="../Aerial-Vision-and-Dialog-Navigation/datasets/AVDN/annotations"
 
 # Output directory
-OUTPUT_DIR="./generated_avdn_dataset"
+OUTPUT_DIR="./outputs/generated_avdn_dataset"
 
 # Generation parameters
 SPLITS=("train" "val_seen" "val_unseen")
