@@ -70,8 +70,8 @@ def main():
     args = args.parse_args()
     
     # File paths
-    input_file = f"./generated_avdn_dataset/{args.split}_data.json"
-    output_file = f"./generated_avdn_dataset/{args.split}_data_updated_pre_dialogs.json"
+    input_file = f"./outputs/annotations_generated_by_agent/{args.split}_data.json"
+    output_file = f"./outputs/annotations_generated_by_agent/{args.split}_data_updated_pre_dialogs.json"
     
     # Check if input file exists
     if not os.path.exists(input_file):
