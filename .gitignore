@@ -11,4 +11,5 @@ documents/
 *.log
 training.log
 AnsweringAgent/src/data/Archive/
+/publication/
 .DS_Store
