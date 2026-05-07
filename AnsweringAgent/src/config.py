@@ -17,7 +17,10 @@ class ModelConfig:
     feat_dropout: float = 0.3  # Reduced for better aerial feature preservation
     num_decoder_layers: int = 4  # Not used when using pretrained T5 decoder
     num_attention_heads: int = 8  # Match T5-base (8 heads)
-    num_visual_tokens: int = 64  # Increased for richer aerial imagery representation
+    # Note: visual tokens are now derived from the spatial grid produced by the
+    # frozen Darknet backbone (7x7 = 49 tokens at img_size=224). The previous
+    # `num_visual_tokens` config was used to fabricate copies of a single
+    # global vector; that path was removed in favor of real spatial tokens.
     feedforward_dim: int = 2048  # Match T5-base feed forward dimension
     max_answer_length: int = 128
     vocab_size: int = 32128  # T5 vocabulary size for t5-base
