@@ -49,5 +49,5 @@ python add_hard_negatives.py   --split val_unseen   --gpu-id 0   --k-nn 60   --m
 # To run the training pipeline
 Under the root directory run:
 ```
-torchrun --nproc_per_node=10 AnsweringAgent/src/train.py --batch-size=8 --grad-steps=2
+torchrun --nproc_per_node=10 AnsweringAgent/src/train.py --batch-size=6 --grad-steps=2
 ```
