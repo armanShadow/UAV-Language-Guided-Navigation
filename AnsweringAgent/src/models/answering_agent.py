@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers import T5ForConditionalGeneration, T5Tokenizer
 from transformers.models.t5.modeling_t5 import BaseModelOutput
 from models.feature_extractor import FeatureExtractor
@@ -157,7 +158,16 @@ class AnsweringAgent(nn.Module):
             nn.LayerNorm(config.model.hidden_size),
         )
 
+        # Vision-language alignment heads (CLIP-style starter signal).
+        # Project pooled post-T5 visual and text representations into a small
+        # shared space; train.py contrasts them in-batch so the visual pathway
+        # gets a direct, vision-required gradient from epoch 1.
+        self.vl_align_dim = 256
+        self.vl_align_proj_v = nn.Linear(config.model.hidden_size, self.vl_align_dim)
+        self.vl_align_proj_t = nn.Linear(config.model.hidden_size, self.vl_align_dim)
+
         self._init_adapter_weights()
+        self._init_vl_align_weights()
         self._freeze_t5_parameters()
 
     def _init_adapter_weights(self):
@@ -166,6 +176,14 @@ class AnsweringAgent(nn.Module):
                 nn.init.normal_(module.weight, mean=0.0, std=0.02)
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
+
+    def _init_vl_align_weights(self):
+        # Slightly larger init than the adapter so the alignment signal has
+        # non-trivial magnitude from the very first step.
+        for proj in (self.vl_align_proj_v, self.vl_align_proj_t):
+            nn.init.normal_(proj.weight, mean=0.0, std=0.05)
+            if proj.bias is not None:
+                nn.init.zeros_(proj.bias)
 
     def _freeze_t5_parameters(self):
         """Freeze T5 except the last few encoder/decoder blocks."""
@@ -371,13 +389,22 @@ class AnsweringAgent(nn.Module):
             return_dict=True,
         )
 
-        # Pool only the text portion for contrastive embeddings, so visual
-        # similarity does not dominate the contrastive signal. The text
-        # portion is already vision-aware (T5 encoder self-attention has
-        # mixed it with the visual prefix).
+        # Pool the entire joint sequence (visual + text) with the joint mask
+        # for the shared anchor used by contrastive / destination / KD losses.
+        # This is the key change: by pooling over visual+text we guarantee a
+        # direct gradient path from those losses back to the visual pathway,
+        # preventing the degenerate "ignore vision" solution.
+        joint_mask_f = joint_mask.float().unsqueeze(-1)          # [B, S+T, 1]
+        joint_mean = (encoder_states * joint_mask_f).sum(dim=1) / joint_mask_f.sum(
+            dim=1
+        ).clamp(min=1.0)
+
+        # Separate vision-only and text-only post-T5 pooled features, used
+        # by the in-batch vision-language alignment loss in train.py.
+        visual_mean_post = encoder_states[:, :S].mean(dim=1)     # [B, H]
         text_states = encoder_states[:, S:]                      # [B, T, H]
         text_mask_f = text_mask.float().unsqueeze(-1)            # [B, T, 1]
-        text_mean = (text_states * text_mask_f).sum(dim=1) / text_mask_f.sum(
+        text_mean_post = (text_states * text_mask_f).sum(dim=1) / text_mask_f.sum(
             dim=1
         ).clamp(min=1.0)
 
@@ -386,17 +413,32 @@ class AnsweringAgent(nn.Module):
             "loss": t5_outputs.loss,
             "encoder_last_hidden_state": encoder_states,
             "encoder_attention_mask": joint_mask,
-            "raw_adapted_features": text_mean,
-            "adapted_features": self.contrastive_proj(text_mean),
+            "raw_adapted_features": joint_mean,
+            "adapted_features": self.contrastive_proj(joint_mean),
             "feature_norm": encoder_states.norm(p=2, dim=-1).mean(),
+            # Vision-only post-T5 representation, used by the destination
+            # cosine loss so both sides live in the same domain.
+            "destination_anchor": visual_mean_post,
+            # Vision-language alignment embeddings (L2-normalized, low-dim).
+            # train.py contrasts these in-batch to force the visual pathway
+            # to produce sample-discriminative features.
+            "vl_align_visual": F.normalize(
+                self.vl_align_proj_v(visual_mean_post), p=2, dim=-1
+            ),
+            "vl_align_text": F.normalize(
+                self.vl_align_proj_t(text_mean_post), p=2, dim=-1
+            ),
         }
 
         if dest_tokens is not None:
-            # Pool destination spatial tokens for any spatial-similarity loss.
-            outputs["destination_features"] = dest_tokens.mean(dim=1)
+            # Run destination spatial tokens through the same visual adapter
+            # used for the current view so both sides of the destination
+            # cosine loss live in matching post-adapter, post-pool space.
+            dest_adapted = self.t5_visual_adapter(dest_tokens)   # [B, S, H]
+            outputs["destination_features"] = dest_adapted.mean(dim=1)
 
-        # Contrastive paraphrase combinations: anchor's text-mean shifted by
-        # a (sigmoid-gated) paraphrase-hint encoding.
+        # Contrastive paraphrase combinations: shared anchor (joint_mean)
+        # shifted by a (sigmoid-gated) paraphrase-hint encoding.
         p_weight = torch.sigmoid(self.paraphrase_weight)
         for hint_input, key_name in [
             (positive_input, "positive_adapted_features"),
@@ -414,7 +456,7 @@ class AnsweringAgent(nn.Module):
             hint_features = self.paraphrase_proj(
                 hint_out.last_hidden_state.mean(dim=1)
             )
-            combined = text_mean + p_weight * hint_features
+            combined = joint_mean + p_weight * hint_features
             outputs[key_name] = self.contrastive_proj(combined)
 
         return outputs

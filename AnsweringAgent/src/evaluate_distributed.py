@@ -142,6 +142,7 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
     total_destination_loss = 0.0
     total_kd_loss = 0.0
     total_reg_loss = 0.0
+    total_vl_align_loss = 0.0
     total_accuracy = 0.0
     total_tokens = 0
     correct_tokens = 0
@@ -260,11 +261,21 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                         reg_loss = 1e-4 * feature_norm_clipped
                         loss = ce_weight * ce_loss + reg_loss
                         
-                        # Add destination loss if destination view is available (matches training)
+                        # Add destination loss if destination view is available (matches training).
+                        # Uses destination_anchor (post-T5 visual pool) vs destination_features
+                        # (destination view passed through the same t5_visual_adapter and pooled),
+                        # so both sides of the cosine live in the same post-adapter visual space.
                         destination_cosine_loss = torch.tensor(0.0, device=device)
                         if destination_view is not None:
-                            dest_features = outputs.get("destination_features", outputs["raw_adapted_features"])
-                            destination_cosine_loss = calculate_cosine_similarity_loss(outputs["raw_adapted_features"], dest_features)
+                            dest_anchor = outputs.get(
+                                "destination_anchor", outputs["raw_adapted_features"]
+                            )
+                            dest_features = outputs.get(
+                                "destination_features", outputs["raw_adapted_features"]
+                            )
+                            destination_cosine_loss = calculate_cosine_similarity_loss(
+                                dest_anchor, dest_features
+                            )
                             loss = loss + destination_weight * destination_cosine_loss
                         
                         # Calculate contrastive loss if enabled (matches training)
@@ -309,7 +320,26 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                                 
                                 # Add weighted contrastive loss using correct weights
                                 loss = loss + contrastive_weight * contrastive_loss
-                        
+
+                        # Vision-language alignment loss (matches training).
+                        vl_align_loss = torch.tensor(0.0, device=device)
+                        if "vl_align_visual" in outputs and "vl_align_text" in outputs:
+                            v = outputs["vl_align_visual"]
+                            t = outputs["vl_align_text"]
+                            vl_align_temperature = getattr(
+                                config.training, "vl_align_temperature", 0.07
+                            )
+                            logits_vt = (v @ t.T) / vl_align_temperature
+                            target = torch.arange(v.size(0), device=v.device)
+                            vl_align_loss = 0.5 * (
+                                F.cross_entropy(logits_vt, target)
+                                + F.cross_entropy(logits_vt.T, target)
+                            )
+                            vl_align_weight_cur = getattr(
+                                config.training, "vl_align_weight", 0.5
+                            )
+                            loss = loss + vl_align_weight_cur * vl_align_loss
+
                         # KD loss using embeddings generated during preprocessing (matches training)
                         kd_loss = torch.tensor(0.0, device=device)
                         if config.training.use_kd:
@@ -331,6 +361,7 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                         total_destination_loss += destination_cosine_loss.item()
                         total_kd_loss += kd_loss.item()
                         total_reg_loss += reg_loss.item()
+                        total_vl_align_loss += vl_align_loss.item()
                         
                     # Calculate metrics
                     metrics = compute_metrics(logits, label_input_ids, tokenizer.pad_token_id)
@@ -356,30 +387,33 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
         dest_loss_tensor = torch.tensor(total_destination_loss, device=device)
         kd_loss_tensor = torch.tensor(total_kd_loss, device=device)
         reg_loss_tensor = torch.tensor(total_reg_loss, device=device)
+        vl_align_loss_tensor = torch.tensor(total_vl_align_loss, device=device)
         accuracy_tensor = torch.tensor(total_accuracy, device=device)
         tokens_tensor = torch.tensor(total_tokens, device=device)
         correct_tensor = torch.tensor(correct_tokens, device=device)
-        
+
         dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(ce_loss_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(cont_loss_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(dest_loss_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(kd_loss_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(reg_loss_tensor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(vl_align_loss_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(accuracy_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(tokens_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(correct_tensor, op=dist.ReduceOp.SUM)
-        
+
         total_loss = loss_tensor.item() / world_size
         total_ce_loss = ce_loss_tensor.item() / world_size
         total_contrastive_loss = cont_loss_tensor.item() / world_size
         total_destination_loss = dest_loss_tensor.item() / world_size
         total_kd_loss = kd_loss_tensor.item() / world_size
         total_reg_loss = reg_loss_tensor.item() / world_size
+        total_vl_align_loss = vl_align_loss_tensor.item() / world_size
         total_accuracy = accuracy_tensor.item() / world_size
         total_tokens = tokens_tensor.item()
         correct_tokens = correct_tensor.item()
-    
+
     # Calculate final metrics
     num_batches = len(dataloader)
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
@@ -388,6 +422,7 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
     avg_destination_loss = total_destination_loss / num_batches if num_batches > 0 else 0.0
     avg_kd_loss = total_kd_loss / num_batches if num_batches > 0 else 0.0
     avg_reg_loss = total_reg_loss / num_batches if num_batches > 0 else 0.0
+    avg_vl_align_loss = total_vl_align_loss / num_batches if num_batches > 0 else 0.0
     avg_accuracy = total_accuracy / num_batches if num_batches > 0 else 0.0
     overall_accuracy = correct_tokens / total_tokens if total_tokens > 0 else 0.0
     
@@ -398,6 +433,7 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
         'destination_loss': avg_destination_loss,
         'kd_loss': avg_kd_loss,
         'reg_loss': avg_reg_loss,
+        'vl_align_loss': avg_vl_align_loss,
         'accuracy': avg_accuracy,
         'overall_accuracy': overall_accuracy,
         'total_tokens': total_tokens,
@@ -405,7 +441,8 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
         'ce_weight': actual_weights['ce_weight'],
         'contrastive_weight': actual_weights['contrastive_weight'],
         'destination_weight': actual_weights['destination_weight'],
-        'kd_weight': actual_weights['kd_weight']
+        'kd_weight': actual_weights['kd_weight'],
+        'vl_align_weight': getattr(config.training, 'vl_align_weight', 0.5),
     }
     
     return results

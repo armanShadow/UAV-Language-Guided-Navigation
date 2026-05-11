@@ -74,6 +74,14 @@ class TrainingConfig:
     # UAV-specific triplet loss options
     use_cosine_distance: bool = True  # Better for aerial visual similarities
     contrastive_mean_all: bool = False  # More selective for UAV landmark learning
+
+    # Vision-language alignment loss (CLIP-style, in-batch).
+    # This auxiliary loss forces the visual pathway to produce sample-
+    # discriminative features from the very first epoch and prevents the
+    # "ignore vision and fall back to the LM prior" mode-collapse seen in
+    # the previous run. The temperature mirrors CLIP's default.
+    vl_align_weight: float = 0.5
+    vl_align_temperature: float = 0.07
     
     # Add per-epoch weight logging for debugging
     log_loss_weights: bool = True  

@@ -36,14 +36,19 @@ logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
 class AVDNGeneratorWithAgent:
     """Generate new AVDN dataset using Answering Agent while preserving AVDN structure."""
     
-    def __init__(self, config: Config, tokenizer: T5Tokenizer, model: AnsweringAgent, 
-                 output_dir: str, device: torch.device):
+    def __init__(self, config: Config, tokenizer: T5Tokenizer, model: AnsweringAgent,
+                 output_dir: str, device: torch.device, zero_vision: bool = False):
         self.config = config
         self.tokenizer = tokenizer
         self.model = model
         self.output_dir = output_dir
         self.device = device
-        
+        # When True, visual inputs are zeroed before generation. Used as a
+        # diagnostic to measure how much the decoder actually relies on the
+        # visual prefix: if outputs are largely unchanged with zero_vision,
+        # the model is producing template answers from the LM prior alone.
+        self.zero_vision = zero_vision
+
         # Create output directory
         os.makedirs(output_dir, exist_ok=True)
         
@@ -155,7 +160,14 @@ class AVDNGeneratorWithAgent:
         # Use actual visual features from the formatted dataset
         current_view = current_view_image.unsqueeze(0).to(self.device)  # Add batch dimension
         previous_views = previous_views_image.unsqueeze(0).to(self.device)  # Add batch dimension
-        
+
+        # Diagnostic: zero the visual inputs so the decoder must rely on the LM
+        # prior alone. Comparing outputs with vs without zero_vision tells us
+        # how much the trained model actually uses its visual pathway.
+        if self.zero_vision:
+            current_view = torch.zeros_like(current_view)
+            previous_views = torch.zeros_like(previous_views)
+
         # Get the actual model (not DDP wrapper) for generation
         model_to_use = self.model.module if hasattr(self.model, 'module') else self.model
         
@@ -751,6 +763,11 @@ def main():
                        help="Ratio of dataset to sample (default: 1.0 = 100%)")
     parser.add_argument("--seed", type=int, default=42,
                        help="Random seed for reproducibility")
+    parser.add_argument("--zero_vision", action="store_true",
+                       help=("Diagnostic: zero the visual inputs before generation. "
+                             "Run the script twice (with and without this flag) and "
+                             "diff the outputs; the fraction of samples whose answer "
+                             "stays identical estimates how much the model ignores vision."))
 
     args = parser.parse_args()
 
@@ -824,8 +841,14 @@ def main():
         tokenizer=tokenizer,
         model=model,
         output_dir=args.output_dir,
-        device=device
+        device=device,
+        zero_vision=args.zero_vision,
     )
+    if rank == 0 and args.zero_vision:
+        logger.info(
+            "🩺 zero_vision=ON — visual inputs will be zeroed during generation. "
+            "This is a diagnostic mode, not a normal generation run."
+        )
 
     # Process all splits with distributed processing
     if rank == 0:

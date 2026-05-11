@@ -653,6 +653,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             total_destination_loss = 0
             total_contrastive_loss = 0
             total_kd_loss = 0
+            total_vl_align_loss = 0
             optimizer.zero_grad(set_to_none=True)
 
             epoch_start_time = time.time()
@@ -764,13 +765,25 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     reg_loss = 1e-4 * feature_norm_clipped
                     loss = ce_loss_weight * ce_loss + reg_loss
                         
-                    # Add destination loss if destination view is available
+                    # Add destination loss if destination view is available.
+                    # Both sides of the cosine live in the post-T5 / post-adapter
+                    # visual space ("destination_anchor" = pooled visual portion of
+                    # the joint encoder output; "destination_features" = destination
+                    # view passed through the same t5_visual_adapter and pooled).
+                    # This is the key fix: previously the anchor was a text-pooled
+                    # feature and the target was a raw-visual feature, so the cosine
+                    # spanned two different distributions and provided weak signal.
                     if destination_view is not None:
-                        dest_features = outputs.get("destination_features", outputs["raw_adapted_features"])
-                        # Use raw_adapted_features for destination loss - these are the pure T5 adapter outputs
-                        # before contrastive projection, representing the model's learned visual-text alignment
-                        destination_cosine_loss = calculate_cosine_similarity_loss(outputs["raw_adapted_features"], dest_features)
-                        
+                        dest_anchor = outputs.get(
+                            "destination_anchor", outputs["raw_adapted_features"]
+                        )
+                        dest_features = outputs.get(
+                            "destination_features", outputs["raw_adapted_features"]
+                        )
+                        destination_cosine_loss = calculate_cosine_similarity_loss(
+                            dest_anchor, dest_features
+                        )
+
                         destination_weight = destination_weight_fn(epoch)
                         loss = loss + destination_weight * destination_cosine_loss
                     else:
@@ -830,7 +843,33 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         elif rank == 0 and batch_idx == 0 and epoch == 0:
                             logger.warning(f"⚠️ Contrastive learning enabled but no adapted features found in outputs!")
                             logger.info(f"🔍 Available output keys: {list(outputs.keys())}")
-                
+
+                    # Vision-language alignment loss (CLIP-style, in-batch).
+                    # This is the "starter signal" that forces the visual pathway
+                    # to produce sample-discriminative features from epoch 1, so
+                    # the contrastive / CE losses can no longer be solved by
+                    # ignoring vision and falling back to the LM prior (which is
+                    # what caused the mode collapse in the previous run).
+                    vl_align_loss = torch.tensor(0.0, device=device)
+                    if "vl_align_visual" in outputs and "vl_align_text" in outputs:
+                        v = outputs["vl_align_visual"]
+                        t = outputs["vl_align_text"]
+                        vl_align_temperature = getattr(
+                            config.training, "vl_align_temperature", 0.07
+                        )
+                        # Both are already L2-normalized inside the model.
+                        logits_vt = (v @ t.T) / vl_align_temperature  # [B, B]
+                        target = torch.arange(v.size(0), device=v.device)
+                        vl_align_loss = 0.5 * (
+                            F.cross_entropy(logits_vt, target)
+                            + F.cross_entropy(logits_vt.T, target)
+                        )
+                        vl_align_weight = getattr(
+                            config.training, "vl_align_weight", 0.5
+                        )
+                        loss = loss + vl_align_weight * vl_align_loss
+                        total_vl_align_loss += vl_align_loss.item()
+
                     # KD loss using embeddings generated during preprocessing
                     kd_loss = torch.tensor(0.0, device=device)
                     if config.training.use_kd:
@@ -884,11 +923,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                         avg_contrastive = total_contrastive_loss / (batch_idx + 1)
                         avg_destination = total_destination_loss / (batch_idx + 1)
                         avg_kd = total_kd_loss / (batch_idx + 1)
-                        
-                        
+                        avg_vl_align = total_vl_align_loss / (batch_idx + 1)
+
                         logger.info(f"📊 Batch {batch_idx}/{len(train_loader)} | "
                                   f"Loss: {avg_loss:.4f} | CE: {avg_ce:.4f} | "
-                                  f"Contrast: {avg_contrastive:.4f} | KD: {avg_kd:.4f} | Dest: {avg_destination:.4f}")
+                                  f"Contrast: {avg_contrastive:.4f} | KD: {avg_kd:.4f} | "
+                                  f"Dest: {avg_destination:.4f} | VL-Align: {avg_vl_align:.4f}")
                         
                         
                     if torch.cuda.is_available():
@@ -909,31 +949,34 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             if is_distributed:
                 # Gather losses from all processes
                 loss_tensor = torch.tensor(total_loss, device=device)
-                total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)   
+                total_ce_loss_tensor = torch.tensor(total_ce_loss, device=device)
                 total_destination_loss_tensor = torch.tensor(total_destination_loss, device=device)
                 total_contrastive_loss_tensor = torch.tensor(total_contrastive_loss, device=device)
                 total_kd_loss_tensor = torch.tensor(total_kd_loss, device=device)
-                
+                total_vl_align_loss_tensor = torch.tensor(total_vl_align_loss, device=device)
+
                 # All-reduce to sum losses across processes
                 dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_ce_loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_destination_loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_contrastive_loss_tensor, op=dist.ReduceOp.SUM)
                 dist.all_reduce(total_kd_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_vl_align_loss_tensor, op=dist.ReduceOp.SUM)
 
-                
                 # Calculate averages
                 total_loss = loss_tensor.item() / dist.get_world_size()
                 total_ce_loss = total_ce_loss_tensor.item() / dist.get_world_size()
                 total_destination_loss = total_destination_loss_tensor.item() / dist.get_world_size()
                 total_contrastive_loss = total_contrastive_loss_tensor.item() / dist.get_world_size()
                 total_kd_loss = total_kd_loss_tensor.item() / dist.get_world_size()
-            
+                total_vl_align_loss = total_vl_align_loss_tensor.item() / dist.get_world_size()
+
             avg_epoch_loss = total_loss / len(train_loader)
             avg_ce_loss = total_ce_loss / len(train_loader)
             avg_destination_loss = total_destination_loss / len(train_loader)
             avg_contrastive_loss = total_contrastive_loss / len(train_loader)
             avg_kd_loss = total_kd_loss / len(train_loader)
+            avg_vl_align_loss = total_vl_align_loss / len(train_loader)
             
             # Log the epoch summary (only rank 0)
             if rank == 0:
@@ -950,7 +993,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     
                     logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
                               f"CE: {avg_ce_loss:.4f} | "
-                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | KD: {avg_kd_loss:.4f} "
+                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | "
+                              f"KD: {avg_kd_loss:.4f} | VL-Align: {avg_vl_align_loss:.4f} | "
                               f"Time: {epoch_time:.1f}s")
                     logger.info(f"🎛️  Weights | CE: {current_ce_weight:.2f} | "
                               f"Contrastive: {current_contrastive_weight:.2f} | Dest: {current_dest_weight:.2f} | "
@@ -967,14 +1011,26 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     effective_contrastive = avg_contrastive_loss * current_contrastive_weight
                     effective_dest = avg_destination_loss * current_dest_weight
                     effective_kd = avg_kd_loss * current_kd_weight
-                    effective_total = effective_ce + effective_contrastive + effective_dest + effective_kd
-                    
+                    current_vl_align_weight = getattr(
+                        config.training, "vl_align_weight", 0.5
+                    )
+                    effective_vl_align = avg_vl_align_loss * current_vl_align_weight
+                    effective_total = (
+                        effective_ce
+                        + effective_contrastive
+                        + effective_dest
+                        + effective_kd
+                        + effective_vl_align
+                    )
+
                     logger.info(f"🔍 Effective | Total Loss: {effective_total:.4f} | CE: {effective_ce:.4f} | "
-                              f"Contrastive: {effective_contrastive:.4f} | Dest: {effective_dest:.4f} | KD: {effective_kd:.4f} ")
+                              f"Contrastive: {effective_contrastive:.4f} | Dest: {effective_dest:.4f} | "
+                              f"KD: {effective_kd:.4f} | VL-Align: {effective_vl_align:.4f}")
                 else:
                     logger.info(f"✅ Epoch {epoch+1} | Loss: {avg_epoch_loss:.4f} | "
                               f"CE: {avg_ce_loss:.4f} | "
-                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | KD: {avg_kd_loss:.4f}"
+                              f"Contrast: {avg_contrastive_loss:.4f} | Dest: {avg_destination_loss:.4f} | "
+                              f"KD: {avg_kd_loss:.4f} | VL-Align: {avg_vl_align_loss:.4f} | "
                               f"Time: {epoch_time:.1f}s")
             
             if torch.cuda.is_available():
