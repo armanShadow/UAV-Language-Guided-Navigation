@@ -1,0 +1,3483 @@
+{
+  "split": "val_seen",
+  "summary": {
+    "total_samples": 370,
+    "successful_generations": 173,
+    "success_rate": 0.46756756756756757,
+    "generation_coverage": "173/370 samples (46.8%)"
+  },
+  "average_scores": {
+    "direction": 0.05539499036608862,
+    "yesno": 0.21965317919075145,
+    "attribute": 0.03468208092485549,
+    "landmark": 0.3121387283236993,
+    "movement": 0.5867052023121387,
+    "form": 1.0,
+    "total": 0.3369496207068463,
+    "bleu4": 0.05394371364112133,
+    "rouge_l": 0.24125319862622885,
+    "bertscore": 0.8767615894361728
+  },
+  "individual_scores": [
+    {
+      "sample_index": 2,
+      "avdn_route_index": "2_2",
+      "map_name": "1600",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I have over the last building of building area, Am I near the destination? Where should I go now?.  [INS] Hey drone, If you go 7 o'clock, your destination will be the first building that you see and fly over.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 11 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.20833333333333334,
+        "bleu4": 0.012721613711396774,
+        "rouge_l": 0.2,
+        "bertscore": 0.8741679787635803
+      }
+    },
+    {
+      "sample_index": 6,
+      "avdn_route_index": "3_2",
+      "map_name": "1051",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on top of large building, Am I near the destination? Which direction should I go?.  [INS] turn 6'o clock head toward  white flat  roof building is your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.15625,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.18749999999999997,
+        "bertscore": 0.8442855477333069
+      }
+    },
+    {
+      "sample_index": 10,
+      "avdn_route_index": "13_2",
+      "map_name": "2014",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Which direction should I go? What is the destination look like?.  [INS] You could go around, turn right and go straight on until the parking lot that is your destination.  ",
+      "generated_instruction": "The destination looks like a parking lot. Move towards your 6 o'clock direction. You will fly over a parking lot. That is our destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.45833333333333337,
+        "bleu4": 0.022889127940682732,
+        "rouge_l": 0.27906976744186046,
+        "bertscore": 0.872146725654602
+      }
+    },
+    {
+      "sample_index": 11,
+      "avdn_route_index": "13_3",
+      "map_name": "2014",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Where should I go now? What is the destination look like?.  [INS] Go south to the parking lot.  ",
+      "generated_instruction": "You should go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.33333333333333337,
+        "bleu4": 0.039281465090051315,
+        "rouge_l": 0.28571428571428575,
+        "bertscore": 0.8455838561058044
+      }
+    },
+    {
+      "sample_index": 16,
+      "avdn_route_index": "2_2",
+      "map_name": "105",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] In what direction is our destination? What is destination's color and shape?.  [INS] Destination is in the seven o'clock direction. Destination is square and dark brown.  ",
+      "generated_instruction": "Destination is a rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.2615384615384615,
+        "bleu4": 0.03306446654126846,
+        "rouge_l": 0.32,
+        "bertscore": 0.8870521187782288
+      }
+    },
+    {
+      "sample_index": 18,
+      "avdn_route_index": "1_2",
+      "map_name": "2425",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I cannot follow the instruction any more. Please further explain it.  [INS] Destination is a farmhouse behind you at your seven o'clock.  ",
+      "generated_instruction": "Move towards your 6 o'clock direction. You will fly over a road and will see a building with a beige roof. That is our destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.37777777777777777,
+        "bleu4": 0.010713701843513142,
+        "rouge_l": 0.16216216216216214,
+        "bertscore": 0.8728730082511902
+      }
+    },
+    {
+      "sample_index": 19,
+      "avdn_route_index": "1_3",
+      "map_name": "2425",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] How to go to destinaton?.  [INS] Turn left, and go to large gray building.  ",
+      "generated_instruction": "Move towards your 6 o'clock direction. You will fly over a road and will see a building with a beige roof. That is our destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.30624999999999997,
+        "bleu4": 0.007575731225158965,
+        "rouge_l": 0.11764705882352941,
+        "bertscore": 0.8812366127967834
+      }
+    },
+    {
+      "sample_index": 24,
+      "avdn_route_index": "0_2",
+      "map_name": "2440",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I have passed some grounds, Where is the  How to go to destinaton? .  [INS] Move 3 o clock and your opposite grey building is your destination.  ",
+      "generated_instruction": "Move towards 11 o'clock direction, After passing a field and small ground like area, the destination is a grey color building block sorrounded by other buildings.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 1.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.65,
+        "bleu4": 0.010864991539917157,
+        "rouge_l": 0.30769230769230765,
+        "bertscore": 0.8533853888511658
+      }
+    },
+    {
+      "sample_index": 27,
+      "avdn_route_index": "0_2",
+      "map_name": "1807",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on top of building block, Can I see the destination? $og.  [INS] Yes, fate is in your field of vision.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.37500000000000006,
+        "bleu4": 0.38890556115271097,
+        "rouge_l": 0.5925925925925926,
+        "bertscore": 0.93232661485672
+      }
+    },
+    {
+      "sample_index": 28,
+      "avdn_route_index": "0_3",
+      "map_name": "1807",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move to the building block at left, How does the destination look like? Where should I go now?.  [INS] Destination looks like a small gray and white building. You should go to your one o'clock.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.16666666666666669,
+        "bertscore": 0.8603765964508057
+      }
+    },
+    {
+      "sample_index": 29,
+      "avdn_route_index": "0_4",
+      "map_name": "1807",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move 1 o clock on the white/grey building, What is destination's color and shape? Where should I go now?.  [INS] The destination looks like a rectangular high gray building.  In order to reach your destination you should move straight forward a couple of meters.  ",
+      "generated_instruction": "Destination is a small gray building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.5,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5625,
+        "bleu4": 0.016091606437688304,
+        "rouge_l": 0.3333333333333333,
+        "bertscore": 0.8726235032081604
+      }
+    },
+    {
+      "sample_index": 31,
+      "avdn_route_index": "5_2",
+      "map_name": "355",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move to the east, Is the destination in my view? Which direction should I go?.  [INS] Destination is a long building with a blue roof, it is at your seven o'clock.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 1.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.4615384615384615,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.22857142857142856,
+        "bertscore": 0.8645915389060974
+      }
+    },
+    {
+      "sample_index": 33,
+      "avdn_route_index": "3_2",
+      "map_name": "1690",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the red building after highway, Can I see the destination? Which direction should I go?.  [INS] turn right at 45 degree angle  go ahead this red roof building surrounded by trees is your goal.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.15625,
+        "bleu4": 0.014216645907653848,
+        "rouge_l": 0.10810810810810811,
+        "bertscore": 0.8543617725372314
+      }
+    },
+    {
+      "sample_index": 36,
+      "avdn_route_index": "5_2",
+      "map_name": "1178",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] IS this the C shape building? How to go to destinaton?.  [INS] Please move to Your 11 o'clock and go ahead. When you will see 2 big building, turn left.  ",
+      "generated_instruction": "You are very close to the destination. You have to turn to 1 o'clock and move forward to reach the destination.",
+      "scores": {
+        "direction": 0.3333333333333333,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.4722222222222222,
+        "bleu4": 0.02542254141389555,
+        "rouge_l": 0.1951219512195122,
+        "bertscore": 0.8981167674064636
+      }
+    },
+    {
+      "sample_index": 37,
+      "avdn_route_index": "5_3",
+      "map_name": "1178",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Which direction should I go?.  [INS] You should go to your one o'clock.  ",
+      "generated_instruction": "You should go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.44444444444444453,
+        "bleu4": 0.6434588841607617,
+        "rouge_l": 0.875,
+        "bertscore": 0.9917758703231812
+      }
+    },
+    {
+      "sample_index": 38,
+      "avdn_route_index": "5_4",
+      "map_name": "1178",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Which direction should I go? What is the destination look like?.  [INS] In order to reach your destination you should turn left 30 degrees and move straight forward in east direction. The destination looks like a rectangular base school with a basketball court in the middle of it.  ",
+      "generated_instruction": "You should go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.15625,
+        "bleu4": 0.001318940426353895,
+        "rouge_l": 0.0909090909090909,
+        "bertscore": 0.8282627463340759
+      }
+    },
+    {
+      "sample_index": 41,
+      "avdn_route_index": "2_2",
+      "map_name": "1140",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] In what direction is our destination? .  [INS] You have to turn to 5 o'clock and move forward to reach the destination.  ",
+      "generated_instruction": "The destination is not in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 1.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.8749999999999999,
+        "bleu4": 0.023830412565256146,
+        "rouge_l": 0.17142857142857143,
+        "bertscore": 0.8941749930381775
+      }
+    },
+    {
+      "sample_index": 44,
+      "avdn_route_index": "5_2",
+      "map_name": "2193",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am a liitle confused, what should I do now.  [INS] Go in the direction of 7 o'clock from your current position.  ",
+      "generated_instruction": "Go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.44444444444444453,
+        "bleu4": 0.019244596474019198,
+        "rouge_l": 0.3333333333333333,
+        "bertscore": 0.8846548199653625
+      }
+    },
+    {
+      "sample_index": 45,
+      "avdn_route_index": "5_3",
+      "map_name": "2193",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Which direction should I go?.  [INS] Go right.  ",
+      "generated_instruction": "You should go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.44444444444444453,
+        "bleu4": 0.033031643180138064,
+        "rouge_l": 0.2,
+        "bertscore": 0.8641574382781982
+      }
+    },
+    {
+      "sample_index": 47,
+      "avdn_route_index": "5_2",
+      "map_name": "2308",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am near the parking lot, Is the destination in my view? Which direction should I go?.  [INS] Turn to a 10 o'clock heading and move forward until you reach a second, smaller parking lot. Once there, turn to 3 o'clock and proceed to the grey building ahead of you, that is the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.15625,
+        "bleu4": 0.005620013371610998,
+        "rouge_l": 0.07017543859649122,
+        "bertscore": 0.8562896251678467
+      }
+    },
+    {
+      "sample_index": 49,
+      "avdn_route_index": "5_2",
+      "map_name": "1114",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I pass the grey road, Am I near the destination? Which direction should I go?.  [INS] No, fate is not in your field of vision. Go in the 9 o'clock direction from your current position.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5454545454545455,
+        "bleu4": 0.6526460174517784,
+        "rouge_l": 0.8717948717948718,
+        "bertscore": 0.9863147139549255
+      }
+    },
+    {
+      "sample_index": 50,
+      "avdn_route_index": "5_3",
+      "map_name": "1114",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the large brown building at 9 o clock, How does the destination look like? Which direction should I go?.  [INS] A brown building. Go forward.  ",
+      "generated_instruction": "Destination looks like a long rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3999999999999999,
+        "bleu4": 0.03986357128268015,
+        "rouge_l": 0.33333333333333337,
+        "bertscore": 0.8795393705368042
+      }
+    },
+    {
+      "sample_index": 51,
+      "avdn_route_index": "5_4",
+      "map_name": "1114",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the brown building forward, What is the destination look like? How to go to destinaton?.  [INS] The destination looks like a very long building with light brown roof. Move straight forward. You will see a track field, a long white building, and a long light brown building. Keep going and you will see another brown building. That is our destination.  ",
+      "generated_instruction": "Destination looks like a long rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3888888888888888,
+        "bleu4": 0.017518123380976566,
+        "rouge_l": 0.2456140350877193,
+        "bertscore": 0.871671199798584
+      }
+    },
+    {
+      "sample_index": 53,
+      "avdn_route_index": "1_2",
+      "map_name": "880",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the western edge, Am I near the destination? Where should I go now?.  [INS] Yes, you are near the destination. You have to turn to 1:30 o'clock and move forward to reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.32142857142857145,
+        "bleu4": 0.012721613711396774,
+        "rouge_l": 0.1951219512195122,
+        "bertscore": 0.8959792852401733
+      }
+    },
+    {
+      "sample_index": 54,
+      "avdn_route_index": "1_3",
+      "map_name": "880",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move to 1:30 and on the building block, How does the destination look like? How to go to destinaton?.  [INS] It is a square house. Go right.  ",
+      "generated_instruction": "Destination looks like a rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3999999999999999,
+        "bleu4": 0.022416933501922302,
+        "rouge_l": 0.2105263157894737,
+        "bertscore": 0.9046581983566284
+      }
+    },
+    {
+      "sample_index": 55,
+      "avdn_route_index": "1_4",
+      "map_name": "880",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move right on square building, How does the destination look like? How to go to destinaton?.  [INS] You are nearly there. Move towards your 2 o'clock direction. The destination is a building right next to the one you are currently on, facing the same street.  ",
+      "generated_instruction": "Destination looks like a rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5333333333333333,
+        "bleu4": 0.005683964035314611,
+        "rouge_l": 0.1951219512195122,
+        "bertscore": 0.8756759762763977
+      }
+    },
+    {
+      "sample_index": 57,
+      "avdn_route_index": "5_2",
+      "map_name": "2550",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] When should I turn left? Which direction should I go?.  [INS] You should turn left now. Destination is at the seven o'clock direction.  ",
+      "generated_instruction": "You should go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.07142857142857142,
+        "bleu4": 0.03419615942951201,
+        "rouge_l": 0.380952380952381,
+        "bertscore": 0.8940927386283875
+      }
+    },
+    {
+      "sample_index": 58,
+      "avdn_route_index": "5_3",
+      "map_name": "2550",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Which direction should I go?.  [INS] Go forward to big white building.  ",
+      "generated_instruction": "You should go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.039281465090051315,
+        "rouge_l": 0.28571428571428575,
+        "bertscore": 0.849332869052887
+      }
+    },
+    {
+      "sample_index": 63,
+      "avdn_route_index": "4_2",
+      "map_name": "1184",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Where should I go now? What is the destination look like?.  [INS] To your immediate 2 o'clock, you'll see a building surrounded by trees.  ",
+      "generated_instruction": "You should go to your eight o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.11111111111111113,
+        "bleu4": 0.03419615942951201,
+        "rouge_l": 0.36363636363636365,
+        "bertscore": 0.8760957717895508
+      }
+    },
+    {
+      "sample_index": 66,
+      "avdn_route_index": "13_2",
+      "map_name": "1980",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I pass the trees, Is the destination in my view? Where should I go now?.  [INS] Yes, the destination is in your view. You should turn to 6 o'clock and move forward a bit to reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.32142857142857145,
+        "bleu4": 0.050909901831388646,
+        "rouge_l": 0.28571428571428575,
+        "bertscore": 0.9189999103546143
+      }
+    },
+    {
+      "sample_index": 68,
+      "avdn_route_index": "4_2",
+      "map_name": "1141",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I pass the trees, How does the destination look like? How to go to destinaton?.  [INS] The destination is a rectangular building with a red roof.Go in the 7 o'clock direction from your current position.  ",
+      "generated_instruction": "Move towards 11 o'clock direction, cross the road and reached destination of the grey color building.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3999999999999999,
+        "bleu4": 0.014421622558373605,
+        "rouge_l": 0.15789473684210528,
+        "bertscore": 0.8925617933273315
+      }
+    },
+    {
+      "sample_index": 71,
+      "avdn_route_index": "3_2",
+      "map_name": "1929",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am near the brown area, Is the destination in my view? Where should I go now?.  [INS] Yes, fate is in your field of vision. Go in the direction of 4 hour from your current position.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5454545454545455,
+        "bleu4": 0.688357413605914,
+        "rouge_l": 0.8421052631578947,
+        "bertscore": 0.9625325798988342
+      }
+    },
+    {
+      "sample_index": 72,
+      "avdn_route_index": "3_3",
+      "map_name": "1929",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move 4 o clock and on land near black building, What is destination's color and shape? Which direction should I go?.  [INS] A tan yard. Go forward to the left.  ",
+      "generated_instruction": "The destination is a rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.44444444444444453,
+        "bleu4": 0.026658376817028855,
+        "rouge_l": 0.3,
+        "bertscore": 0.8739786148071289
+      }
+    },
+    {
+      "sample_index": 73,
+      "avdn_route_index": "3_4",
+      "map_name": "1929",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move left on the dark building, What is destination's color and shape? In what direction is our destination?.  [INS] The destination is on the side of a light yellow structure. It is a part of a long rectangular structure. Move towards your 1 o'clock direction.  ",
+      "generated_instruction": "The destination is a rectangular building. Move towards your 2 o'clock direction. You will fly over a parking lot. That is our destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.5,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.525,
+        "bleu4": 0.07963308943385286,
+        "rouge_l": 0.4313725490196078,
+        "bertscore": 0.9223595261573792
+      }
+    },
+    {
+      "sample_index": 77,
+      "avdn_route_index": "1_2",
+      "map_name": "2560",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] How does the destination look like? Which direction should I go?.  [INS] Destination is the building with the red roof at your 7 o'clock direction.  ",
+      "generated_instruction": "Destination looks like a rectangular building. Go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.3076923076923077,
+        "bleu4": 0.018690183721524995,
+        "rouge_l": 0.3846153846153846,
+        "bertscore": 0.8910362124443054
+      }
+    },
+    {
+      "sample_index": 79,
+      "avdn_route_index": "5_2",
+      "map_name": "1124",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Where should I go now? How does the destination look like?.  [INS] Proceed forward direction in nearest by brown coiour building in your destination.  ",
+      "generated_instruction": "Go straight ahead, your destination is a segregated area.",
+      "scores": {
+        "direction": 1.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.5,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.65625,
+        "bleu4": 0.017182633466700372,
+        "rouge_l": 0.1904761904761905,
+        "bertscore": 0.8459891676902771
+      }
+    },
+    {
+      "sample_index": 80,
+      "avdn_route_index": "5_3",
+      "map_name": "1124",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] How to go to destinaton? .  [INS] Go south to next building.  ",
+      "generated_instruction": "Move towards your 6 o'clock direction. You will fly over a parking lot and will see a structure with brown roof. That is our destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5333333333333333,
+        "bleu4": 0,
+        "rouge_l": 0.0,
+        "bertscore": 0.8609550595283508
+      }
+    },
+    {
+      "sample_index": 86,
+      "avdn_route_index": "6_2",
+      "map_name": "2128",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Have I passed the correct parking lot? How to go to destinaton? .  [INS] move forward till you reach plain grey ground turn south and move forward to reach your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.15625,
+        "bleu4": 0.010802314890908065,
+        "rouge_l": 0.05555555555555555,
+        "bertscore": 0.849491536617279
+      }
+    },
+    {
+      "sample_index": 90,
+      "avdn_route_index": "3_2",
+      "map_name": "1197",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] can you describe the destination more?.  [INS] Destination is the multi-story building straight ahead.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. You have arrived at your destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.37777777777777777,
+        "bleu4": 0.01428363257865929,
+        "rouge_l": 0.09090909090909091,
+        "bertscore": 0.8577762842178345
+      }
+    },
+    {
+      "sample_index": 91,
+      "avdn_route_index": "3_3",
+      "map_name": "1197",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Which direction should I go?.  [INS] Please move forward to the North 12 o'clock, there you'll see building that is your destination.  ",
+      "generated_instruction": "The destination is a multi-story building. You should go to your seven o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.49999999999999994,
+        "bleu4": 0.017444714791376905,
+        "rouge_l": 0.1818181818181818,
+        "bertscore": 0.8889530301094055
+      }
+    },
+    {
+      "sample_index": 92,
+      "avdn_route_index": "3_4",
+      "map_name": "1197",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] In what direction is our destination?.  [INS] Move towards your 5 o'clock direction. You will see a structure that looks very much like the one you are currently on but taller. It will be the first building you will see after passing the area with trees.  ",
+      "generated_instruction": "Destination is straight ahead.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.08333333333333334,
+        "bleu4": 0,
+        "rouge_l": 0.0,
+        "bertscore": 0.8224954605102539
+      }
+    },
+    {
+      "sample_index": 94,
+      "avdn_route_index": "6_2",
+      "map_name": "2181",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] How to go to destinaton? .  [INS] Turn around to your 5 o'clock on your right. Past the building with the red roof is the destination with a grey roof.  ",
+      "generated_instruction": "You have to turn to 1 o'clock and move forward to reach the destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3999999999999999,
+        "bleu4": 0.010620974306814997,
+        "rouge_l": 0.3076923076923077,
+        "bertscore": 0.8818897008895874
+      }
+    },
+    {
+      "sample_index": 97,
+      "avdn_route_index": "4_2",
+      "map_name": "860",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I have crossed the road. I don't see the gry building. In what direction is our destination?.  [INS] Please move to Your 1 o'clock and go ahead. When You reach the second park, you will see a grey building. It's Your destination.  ",
+      "generated_instruction": "Move towards 11 o'clock direction, cross the road and reached destination of the grey color building.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 1.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.65,
+        "bleu4": 0.011676694403425987,
+        "rouge_l": 0.372093023255814,
+        "bertscore": 0.8848638534545898
+      }
+    },
+    {
+      "sample_index": 99,
+      "avdn_route_index": "3_2",
+      "map_name": "2315",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I've see group of trees and I see the brown and white house. Where is the destination? .  [INS] Go in the 8 o'clock direction from your current position.  ",
+      "generated_instruction": "The destination is not in your view. You have to turn to 6 o'clock and move forward to arrive at the destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.44444444444444453,
+        "bleu4": 0.012285946074705657,
+        "rouge_l": 0.1764705882352941,
+        "bertscore": 0.8750441074371338
+      }
+    },
+    {
+      "sample_index": 100,
+      "avdn_route_index": "3_3",
+      "map_name": "2315",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the house after passing trees. Can I see the destination? What is destination's color and shape? Where should I go now?.  [INS] Turn 135 degrees right.  Go straight until you reach a row of three small building.  Turn 90 degrees right and go straight.  The destination is a large rectangular brown building.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 8 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.15625,
+        "bleu4": 0.007843360490570274,
+        "rouge_l": 0.12244897959183673,
+        "bertscore": 0.844025731086731
+      }
+    },
+    {
+      "sample_index": 104,
+      "avdn_route_index": "7_2",
+      "map_name": "1357",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see many places with cars. I cannot follow the instruction any more. Please further explain it.  [INS] Continue going forward.  Until you see a cargo ship, then turn left.  ",
+      "generated_instruction": "Move towards your 6 o'clock direction. You will fly over a parking lot. The destination is a parking lot.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.11111111111111113,
+        "bleu4": 0.012109013026441871,
+        "rouge_l": 0.125,
+        "bertscore": 0.8749796152114868
+      }
+    },
+    {
+      "sample_index": 108,
+      "avdn_route_index": "9_2",
+      "map_name": "379",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see a small bblue roof structure. Can I see the destination? Which direction should I go?.  [INS] Area forwart derection.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.11111111111111113,
+        "bleu4": 0,
+        "rouge_l": 0.0,
+        "bertscore": 0.8393430709838867
+      }
+    },
+    {
+      "sample_index": 109,
+      "avdn_route_index": "9_3",
+      "map_name": "379",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I moved foward. The instruction is confusing. Please further explain it. .  [INS] Head towards 4 o'clock direction, after passing the ground. The destination is a blue building.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.014216645907653848,
+        "rouge_l": 0.17142857142857143,
+        "bertscore": 0.8916708827018738
+      }
+    },
+    {
+      "sample_index": 112,
+      "avdn_route_index": "1_2",
+      "map_name": "145",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I'm heading southwest that I see multiple buildings. Can I see the destination? What is destination's color and shape?.  [INS] Please take a Uturn and you can see the destination.The destination's color is brown and the shape is triangle.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.2,
+        "bleu4": 0.012151974811408738,
+        "rouge_l": 0.1,
+        "bertscore": 0.8518850207328796
+      }
+    },
+    {
+      "sample_index": 113,
+      "avdn_route_index": "1_3",
+      "map_name": "145",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I don't see the triangle shape building. I am a liitle confused, what should I do now.  [INS] Please turn on 6 o'clock and fly above the road up to the triangle building.  ",
+      "generated_instruction": "Move towards your 6 o'clock direction. You will fly over a road and will see a building with brown roof. That is our destination.",
+      "scores": {
+        "direction": 1.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.8749999999999999,
+        "bleu4": 0.021042495247559002,
+        "rouge_l": 0.2926829268292683,
+        "bertscore": 0.8917480111122131
+      }
+    },
+    {
+      "sample_index": 115,
+      "avdn_route_index": "0_2",
+      "map_name": "377",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I passed multiple dirt trails. Am I near the destination? Which direction should I go?.  [INS] Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 4 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5454545454545455,
+        "bleu4": 0.8394327083733336,
+        "rouge_l": 0.9473684210526315,
+        "bertscore": 0.9978035092353821
+      }
+    },
+    {
+      "sample_index": 117,
+      "avdn_route_index": "3_2",
+      "map_name": "129",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see multiple rectangle gray building. Is the destination in my view? How to go to destinaton?.  [INS] yes, the destination on your view , turn to your 4 o'clock direction and move forward.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.32142857142857145,
+        "bleu4": 0.030064545690526145,
+        "rouge_l": 0.2857142857142857,
+        "bertscore": 0.8965309262275696
+      }
+    },
+    {
+      "sample_index": 119,
+      "avdn_route_index": "1_2",
+      "map_name": "2436",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see multiple rectaangular mounds. Is the destination in my view? How to go to destinaton?.  [INS] Turn right immediately in the direction of your 4 o'clock. Cross the muddy earth embankments and look for a series of three rectangular mounds. The second row of piles with two connected rectangular piles is your objective.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 4 o'clock direction from your current position.",
+      "scores": {
+        "direction": 1.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.4615384615384615,
+        "bleu4": 0.011242615982311526,
+        "rouge_l": 0.21052631578947367,
+        "bertscore": 0.8601222634315491
+      }
+    },
+    {
+      "sample_index": 120,
+      "avdn_route_index": "1_3",
+      "map_name": "2436",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the rectangular mounds from 4 o'clock. Am I near the destination? How does the destination look like? How to go to destinaton?.  [INS] You are at the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 4 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.11111111111111113,
+        "bleu4": 0.010802314890908065,
+        "rouge_l": 0.08333333333333333,
+        "bertscore": 0.8682555556297302
+      }
+    },
+    {
+      "sample_index": 122,
+      "avdn_route_index": "10_2",
+      "map_name": "42",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see some warehouses in my view. Am I near the destination? How to go to destinaton?.  [INS] You are not close to your destination yet, head north and you will reach the complex gray warehouse office.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.2222222222222222,
+        "bleu4": 0.012151974811408738,
+        "rouge_l": 0.10526315789473684,
+        "bertscore": 0.8585201501846313
+      }
+    },
+    {
+      "sample_index": 124,
+      "avdn_route_index": "6_2",
+      "map_name": "2294",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see multiple sections. Am I near the destination? In what direction is our destination?.  [INS] No, fate is not in your line of sight. Head in the 4 o'clock direction from your current location.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.36363636363636365,
+        "bleu4": 0.2722682474347737,
+        "rouge_l": 0.6666666666666667,
+        "bertscore": 0.9722313284873962
+      }
+    },
+    {
+      "sample_index": 125,
+      "avdn_route_index": "6_3",
+      "map_name": "2294",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see some sections of containers turning 4 o'clock. Can I see the destination? How does the destination look like? .  [INS] You can't currently see the destination. You need to turn to face south and go forward past a red and white striped container on the east. Go past the next container after that and the next group of containers in that column are your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 4 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.15625,
+        "bleu4": 0.0036042724412536577,
+        "rouge_l": 0.0923076923076923,
+        "bertscore": 0.8533241152763367
+      }
+    },
+    {
+      "sample_index": 126,
+      "avdn_route_index": "6_4",
+      "map_name": "2294",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the next group of containers. Which on is it? Where should I go now? .  [INS] Your destination is next to you. You should turn east direction and move a couple of meters.  ",
+      "generated_instruction": "You are very close to the destination. Move towards your 6 o'clock direction. You will fly over a row of containers. That is our destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.45833333333333337,
+        "bleu4": 0.012322506848565618,
+        "rouge_l": 0.186046511627907,
+        "bertscore": 0.8939945697784424
+      }
+    },
+    {
+      "sample_index": 129,
+      "avdn_route_index": "9_2",
+      "map_name": "1086",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see light gray and light brown building. I am a little confused, what should I do now.  [INS] Go in the direction of 2 hours from your current position, cross the beige building and you will soon arrive at your destination.  ",
+      "generated_instruction": "Move towards 11 o'clock direction, after passing the gray color building. The destination is a gray color building with a yellow looking fork on the buildings roof.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.43749999999999994,
+        "bleu4": 0.009186672262412125,
+        "rouge_l": 0.1568627450980392,
+        "bertscore": 0.8722016215324402
+      }
+    },
+    {
+      "sample_index": 131,
+      "avdn_route_index": "2_2",
+      "map_name": "323",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] There are two building in the corner. Am I near the destination? How to go to destinaton?.  [INS] Yes, fate is in your field of vision. Go 1 hour direction from your current location.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5454545454545455,
+        "bleu4": 0.5918150152544451,
+        "rouge_l": 0.742857142857143,
+        "bertscore": 0.9544079303741455
+      }
+    },
+    {
+      "sample_index": 133,
+      "avdn_route_index": "6_2",
+      "map_name": "111",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I proceed forward. I see one white building. What is destination's color and shape? How to go to destinaton?.  [INS] Destination looks like big white rectangle, you can see it. Please turn to 1 hour and keep fly up to the nearest white building.  ",
+      "generated_instruction": "Move towards 11 o'clock direction. The destination is a gray color building.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.2222222222222222,
+        "bleu4": 0.00824672896946456,
+        "rouge_l": 0.10810810810810811,
+        "bertscore": 0.8637182712554932
+      }
+    },
+    {
+      "sample_index": 134,
+      "avdn_route_index": "6_3",
+      "map_name": "111",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I don't see the big white rectangular building on my view. I am a liitle confused, what should I do now.  [INS] hi drone, the white rectangular building is not in your field of view, turn to your right and go straight the white rectangular building will be right in front of you.  ",
+      "generated_instruction": "Destination is a white rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 1.0,
+        "landmark": 0.8,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.49444444444444435,
+        "bleu4": 0.010127160323811508,
+        "rouge_l": 0.2325581395348837,
+        "bertscore": 0.8583717942237854
+      }
+    },
+    {
+      "sample_index": 135,
+      "avdn_route_index": "6_4",
+      "map_name": "111",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the white rectangular building. Is the destination in my view? How does the destination look like? How to go to destinaton? .  [INS] Yes, the destination is in your view, it's the same building you are above right now but you need the eastern part, so please turn on east.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.2142857142857143,
+        "bleu4": 0.036844239101113285,
+        "rouge_l": 0.2127659574468085,
+        "bertscore": 0.885518491268158
+      }
+    },
+    {
+      "sample_index": 139,
+      "avdn_route_index": "2_2",
+      "map_name": "118",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I head northwest. I see construction site with containers. Is the destination in my view? Where should I go now?.  [INS] Turn more North Northwest and go to the far end of the long white roof.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.16666666666666663,
+        "bleu4": 0.014216645907653848,
+        "rouge_l": 0.11764705882352941,
+        "bertscore": 0.8562253713607788
+      }
+    },
+    {
+      "sample_index": 140,
+      "avdn_route_index": "2_3",
+      "map_name": "118",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the long white roof building. Am I near the destination? How does the destination look like? Where should I go now? .  [INS] Yes , you are near the destination , the destination look like a white color shed next to the white color shed now you are in , to reach there you should turn into your 2 o'clock direction and move little forward.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 4 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.007571815530075802,
+        "rouge_l": 0.20338983050847456,
+        "bertscore": 0.8670734167098999
+      }
+    },
+    {
+      "sample_index": 142,
+      "avdn_route_index": "2_2",
+      "map_name": "2438",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see a building next to the farm. Can I see the destination? Which direction should I go?.  [INS] Yes the destination is in your sight, the destination is just to the left.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.27272727272727276,
+        "bleu4": 0.05744990696182412,
+        "rouge_l": 0.30303030303030304,
+        "bertscore": 0.8822514414787292
+      }
+    },
+    {
+      "sample_index": 144,
+      "avdn_route_index": "4_2",
+      "map_name": "315",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see multiple fields. Is the destination in my view? How does the destination look like?.  [INS] turn 7'0 clock direction go toward after crossing road near tree you found grey roof with white big object this building is your goal.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.15625,
+        "bleu4": 0.010946291355069202,
+        "rouge_l": 0.1818181818181818,
+        "bertscore": 0.845344603061676
+      }
+    },
+    {
+      "sample_index": 147,
+      "avdn_route_index": "5_2",
+      "map_name": "1418",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see many parking lots. Can I see the destination? What is destination's color and shape?.  [INS] Yes, the destination is within your view. It is directly east of the parking lot in your sights.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 4 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.27272727272727276,
+        "bleu4": 0.03124577801157052,
+        "rouge_l": 0.3243243243243243,
+        "bertscore": 0.8962271213531494
+      }
+    },
+    {
+      "sample_index": 149,
+      "avdn_route_index": "1_2",
+      "map_name": "10",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see two blue piece on the roof buildings. Can I see the destination? In what direction is our destination?.  [INS] Yes, you can see the destination. Please turn to 2 hrs and fly to the grey building - it's your final point.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.16666666666666666,
+        "bleu4": 0.011383800122282609,
+        "rouge_l": 0.14634146341463414,
+        "bertscore": 0.872773289680481
+      }
+    },
+    {
+      "sample_index": 150,
+      "avdn_route_index": "1_3",
+      "map_name": "10",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see many gray buildings. Can I see the destination? What is the destination look like? Where should I go now? .  [INS] Yes you can see the building. The destination is peach color building with blue small object on the terrace. You should go  towards 3 o'clock  direction.  ",
+      "generated_instruction": "No, you can't see the destination. You have to turn to 6 o'clock and move forward to reach the destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.35555555555555546,
+        "bleu4": 0.019855151822646258,
+        "rouge_l": 0.32653061224489793,
+        "bertscore": 0.8830565810203552
+      }
+    },
+    {
+      "sample_index": 152,
+      "avdn_route_index": "2_2",
+      "map_name": "1224",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I pass the buildings, Am I near the destination? Which direction should I go?.  [INS] Head towards 3 o'clock until you cross 2 \"L\" shaped buildings. Your destination is an adjacent building with a shiny, striped roof.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 3 o'clock direction from your current position.",
+      "scores": {
+        "direction": 1.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.75,
+        "bleu4": 0.021753139549460215,
+        "rouge_l": 0.1904761904761905,
+        "bertscore": 0.8669058084487915
+      }
+    },
+    {
+      "sample_index": 153,
+      "avdn_route_index": "2_3",
+      "map_name": "1224",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I pass the L shape building, What is the destination look like? Which direction should I go?.  [INS] Your destination is an adjacent building with a shiny, striped roof. Go in the 6 o'clock direction from your current location.  ",
+      "generated_instruction": "Destination looks like a rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5833333333333334,
+        "bleu4": 0.01074040200725754,
+        "rouge_l": 0.29411764705882354,
+        "bertscore": 0.8860495090484619
+      }
+    },
+    {
+      "sample_index": 154,
+      "avdn_route_index": "2_4",
+      "map_name": "1224",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the building with strip roof, What is destination's color and shape? How to go to destinaton?.  [INS] Move towards your 7 o'clock direction. You will see a building, or possibly just the different part of the building you are currently on, with similar roof. That is our destination.  ",
+      "generated_instruction": "The destination is a rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5833333333333334,
+        "bleu4": 0.004327204018056136,
+        "rouge_l": 0.13636363636363635,
+        "bertscore": 0.8721907138824463
+      }
+    },
+    {
+      "sample_index": 157,
+      "avdn_route_index": "14_2",
+      "map_name": "1284",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I near many containers, Is the destination in my view? In what direction is our destination?.  [INS] Hell drone, please go in the 5 o'clock direction, and your destination will be the second set of storage units that you fly over.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.20833333333333334,
+        "bleu4": 0.045556181773886456,
+        "rouge_l": 0.3181818181818182,
+        "bertscore": 0.8923459649085999
+      }
+    },
+    {
+      "sample_index": 158,
+      "avdn_route_index": "14_3",
+      "map_name": "1284",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on top of containers, Am I near the destination? Where should I go now?.  [INS] Go southeast to just between the two yellow structures.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3076923076923077,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.14285714285714285,
+        "bertscore": 0.8538879752159119
+      }
+    },
+    {
+      "sample_index": 160,
+      "avdn_route_index": "6_2",
+      "map_name": "1089",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Where should I go now? .  [INS] Head south and you'll reach your destination.  ",
+      "generated_instruction": "Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.33333333333333337,
+        "bleu4": 0.021105340631872645,
+        "rouge_l": 0.10526315789473685,
+        "bertscore": 0.8581979870796204
+      }
+    },
+    {
+      "sample_index": 165,
+      "avdn_route_index": "6_2",
+      "map_name": "43",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see multiple gray buildings. Can I see the destination? Which direction should I go?.  [INS] Yes, fate is in your field of vision. Go south from your current location.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5454545454545455,
+        "bleu4": 0.5292031904718659,
+        "rouge_l": 0.7272727272727273,
+        "bertscore": 0.9570621848106384
+      }
+    },
+    {
+      "sample_index": 170,
+      "avdn_route_index": "8_2",
+      "map_name": "1465",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] There are a lot of red and grey roof building, which one is the target?.  [INS] Destination is the third you will encounter when you continue to your West-Southwest direction.  ",
+      "generated_instruction": "You are almost there. Move towards your 6 o'clock direction. You will fly over a parking lot and a grey roofed building. That is our destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.37777777777777777,
+        "bleu4": 0.02022202784230022,
+        "rouge_l": 0.14285714285714285,
+        "bertscore": 0.8575852513313293
+      }
+    },
+    {
+      "sample_index": 171,
+      "avdn_route_index": "8_3",
+      "map_name": "1465",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Where should I go now?.  [INS] rotate south until you see the building next to the one you are standing on.go straight until you reach that.  ",
+      "generated_instruction": "You should turn on 5 o'clock and fly over a parking lot and a grey roofed building.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.2833333333333333,
+        "bleu4": 0.009641902768291676,
+        "rouge_l": 0.10256410256410256,
+        "bertscore": 0.8494957089424133
+      }
+    },
+    {
+      "sample_index": 173,
+      "avdn_route_index": "2_2",
+      "map_name": "1233",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] What is destination's color and shape? In what direction is our destination?.  [INS] The destination is in a gray rectangular format. The direction to follow is now 5 o'clock from your current position.  ",
+      "generated_instruction": "Destination is a square building with a gray roof. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.5,
+        "landmark": 0.8,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.36,
+        "bleu4": 0.030796954768685946,
+        "rouge_l": 0.3888888888888889,
+        "bertscore": 0.8743751049041748
+      }
+    },
+    {
+      "sample_index": 175,
+      "avdn_route_index": "0_2",
+      "map_name": "2026",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the brown buidlings. Am I near the destination? Where should I go now?.  [INS] Yes, head northeast and head towards the second brown-roofed building, counting from left to right, that's the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 11 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3333333333333333,
+        "bleu4": 0.014216645907653848,
+        "rouge_l": 0.15384615384615385,
+        "bertscore": 0.85820072889328
+      }
+    },
+    {
+      "sample_index": 177,
+      "avdn_route_index": "9_2",
+      "map_name": "2021",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see grey buildings. Am I near the destination? In what direction is our destination?.  [INS] Yes, fate is in your field of vision. Head south from your current position.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 4 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5454545454545455,
+        "bleu4": 0.5292031904718659,
+        "rouge_l": 0.7272727272727273,
+        "bertscore": 0.9606490731239319
+      }
+    },
+    {
+      "sample_index": 179,
+      "avdn_route_index": "3_2",
+      "map_name": "1496",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see multiple gray color buildings. Is the destination in my view? Which direction should I go?.  [INS] Destination is in Your view. Please turn to Your 1 o'clock. Your destination is the last building.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 11 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.08333333333333334,
+        "bleu4": 0.060745880708766846,
+        "rouge_l": 0.3243243243243243,
+        "bertscore": 0.8855367302894592
+      }
+    },
+    {
+      "sample_index": 181,
+      "avdn_route_index": "6_2",
+      "map_name": "91",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the black building, Is the destination in my view? How to go to destinaton?.  [INS] You are not on the black building. The destination is not in your view. Turn to 5 o'clock orientation and cross a road to reach the black rectangular building.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.05555555555555555,
+        "bleu4": 0.015590396148324468,
+        "rouge_l": 0.2040816326530612,
+        "bertscore": 0.8860608339309692
+      }
+    },
+    {
+      "sample_index": 184,
+      "avdn_route_index": "6_2",
+      "map_name": "1436",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I pass the road, Am I near the destination? Which direction should I go?.  [INS] Yes, you are near the destination. You have to turn to 3 o'clock and move forward to reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.32142857142857145,
+        "bleu4": 0.012721613711396774,
+        "rouge_l": 0.2,
+        "bertscore": 0.901992678642273
+      }
+    },
+    {
+      "sample_index": 186,
+      "avdn_route_index": "6_2",
+      "map_name": "136",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I across the road, Can I see the destination? How to go to destinaton?.  [INS] Yes you can, your destiny is on your right.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 3 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.37500000000000006,
+        "bleu4": 0.014216645907653848,
+        "rouge_l": 0.21428571428571427,
+        "bertscore": 0.8730993270874023
+      }
+    },
+    {
+      "sample_index": 188,
+      "avdn_route_index": "6_2",
+      "map_name": "109",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Which green building is the target? How to go to destinaton?.  [INS] The target is  dusty white building. Please go to  nearest road south direction at 6 o clock near V point of the road. The destination is  dusty white building opposite side of red building and W shape point of the other road.  ",
+      "generated_instruction": "You have to turn to 11 o'clock and move forward to reach the destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3999999999999999,
+        "bleu4": 0.002544075643173909,
+        "rouge_l": 0.1754385964912281,
+        "bertscore": 0.8533537983894348
+      }
+    },
+    {
+      "sample_index": 192,
+      "avdn_route_index": "6_2",
+      "map_name": "2044",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] How to go to destinaton? How does the destination look like?.  [INS] To get to the destination, turn southwest and across the road. The destination is the tall white building with a red roof.  ",
+      "generated_instruction": "Go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.0625,
+        "bleu4": 0.0017930956212998117,
+        "rouge_l": 0.07142857142857144,
+        "bertscore": 0.8356881737709045
+      }
+    },
+    {
+      "sample_index": 195,
+      "avdn_route_index": "1_2",
+      "map_name": "735",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I moved forward after turning left. I cannot follow the instruction any more. Please further explain it.  [INS] turn 4'o clock direction go toward  the area where cars stand is your goal.  ",
+      "generated_instruction": "Move towards 12 o'clock direction, pass the cars nearby, and reach the destination of the grey color building.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.5,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.33333333333333337,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.29411764705882354,
+        "bertscore": 0.879250168800354
+      }
+    },
+    {
+      "sample_index": 198,
+      "avdn_route_index": "8_2",
+      "map_name": "1452",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the boat, Is the destination in my view? Where should I go now?.  [INS] No, the destination is not in your view. Turn and go southward.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.17857142857142855,
+        "bleu4": 0.02872495348091206,
+        "rouge_l": 0.2580645161290323,
+        "bertscore": 0.9000958800315857
+      }
+    },
+    {
+      "sample_index": 203,
+      "avdn_route_index": "1_2",
+      "map_name": "1091",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I moved forward. When do I turn left. I cannot follow the instruction any more. Please further explain it.  [INS] Yes proceed forward direction in turn left of train in your destination.  ",
+      "generated_instruction": "Move towards 12 o'clock direction, turn left and move forward to reach the destination.",
+      "scores": {
+        "direction": 1.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.857142857142857,
+        "bleu4": 0.03592143420342892,
+        "rouge_l": 0.2962962962962963,
+        "bertscore": 0.8862322568893433
+      }
+    },
+    {
+      "sample_index": 204,
+      "avdn_route_index": "1_3",
+      "map_name": "1091",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the train. Is the destination in my view? What is the destination look like? How to go to destinaton?.  [INS] The destination is the grey train car directly east of you.  ",
+      "generated_instruction": "Destination looks like a train. You should go to your eight o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.3076923076923077,
+        "bleu4": 0.017033186037639283,
+        "rouge_l": 0.24999999999999994,
+        "bertscore": 0.8447736501693726
+      }
+    },
+    {
+      "sample_index": 205,
+      "avdn_route_index": "1_4",
+      "map_name": "1091",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the gray train head. I cannot follow the instruction any more. Please further explain it. .  [INS] Please go a little  backward direction or 6 o'clock direction. The destination is third train compartment.  ",
+      "generated_instruction": "Destination looks like a gray train car. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.5833333333333334,
+        "bleu4": 0.01726020940474759,
+        "rouge_l": 0.20000000000000004,
+        "bertscore": 0.8649551272392273
+      }
+    },
+    {
+      "sample_index": 207,
+      "avdn_route_index": "4_2",
+      "map_name": "905",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see red colored buildings. Is the destination in my view? I am a liitle confused, what should I do now.  [INS] Yes, fate is in your field of vision. Head east from your current location and the next building is your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.4285714285714286,
+        "bleu4": 0.40318778781663867,
+        "rouge_l": 0.5500000000000002,
+        "bertscore": 0.9394680857658386
+      }
+    },
+    {
+      "sample_index": 209,
+      "avdn_route_index": "0_2",
+      "map_name": "2270",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the colored ship. Is the destination in my view? Which direction should I go?.  [INS] Proceed forward direction in nearest by some colour ship in your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.33333333333333337,
+        "bleu4": 0.027166383723579154,
+        "rouge_l": 0.1935483870967742,
+        "bertscore": 0.8529924154281616
+      }
+    },
+    {
+      "sample_index": 213,
+      "avdn_route_index": "14_2",
+      "map_name": "97",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see trees and moved forward. Is the destination in my view? I cannot follow the instruction any more. Please further explain it.  [INS] turn west and move straight white building is your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.15625,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.13793103448275862,
+        "bertscore": 0.8576141595840454
+      }
+    },
+    {
+      "sample_index": 214,
+      "avdn_route_index": "14_3",
+      "map_name": "97",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the white building. Can I see the destination? How does the destination look like? In what direction is our destination?.  [INS] No, it is a big building. Go left.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.2857142857142857,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.14814814814814814,
+        "bertscore": 0.8830972909927368
+      }
+    },
+    {
+      "sample_index": 217,
+      "avdn_route_index": "4_2",
+      "map_name": "1053",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the road, Am I near the destination? How to go to destinaton?.  [INS] turn to your right and your destiny will be in front of you.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.11111111111111113,
+        "bleu4": 0.015276780223747026,
+        "rouge_l": 0.125,
+        "bertscore": 0.8824002742767334
+      }
+    },
+    {
+      "sample_index": 218,
+      "avdn_route_index": "4_3",
+      "map_name": "1053",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move right, How does the destination look like? Where should I go now?.  [INS] The destination is a dusty field with half red circle in it. Please go to the southeast direction at 7 o'clock.  ",
+      "generated_instruction": "The destination is a rectangular building with a gray roof. Go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3999999999999999,
+        "bleu4": 0.14092603317607083,
+        "rouge_l": 0.47368421052631576,
+        "bertscore": 0.901731550693512
+      }
+    },
+    {
+      "sample_index": 225,
+      "avdn_route_index": "1_2",
+      "map_name": "1385",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the sand road, Can I see the destination?Where should I go now?.  [INS] Move towards 12 o'clock direction, turn towards 9 o'clock direction, red colored building is your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.15625,
+        "bleu4": 0.014216645907653848,
+        "rouge_l": 0.21621621621621623,
+        "bertscore": 0.8753461837768555
+      }
+    },
+    {
+      "sample_index": 226,
+      "avdn_route_index": "1_3",
+      "map_name": "1385",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I near multiple red buildings, Can I see the destination? In what direction is our destination?.  [INS] Yes, you can see the destination. Move towards your 1 o'clock direction. It is a red building on the edge of that block.  ",
+      "generated_instruction": "No, fate is not in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3333333333333333,
+        "bleu4": 0.012335686717627185,
+        "rouge_l": 0.1818181818181818,
+        "bertscore": 0.8969926834106445
+      }
+    },
+    {
+      "sample_index": 228,
+      "avdn_route_index": "0_2",
+      "map_name": "1529",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I across the street, Is the destination in my view? In what direction is our destination?.  [INS] Yes, the destination is in your view. You have to turn to 1:30 o'clock and move forward to reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.32142857142857145,
+        "bleu4": 0.05381826970898092,
+        "rouge_l": 0.28571428571428575,
+        "bertscore": 0.9136948585510254
+      }
+    },
+    {
+      "sample_index": 229,
+      "avdn_route_index": "0_3",
+      "map_name": "1529",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the building near the red building, What is the destination look like? Where should I go now?.  [INS] Head towards 3 o'clock direction, after passing the ground. The destination is a gray color building with two other buidings in both sides.  ",
+      "generated_instruction": "Destination looks like a rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.43749999999999994,
+        "bleu4": 0.007530094129003774,
+        "rouge_l": 0.16666666666666666,
+        "bertscore": 0.8581036925315857
+      }
+    },
+    {
+      "sample_index": 234,
+      "avdn_route_index": "6_2",
+      "map_name": "2555",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see some ships. I cannot follow the instruction any more. Please further explain it. How does the destination look like?.  [INS] Destination looks like a big ship behind you.  ",
+      "generated_instruction": "Destination looks like a small ship. You should go to your eight o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.44444444444444453,
+        "bleu4": 0.1933853138176172,
+        "rouge_l": 0.5454545454545454,
+        "bertscore": 0.8992953896522522
+      }
+    },
+    {
+      "sample_index": 236,
+      "avdn_route_index": "7_2",
+      "map_name": "1129",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see many buildings. Am I near the destination? How does the destination look like?.  [INS] Move towards 6'o clock' direction and pass the brown appartment. your destination is a gray and silver color building in right side.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.01293449416293258,
+        "rouge_l": 0.1904761904761905,
+        "bertscore": 0.858351469039917
+      }
+    },
+    {
+      "sample_index": 238,
+      "avdn_route_index": "0_2",
+      "map_name": "1581",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see many complex near the road. Can I see the destination? What is the destination look like?.  [INS] Yes. proceed forward direction in nearest by some color building in your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.4285714285714286,
+        "bleu4": 0.027166383723579154,
+        "rouge_l": 0.25,
+        "bertscore": 0.8582299947738647
+      }
+    },
+    {
+      "sample_index": 240,
+      "avdn_route_index": "7_2",
+      "map_name": "2599",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see multiple buildings turning ten o'clock direction. Is the destination in my view? Where should I go now?.  [INS] You just have to turn to 1 o'clock and move a bit forward to reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.20833333333333334,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.10810810810810811,
+        "bertscore": 0.8859862089157104
+      }
+    },
+    {
+      "sample_index": 243,
+      "avdn_route_index": "0_2",
+      "map_name": "1127",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the intersection, Can I see the destination? Which direction should I go?.  [INS] Yes, you can see your destination. It is in the two o'clock direction.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.27272727272727276,
+        "bleu4": 0.03575297164449809,
+        "rouge_l": 0.4242424242424242,
+        "bertscore": 0.9184988141059875
+      }
+    },
+    {
+      "sample_index": 244,
+      "avdn_route_index": "0_3",
+      "map_name": "1127",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move to 2 o clock, $des Where should I go now?.  [INS] Turn around. You will then see right before you a rectangular building. Half of its roof is brown; the other half is tan. That is your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.0625,
+        "bleu4": 0.009265835587394196,
+        "rouge_l": 0.13043478260869565,
+        "bertscore": 0.8475599884986877
+      }
+    },
+    {
+      "sample_index": 246,
+      "avdn_route_index": "6_2",
+      "map_name": "282",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I pass the tree area and near the road, Am I near the destination? Which direction should I go?.  [INS] You are sort of near the destination. You should go backwards towards the exact track that you came from until you pass directly over a dark rusted Brown roof in a darkened area near the woods. This is the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.004980240076453603,
+        "rouge_l": 0.13559322033898305,
+        "bertscore": 0.8540948629379272
+      }
+    },
+    {
+      "sample_index": 248,
+      "avdn_route_index": "8_2",
+      "map_name": "1118",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on top of the parking lot, Am I near the destination? Where should I go now?.  [INS] No, you are not near the destination. You have to turn to 10 o'clock and move forward to reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.17857142857142855,
+        "bleu4": 0.010874064838186426,
+        "rouge_l": 0.14634146341463414,
+        "bertscore": 0.8992153406143188
+      }
+    },
+    {
+      "sample_index": 250,
+      "avdn_route_index": "3_2",
+      "map_name": "418",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on top of the parking, Am I near the destination? Where should I go now?.  [INS] Yes, you are near the destination. You have to turn to 7 o'clock and move forward to arrive at the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 1.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.6785714285714286,
+        "bleu4": 0.022995847353375582,
+        "rouge_l": 0.24390243902439024,
+        "bertscore": 0.9030377864837646
+      }
+    },
+    {
+      "sample_index": 251,
+      "avdn_route_index": "3_3",
+      "map_name": "418",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move backward, How does the destination look like? How to go to destinaton?.  [INS] Turn west and move to the vertical row of cars next to the big shed, that's your destination.  ",
+      "generated_instruction": "Destination looks like a parking lot. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.4083333333333333,
+        "bleu4": 0.011863340284736726,
+        "rouge_l": 0.12903225806451615,
+        "bertscore": 0.8583621382713318
+      }
+    },
+    {
+      "sample_index": 253,
+      "avdn_route_index": "6_2",
+      "map_name": "285",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] There are a lot of red buildings, can you tell me which one is the target?.  [INS] Destination is a T-shaped building to your one o'clock.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.11111111111111113,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.26666666666666666,
+        "bertscore": 0.8698082566261292
+      }
+    },
+    {
+      "sample_index": 254,
+      "avdn_route_index": "6_3",
+      "map_name": "285",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Where should I go now?.  [INS] Continue to head west, over the parking lot till you reach the red roofed building.  ",
+      "generated_instruction": "You should go to your eleven o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.012527116798509994,
+        "rouge_l": 0.08695652173913045,
+        "bertscore": 0.831585705280304
+      }
+    },
+    {
+      "sample_index": 256,
+      "avdn_route_index": "12_2",
+      "map_name": "1346",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Where should I go now? What is destination's color and shape?.  [INS] Go towards the North and then black roof building you reach is the destination.  ",
+      "generated_instruction": "You should go to your eight o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.2222222222222222,
+        "bleu4": 0.014450843425723598,
+        "rouge_l": 0.09090909090909091,
+        "bertscore": 0.8280311822891235
+      }
+    },
+    {
+      "sample_index": 257,
+      "avdn_route_index": "12_3",
+      "map_name": "1346",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Where should I go now?.  [INS] Go south to next building.  ",
+      "generated_instruction": "You should go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.33333333333333337,
+        "bleu4": 0.039281465090051315,
+        "rouge_l": 0.3076923076923077,
+        "bertscore": 0.8579643368721008
+      }
+    },
+    {
+      "sample_index": 259,
+      "avdn_route_index": "2_2",
+      "map_name": "2359",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] What is destination's color and shape?.  [INS] You are currently at the destination.  ",
+      "generated_instruction": "Move towards 11 o'clock direction, after passing the gray color building. The destination is a gray color building.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.37777777777777777,
+        "bleu4": 0.010802314890908065,
+        "rouge_l": 0.16,
+        "bertscore": 0.8500167727470398
+      }
+    },
+    {
+      "sample_index": 263,
+      "avdn_route_index": "6_2",
+      "map_name": "2375",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the long white building. Can I see the destination? Where should I go now?.  [INS] The destination is the grey and brown roofed building at the 5:00 direction. Go towards that to reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.012721613711396774,
+        "rouge_l": 0.15,
+        "bertscore": 0.8608508706092834
+      }
+    },
+    {
+      "sample_index": 268,
+      "avdn_route_index": "1_2",
+      "map_name": "1559",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on top of building near dirt road, Can I see the destination? Which direction should I go?.  [INS] Yes. Go to the 9'o clock direction then cross the road and reached destination of the building.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.4285714285714286,
+        "bleu4": 0.015276780223747026,
+        "rouge_l": 0.3243243243243243,
+        "bertscore": 0.8865416646003723
+      }
+    },
+    {
+      "sample_index": 271,
+      "avdn_route_index": "3_2",
+      "map_name": "2125",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the building, Can I see the destination? Which direction should I go?.  [INS] No,  you can't see the destination. Go towards 2 o'clock passing buildings on your right until you are directly over a gray roof. That is the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.2222222222222222,
+        "bleu4": 0.00979742828187554,
+        "rouge_l": 0.16666666666666666,
+        "bertscore": 0.8853894472122192
+      }
+    },
+    {
+      "sample_index": 272,
+      "avdn_route_index": "3_3",
+      "map_name": "2125",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the grey building near the road, Is the destination in my view? In what direction is our destination?.  [INS] No, the destination is not in your view. The destination is towards your 1 o'clock direction.  ",
+      "generated_instruction": "No, fate is not in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.09090909090909091,
+        "bleu4": 0.15071676257541072,
+        "rouge_l": 0.48648648648648646,
+        "bertscore": 0.9241860508918762
+      }
+    },
+    {
+      "sample_index": 277,
+      "avdn_route_index": "5_2",
+      "map_name": "1362",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] What is destination's color and shape?.  [INS] Destination is like a square. It is light silver.  ",
+      "generated_instruction": "Destination is a gray building. You should go to your five o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.2615384615384615,
+        "bleu4": 0.03986357128268015,
+        "rouge_l": 0.27272727272727276,
+        "bertscore": 0.8600857257843018
+      }
+    },
+    {
+      "sample_index": 279,
+      "avdn_route_index": "10_2",
+      "map_name": "1150",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] In what direction is our destination? How does the destination look like?.  [INS] Go South East until you reach two brick red long roofs which are the destination.  ",
+      "generated_instruction": "Destination looks like a big house. You should go to your five o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3999999999999999,
+        "bleu4": 0.015842132538336173,
+        "rouge_l": 0.0689655172413793,
+        "bertscore": 0.8338747024536133
+      }
+    },
+    {
+      "sample_index": 283,
+      "avdn_route_index": "10_2",
+      "map_name": "2179",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the some airplanes and a building. Am I near the destination? Where should I go now?.  [INS] Yes, you are near the destination. You have to turn to 2 o'clock and move a bit forward to reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.32142857142857145,
+        "bleu4": 0.011383800122282609,
+        "rouge_l": 0.1904761904761905,
+        "bertscore": 0.8988314270973206
+      }
+    },
+    {
+      "sample_index": 285,
+      "avdn_route_index": "9_2",
+      "map_name": "600",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see some parking spots. Is the destination in my view? How to go to destinaton?.  [INS] Dear drone. you have already reached the target and its right below you.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.11111111111111113,
+        "bleu4": 0.010802314890908065,
+        "rouge_l": 0.0625,
+        "bertscore": 0.8631177544593811
+      }
+    },
+    {
+      "sample_index": 287,
+      "avdn_route_index": "0_2",
+      "map_name": "1132",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am near buildings, Is the destination in my view? In what direction is our destination?.  [INS] Yes. It is just below you.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.37500000000000006,
+        "bleu4": 0.010802314890908065,
+        "rouge_l": 0.16,
+        "bertscore": 0.8821924328804016
+      }
+    },
+    {
+      "sample_index": 289,
+      "avdn_route_index": "3_2",
+      "map_name": "1309",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] .  [INS] Move towards the 6 o'clock direction and turn 3 o'clock direction blue color building is your destination.  ",
+      "generated_instruction": "Move towards 11 o'clock direction. The destination is a gray color building with a gray color building in the middle.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.34375,
+        "bleu4": 0.03312498979466406,
+        "rouge_l": 0.35,
+        "bertscore": 0.9066661596298218
+      }
+    },
+    {
+      "sample_index": 292,
+      "avdn_route_index": "0_2",
+      "map_name": "46",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] what is the holes? Which direction should I go?.  [INS] The holes are ahead near a dirt field. The destination is in your eleven o'clock direction.  ",
+      "generated_instruction": "Move towards your 6 o'clock direction. You will fly over a dirt field. That is our destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.44444444444444453,
+        "bleu4": 0.07786777655685517,
+        "rouge_l": 0.22857142857142856,
+        "bertscore": 0.9151387810707092
+      }
+    },
+    {
+      "sample_index": 293,
+      "avdn_route_index": "0_3",
+      "map_name": "46",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] In what direction is our destination? How does the destination look like?.  [INS] Yes you are on the way, move further forward, after passing the building blocks. The destination is a gray color building with a white color building next to it.  ",
+      "generated_instruction": "Destination looks like a small dirt field. You should go to your seven o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.35555555555555546,
+        "bleu4": 0.006918917492493117,
+        "rouge_l": 0.13636363636363635,
+        "bertscore": 0.8471791744232178
+      }
+    },
+    {
+      "sample_index": 294,
+      "avdn_route_index": "0_4",
+      "map_name": "46",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] In what direction is our destination? .  [INS] Destination is in your ten o'clock.  ",
+      "generated_instruction": "Destination looks like a small dirt field. You should go to your seven o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.44444444444444453,
+        "bleu4": 0.018798317647335087,
+        "rouge_l": 0.36363636363636365,
+        "bertscore": 0.8983486890792847
+      }
+    },
+    {
+      "sample_index": 297,
+      "avdn_route_index": "3_2",
+      "map_name": "79",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] In what direction is our destination?.  [INS] when you reach the road. Your destination is the first blue roofed large rectangular building.  ",
+      "generated_instruction": "The destination is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.2615384615384615,
+        "bleu4": 0.02872495348091206,
+        "rouge_l": 0.23529411764705882,
+        "bertscore": 0.8611458539962769
+      }
+    },
+    {
+      "sample_index": 298,
+      "avdn_route_index": "3_3",
+      "map_name": "79",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Which direction should I go?.  [INS] Down south and turn west. Your destination is the fist blue roofed large rectangular building.  ",
+      "generated_instruction": "You should go to your eight o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.0625,
+        "bleu4": 0.010534007609331637,
+        "rouge_l": 0.08695652173913045,
+        "bertscore": 0.8206030130386353
+      }
+    },
+    {
+      "sample_index": 299,
+      "avdn_route_index": "3_4",
+      "map_name": "79",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Which direction should I go? How does the destination look like?.  [INS] You should go straight ahead. Destination is a long blue building.  ",
+      "generated_instruction": "You should go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.09232083327419663,
+        "rouge_l": 0.3157894736842105,
+        "bertscore": 0.8621102571487427
+      }
+    },
+    {
+      "sample_index": 302,
+      "avdn_route_index": "3_2",
+      "map_name": "320",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Which direction should I go?.  [INS] Hello drone, please go 5 o'clock, and continue to go in that direction and top at your destination which is the big storage building with the white roof.  ",
+      "generated_instruction": "You should go to your six o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.0021643477772462717,
+        "rouge_l": 0.16216216216216217,
+        "bertscore": 0.8595342636108398
+      }
+    },
+    {
+      "sample_index": 304,
+      "avdn_route_index": "0_2",
+      "map_name": "788",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see a green field and some dark dirt area. Am I near the destination? Where should I go now?.  [INS] Yes, you are near the area , just turn to your 1 o'clock and move little forward you will reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.32142857142857145,
+        "bleu4": 0.012232689321294047,
+        "rouge_l": 0.1951219512195122,
+        "bertscore": 0.8841610550880432
+      }
+    },
+    {
+      "sample_index": 305,
+      "avdn_route_index": "0_3",
+      "map_name": "788",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I followed the instruction. I cannot follow the instruction any more. Please further explain it. .  [INS] You are almost near the destination. Turn towards 1'0 clock position and move little forward.  ",
+      "generated_instruction": "Destination is a small dirt patch to your five o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.33333333333333337,
+        "bleu4": 0,
+        "rouge_l": 0.14814814814814814,
+        "bertscore": 0.8432989716529846
+      }
+    },
+    {
+      "sample_index": 307,
+      "avdn_route_index": "3_2",
+      "map_name": "1076",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see an airplane. Is the destination in my view? In what direction is our destination? .  [INS] Move 10'o clock direction and go straight in near by Grey colour airplane in your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.02872495348091206,
+        "rouge_l": 0.2222222222222222,
+        "bertscore": 0.8679760694503784
+      }
+    },
+    {
+      "sample_index": 309,
+      "avdn_route_index": "12_2",
+      "map_name": "781",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see a white house near the road. Can I see the destination? How to go to destinaton?.  [INS] Yes, head northwest, go to the building with a white striped roof, your destination is this building in the part where there are cars in front.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3333333333333333,
+        "bleu4": 0.02003418008225492,
+        "rouge_l": 0.17777777777777778,
+        "bertscore": 0.861770510673523
+      }
+    },
+    {
+      "sample_index": 311,
+      "avdn_route_index": "5_2",
+      "map_name": "2609",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the building with light color roof. Is the destination in my view? How to go to destinaton?.  [INS] Move towards 1'o clock Direction and pass the silver color building. The destination is a gray color area with compound walls.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.012034130950069917,
+        "rouge_l": 0.14634146341463414,
+        "bertscore": 0.8526020050048828
+      }
+    },
+    {
+      "sample_index": 312,
+      "avdn_route_index": "5_3",
+      "map_name": "2609",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the gray area. Can I see the destination? What is the destination look like? Which direction should I go?.  [INS] You can see the destination, it looks like a construction site. Go forward to reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.4285714285714286,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.1111111111111111,
+        "bertscore": 0.8686680793762207
+      }
+    },
+    {
+      "sample_index": 314,
+      "avdn_route_index": "5_2",
+      "map_name": "389",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see a grey color roof structure. Is the destination in my view? How does the destination look like?.  [INS] Yes, you can see the destination. Your destination is the same grey color roof structure which you are seeing now.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 2 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.2,
+        "bleu4": 0.013670263578541062,
+        "rouge_l": 0.15384615384615385,
+        "bertscore": 0.872947096824646
+      }
+    },
+    {
+      "sample_index": 316,
+      "avdn_route_index": "11_2",
+      "map_name": "1446",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on top of the parking lot with buildings, Am I near the destination? Where should I go now?.  [INS] Yes, you are near to your destination. You have to turn to 3 o'clock and move forward to reach the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.32142857142857145,
+        "bleu4": 0.012931515274572203,
+        "rouge_l": 0.1951219512195122,
+        "bertscore": 0.8983584642410278
+      }
+    },
+    {
+      "sample_index": 317,
+      "avdn_route_index": "11_3",
+      "map_name": "1446",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move 3 o clock and on the red building, $des How to go to destinaton?.  [INS] Go a few meters to the right and head towards the building with a gray roof, that's your destination.  ",
+      "generated_instruction": "Destination is a long building with a row of curb parked cars in the middle of a forest clearing up to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.04840461225938483,
+        "rouge_l": 0.22222222222222224,
+        "bertscore": 0.8415283560752869
+      }
+    },
+    {
+      "sample_index": 318,
+      "avdn_route_index": "11_4",
+      "map_name": "1446",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on hte grey building at right, What is destination's color and shape? Where should I go now?.  [INS] Your destination is a multistory big building - please turn on 3 o'clock and cross the green line.  ",
+      "generated_instruction": "Destination is a long building with a row of curb parked cars in the middle of a forest clearing up to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.04657469807170698,
+        "rouge_l": 0.27906976744186046,
+        "bertscore": 0.8630455732345581
+      }
+    },
+    {
+      "sample_index": 321,
+      "avdn_route_index": "8_2",
+      "map_name": "1217",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] How to go to destinaton? How does the destination look like?.  [INS] Move towards 1'o clock direction. after passing the silver color building. Your destination is a brown color building sorrounded by other buildings.  ",
+      "generated_instruction": "Go to your six o'clock. Destination is a gray building.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.43749999999999994,
+        "bleu4": 0.035746949567482866,
+        "rouge_l": 0.3529411764705882,
+        "bertscore": 0.8644764423370361
+      }
+    },
+    {
+      "sample_index": 323,
+      "avdn_route_index": "1_2",
+      "map_name": "2405",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] When should I turn? Which direction should I go?.  [INS] You should turn where you are at. You should go to your eight o'clock direction.  ",
+      "generated_instruction": "Move towards 12 o'clock direction, turn left, a square shaped place is your destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.44444444444444453,
+        "bleu4": 0.017502413882486995,
+        "rouge_l": 0.19354838709677422,
+        "bertscore": 0.8819451332092285
+      }
+    },
+    {
+      "sample_index": 324,
+      "avdn_route_index": "1_3",
+      "map_name": "2405",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] How to go to destinaton? What is destination's color and shape?.  [INS] Turn to 7pm. Fly straight and pass the line of vans. You should see rectangular semi-truck, almost perpendicular to yourself. That is the destination.  ",
+      "generated_instruction": "Move towards 12 o'clock direction, turn left, a rod shaped place is your destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.34375,
+        "bleu4": 0.009202559617955177,
+        "rouge_l": 0.15,
+        "bertscore": 0.8625730872154236
+      }
+    },
+    {
+      "sample_index": 326,
+      "avdn_route_index": "2_2",
+      "map_name": "1280",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am a liitle confused, what should I do now. How to go to destinaton?.  [INS] You have to turn 180 degree and move straight ahead to reach the destination.  ",
+      "generated_instruction": "Destination is straight ahead.",
+      "scores": {
+        "direction": 1.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.75,
+        "bleu4": 0.0065949420663472934,
+        "rouge_l": 0.22222222222222224,
+        "bertscore": 0.8640286922454834
+      }
+    },
+    {
+      "sample_index": 327,
+      "avdn_route_index": "2_3",
+      "map_name": "1280",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] Where should I go now? What is destination's color and shape?.  [INS] Move towards forward direction, black color , rectangle shape is your destination.  ",
+      "generated_instruction": "The destination is a white rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.5,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.525,
+        "bleu4": 0.020255986027125642,
+        "rouge_l": 0.16666666666666669,
+        "bertscore": 0.8566288948059082
+      }
+    },
+    {
+      "sample_index": 331,
+      "avdn_route_index": "2_2",
+      "map_name": "317",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] How to go to destinaton? What is destination's color and shape?.  [INS] Move towards 9 o'clock direction, move towards 12 o'clock direction, white colored place is your destination.  ",
+      "generated_instruction": "Destination is a large rectangular building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3999999999999999,
+        "bleu4": 0.014228844094632594,
+        "rouge_l": 0.13333333333333333,
+        "bertscore": 0.8564381003379822
+      }
+    },
+    {
+      "sample_index": 334,
+      "avdn_route_index": "4_2",
+      "map_name": "1079",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the construction site. Can I see the destination? Where should I go now?.  [INS] Move towards 12 o'clock direction, sand place is your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.014216645907653848,
+        "rouge_l": 0.26666666666666666,
+        "bertscore": 0.8913079500198364
+      }
+    },
+    {
+      "sample_index": 335,
+      "avdn_route_index": "4_3",
+      "map_name": "1079",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see a huge sand field. Which section is the destination. Is the destination in my view? Which direction should I go? What is the destination look like? .  [INS] You are at the northern most side of the destination. Just go south a tiny way to where the two colors of sand meet.  ",
+      "generated_instruction": "Destination looks like a dirt road next to the construction site. You should go to your seven o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.35555555555555546,
+        "bleu4": 0.011574293920098046,
+        "rouge_l": 0.186046511627907,
+        "bertscore": 0.8514649868011475
+      }
+    },
+    {
+      "sample_index": 337,
+      "avdn_route_index": "0_2",
+      "map_name": "1845",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I moved 10 houses. Is the destination in my view? How does the destination look like?.  [INS] Move towards 1'o clock Direction. Your destination is a silver color building sorrounded by other buildings.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.33333333333333337,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.2222222222222222,
+        "bertscore": 0.8546388745307922
+      }
+    },
+    {
+      "sample_index": 338,
+      "avdn_route_index": "0_3",
+      "map_name": "1845",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the silver building. Am I near the destination? What is the destination look like? How to go to destinaton?.  [INS] You have passed the destination but still close to it. Your destination is a building with silver top. Head towards your 5 o'clock direction.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.33333333333333337,
+        "bleu4": 0.011574293920098046,
+        "rouge_l": 0.22727272727272727,
+        "bertscore": 0.8849297761917114
+      }
+    },
+    {
+      "sample_index": 341,
+      "avdn_route_index": "1_2",
+      "map_name": "310",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see two structures. Can I see the destination? How does the destination look like?.  [INS] Yes, go a few meters to the northeast, the destination is the first shed across the street.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.4285714285714286,
+        "bleu4": 0.015276780223747026,
+        "rouge_l": 0.16666666666666669,
+        "bertscore": 0.8737735748291016
+      }
+    },
+    {
+      "sample_index": 343,
+      "avdn_route_index": "1_2",
+      "map_name": "546",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I followed the street. Is the destination in my view? In what direction is our destination?.  [INS] Destination is in your eleven o'clock, within your view.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.11111111111111113,
+        "bleu4": 0.05744990696182412,
+        "rouge_l": 0.41379310344827586,
+        "bertscore": 0.8860767483711243
+      }
+    },
+    {
+      "sample_index": 344,
+      "avdn_route_index": "1_3",
+      "map_name": "546",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see the building at the corner. Can I see the destination? What is destination's color and shape? .  [INS] The destination is just south of you with a striped roof that runs perpendicular to its length.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.11111111111111113,
+        "bleu4": 0.014216645907653848,
+        "rouge_l": 0.1111111111111111,
+        "bertscore": 0.8584370613098145
+      }
+    },
+    {
+      "sample_index": 347,
+      "avdn_route_index": "5_2",
+      "map_name": "548",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see two intersections. Can I see the destination? What is destination's color and shape?.  [INS] yes, your destination is on your left, this house with the reddish roof.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.27272727272727276,
+        "bleu4": 0.016153228406487214,
+        "rouge_l": 0.25,
+        "bertscore": 0.8736252188682556
+      }
+    },
+    {
+      "sample_index": 349,
+      "avdn_route_index": "8_2",
+      "map_name": "47",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on top of buildings, Is the destination in my view? How to go to destinaton?.  [INS] Destination is not in view. If you go south until you reach a very large light colored building. This building is the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.2857142857142857,
+        "bleu4": 0.01157162829367278,
+        "rouge_l": 0.1904761904761905,
+        "bertscore": 0.8670578598976135
+      }
+    },
+    {
+      "sample_index": 350,
+      "avdn_route_index": "8_3",
+      "map_name": "47",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the large light color building, What is the destination look like? How to go to destinaton?.  [INS] Fly northeast to building across street.  ",
+      "generated_instruction": "Destination looks like a large warehouse. Go to your five o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.07142857142857142,
+        "bleu4": 0.018850319022747353,
+        "rouge_l": 0.1111111111111111,
+        "bertscore": 0.8520141839981079
+      }
+    },
+    {
+      "sample_index": 352,
+      "avdn_route_index": "0_2",
+      "map_name": "375",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on top of some buildings, Can I see the destination? Which direction should I go?.  [INS] You could see the destination. You are on top of the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.11111111111111113,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.12903225806451615,
+        "bertscore": 0.8765430450439453
+      }
+    },
+    {
+      "sample_index": 353,
+      "avdn_route_index": "0_3",
+      "map_name": "375",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I can not get to the destination, What is the destination look like? Where should I go now?.  [INS] The destination looks like a farm building with a green roof. move Left.  ",
+      "generated_instruction": "Destination looks like a large gray building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.43749999999999994,
+        "bleu4": 0.19505518236282093,
+        "rouge_l": 0.38461538461538464,
+        "bertscore": 0.8915143013000488
+      }
+    },
+    {
+      "sample_index": 355,
+      "avdn_route_index": "3_2",
+      "map_name": "523",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the road near the parking lot, Can I see the destination? In what direction is our destination?.  [INS] Yes, go a few meters northwest and head to the gray roofed shed next to the white roofed building, this is the destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3333333333333333,
+        "bleu4": 0.01157162829367278,
+        "rouge_l": 0.14285714285714288,
+        "bertscore": 0.8637453317642212
+      }
+    },
+    {
+      "sample_index": 357,
+      "avdn_route_index": "5_2",
+      "map_name": "1216",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on top of the building, Can I see the destination? How to go to destinaton?.  [INS] move 180 degree come forward  then move 90 degree the big building next the is your goal.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.33333333333333337,
+        "bleu4": 0.014216645907653848,
+        "rouge_l": 0.1111111111111111,
+        "bertscore": 0.8504102826118469
+      }
+    },
+    {
+      "sample_index": 359,
+      "avdn_route_index": "0_2",
+      "map_name": "1478",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the small building, Am I near the destination? In what direction is our destination?.  [INS] go forward in right direction small building near big grey building is your goal.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.016153228406487214,
+        "rouge_l": 0.24242424242424243,
+        "bertscore": 0.8607626557350159
+      }
+    },
+    {
+      "sample_index": 360,
+      "avdn_route_index": "0_3",
+      "map_name": "1478",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I am on the small building, How does the destination look like? Where should I go now?.  [INS] Go right in the direction of 2 o'clock from your current position.  ",
+      "generated_instruction": "Destination looks like a small gray building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.44444444444444453,
+        "bleu4": 0.020255986027125642,
+        "rouge_l": 0.23076923076923078,
+        "bertscore": 0.8661339282989502
+      }
+    },
+    {
+      "sample_index": 361,
+      "avdn_route_index": "0_4",
+      "map_name": "1478",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I move to the grey building at 2 o clock, What is destination's color and shape? Where should I go now?.  [INS] go to your left and go a little foward, the small grey building is your goal.  ",
+      "generated_instruction": "Destination looks like a small gray building. Go to your ten o'clock.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 1.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.6875,
+        "bleu4": 0.06863269655992758,
+        "rouge_l": 0.27586206896551724,
+        "bertscore": 0.878694474697113
+      }
+    },
+    {
+      "sample_index": 363,
+      "avdn_route_index": "6_2",
+      "map_name": "1211",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] There are a lot of blue roofs, can you discribe the shape?.  [INS] The shape is long and rectangular.  ",
+      "generated_instruction": "No, fate is not in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.1,
+        "bleu4": 0.012109013026441871,
+        "rouge_l": 0.07692307692307691,
+        "bertscore": 0.8439978957176208
+      }
+    },
+    {
+      "sample_index": 364,
+      "avdn_route_index": "6_3",
+      "map_name": "1211",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] In what direction is our destination?.  [INS] The destination is in the northwest direction, pass the buildings on your way and head towards the rectangular gray building, that's the destination.  ",
+      "generated_instruction": "Move towards your 6 o'clock direction. You will fly over a building with a blue roof. That is our destination.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 1.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.3888888888888888,
+        "bleu4": 0.011721807090220231,
+        "rouge_l": 0.17777777777777778,
+        "bertscore": 0.892909049987793
+      }
+    },
+    {
+      "sample_index": 366,
+      "avdn_route_index": "4_2",
+      "map_name": "2460",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see many red houses. Is the destination in my view? What is the destination look like? Which direction should I go?.  [INS] Yes. destination surrounded by fogs and turn around the 6'o clock direction reached goal for  the building.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 5 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 0.0,
+        "form": 1.0,
+        "total": 0.2142857142857143,
+        "bleu4": 0.01284618972676772,
+        "rouge_l": 0.27027027027027023,
+        "bertscore": 0.8679072260856628
+      }
+    },
+    {
+      "sample_index": 368,
+      "avdn_route_index": "0_2",
+      "map_name": "343",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see some houses with swimming pool. Is the destination in my view? What is destination's color and shape?.  [INS] Move towards 6 o'clock direction, red colored place is your destination.  ",
+      "generated_instruction": "Yes, fate is in your field of vision. Go in the 7 o'clock direction from your current position.",
+      "scores": {
+        "direction": 0.0,
+        "yesno": 0.0,
+        "attribute": 0.0,
+        "landmark": 0.0,
+        "movement": 1.0,
+        "form": 1.0,
+        "total": 0.25,
+        "bleu4": 0.014216645907653848,
+        "rouge_l": 0.2580645161290323,
+        "bertscore": 0.8856924176216125
+      }
+    },
+    {
+      "sample_index": 369,
+      "avdn_route_index": "0_3",
+      "map_name": "343",
+      "matched_episode_id": "none",
+      "original_instruction": "[QUE] I see many red houses. Which one is it? Can I see the destination? How does the destination look like? How to go to destinaton? .  [INS] The destination is the red house at your 6 o'clock. You can see the destination. The destination is the house with the red roof with a road to the south and west of it. Turn to your 7 o'clock and fly until you reach house with road to its south and west.  ",
+      "generated_instruction": "Yes, you can see the destination. You have to turn to 6 o'clock and move forward to reach the destination.",
+      "scores": {
+        "direction": 0.25,
+        "yesno": 1.0,
+        "attribute": 0.0,
+        "landmark": 0.8,
+        "movement": 0.5,
+        "form": 1.0,
+        "total": 0.4527777777777777,
+        "bleu4": 0.05270490236388617,
+        "rouge_l": 0.32,
+        "bertscore": 0.8960760831832886
+      }
+    }
+  ]
+}
