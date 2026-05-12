@@ -97,13 +97,23 @@ class AnsweringAgent(nn.Module):
       1. Visual: Darknet (frozen) -> 1x1 conv projection -> 49 spatial tokens
          ``[B, 49, H]`` (preserves the 7x7 spatial grid).
       2. Temporal: per-position temporal attention over current + previous views.
-      3. Curriculum: optional convex mix with destination-view spatial tokens.
-      4. Adapter: small visual adapter aligns visual tokens with the T5
-         embedding distribution.
+      3. Adapter: small visual adapter aligns visual tokens with the T5
+         embedding distribution. Applied **separately** to the current view and
+         the destination view so each produces its own post-adapter spatial
+         tokens.
+      4. Curriculum: optional convex mix between the *post-adapter* current and
+         destination tokens to form the visual prefix consumed by T5.
       5. Joint encoding: visual tokens are concatenated with T5 text embeddings
          and passed through the T5 encoder, so vision and language mix in
          self-attention from the bottom up.
       6. Generation: the T5 decoder cross-attends to the joint encoder output.
+
+    Auxiliary losses (``vl_align_*``, ``destination_*``) operate on the
+    *pre-T5* post-adapter pooled representation of the **current view only**.
+    This ensures their gradient flows directly into ``feature_extractor`` and
+    ``t5_visual_adapter`` and cannot be satisfied by T5 self-attention
+    routing text content through visual positions (a failure mode observed
+    when these losses were sourced from post-T5 visual states).
     """
 
     def __init__(self, config: Config, tokenizer=None, logger=None):
@@ -159,9 +169,11 @@ class AnsweringAgent(nn.Module):
         )
 
         # Vision-language alignment heads (CLIP-style starter signal).
-        # Project pooled post-T5 visual and text representations into a small
-        # shared space; train.py contrasts them in-batch so the visual pathway
-        # gets a direct, vision-required gradient from epoch 1.
+        # ``vl_align_proj_v`` consumes the **pre-T5** pooled current-view
+        # adapter output, and ``vl_align_proj_t`` consumes the **post-T5**
+        # pooled text states. train.py contrasts them in-batch so the visual
+        # pathway receives a direct, vision-required gradient that cannot be
+        # satisfied by T5 routing text content through visual positions.
         self.vl_align_dim = 256
         self.vl_align_proj_v = nn.Linear(config.model.hidden_size, self.vl_align_dim)
         self.vl_align_proj_t = nn.Linear(config.model.hidden_size, self.vl_align_dim)
@@ -317,21 +329,34 @@ class AnsweringAgent(nn.Module):
         batch_size = current_view.size(0)
 
         # ---- Visual ----
-        visual_tokens = self._extract_visual_tokens(
+        # Run the feature extractor + temporal encoder on the current view
+        # (with history) and (optionally) the destination view, then apply
+        # ``t5_visual_adapter`` to each *separately*. Pooling the current-view
+        # adapter output yields ``current_pool`` (and the destination-view
+        # output yields ``dest_pool``); these are the pre-T5 representations
+        # used by the vl_align and destination cosine losses. Curriculum
+        # mixing happens in *post-adapter* space, so the visual prefix
+        # consumed by T5 is a convex combination of two fully-adapted views.
+        current_raw = self._extract_visual_tokens(
             current_view, previous_views
-        )  # [B, S, H]
+        )                                                      # [B, S, H]
+        current_adapted = self.t5_visual_adapter(current_raw)  # [B, S, H]
+        current_pool = current_adapted.mean(dim=1)             # [B, H]
 
-        dest_tokens = None
+        dest_adapted = None
+        dest_pool = None
         if destination_view is not None:
-            dest_tokens = self.feature_extractor(destination_view)  # [B, S, H]
-            if curriculum_ratio > 0:
-                # Convex mix on the spatial token tensor (per-position curriculum).
-                visual_tokens = (
-                    curriculum_ratio * dest_tokens
-                    + (1.0 - curriculum_ratio) * visual_tokens
-                )
+            dest_raw = self.feature_extractor(destination_view)  # [B, S, H]
+            dest_adapted = self.t5_visual_adapter(dest_raw)      # [B, S, H]
+            dest_pool = dest_adapted.mean(dim=1)                 # [B, H]
 
-        visual_tokens = self.t5_visual_adapter(visual_tokens)  # [B, S, H]
+        if dest_adapted is not None and curriculum_ratio > 0:
+            visual_tokens = (
+                curriculum_ratio * dest_adapted
+                + (1.0 - curriculum_ratio) * current_adapted
+            )
+        else:
+            visual_tokens = current_adapted
         S = visual_tokens.size(1)
 
         # ---- Joint encoding (T5 encoder over visual + text) ----
@@ -390,18 +415,15 @@ class AnsweringAgent(nn.Module):
         )
 
         # Pool the entire joint sequence (visual + text) with the joint mask
-        # for the shared anchor used by contrastive / destination / KD losses.
-        # This is the key change: by pooling over visual+text we guarantee a
-        # direct gradient path from those losses back to the visual pathway,
-        # preventing the degenerate "ignore vision" solution.
+        # for the shared anchor used by contrastive / KD losses. Pooling over
+        # visual+text gives those losses a gradient path through the visual
+        # pathway via T5 self-attention.
         joint_mask_f = joint_mask.float().unsqueeze(-1)          # [B, S+T, 1]
         joint_mean = (encoder_states * joint_mask_f).sum(dim=1) / joint_mask_f.sum(
             dim=1
         ).clamp(min=1.0)
 
-        # Separate vision-only and text-only post-T5 pooled features, used
-        # by the in-batch vision-language alignment loss in train.py.
-        visual_mean_post = encoder_states[:, :S].mean(dim=1)     # [B, H]
+        # Post-T5 pooled text (used as the text side of the vl_align loss).
         text_states = encoder_states[:, S:]                      # [B, T, H]
         text_mask_f = text_mask.float().unsqueeze(-1)            # [B, T, 1]
         text_mean_post = (text_states * text_mask_f).sum(dim=1) / text_mask_f.sum(
@@ -416,26 +438,25 @@ class AnsweringAgent(nn.Module):
             "raw_adapted_features": joint_mean,
             "adapted_features": self.contrastive_proj(joint_mean),
             "feature_norm": encoder_states.norm(p=2, dim=-1).mean(),
-            # Vision-only post-T5 representation, used by the destination
-            # cosine loss so both sides live in the same domain.
-            "destination_anchor": visual_mean_post,
-            # Vision-language alignment embeddings (L2-normalized, low-dim).
-            # train.py contrasts these in-batch to force the visual pathway
-            # to produce sample-discriminative features.
+            # Pre-T5, current-view-only pooled adapter output. Both the
+            # destination cosine and the vl_align visual side read from this
+            # tensor, so their gradient lands directly on
+            # ``feature_extractor`` + ``t5_visual_adapter`` and cannot be
+            # absorbed by T5's encoder self-attention.
+            "destination_anchor": current_pool,
             "vl_align_visual": F.normalize(
-                self.vl_align_proj_v(visual_mean_post), p=2, dim=-1
+                self.vl_align_proj_v(current_pool), p=2, dim=-1
             ),
             "vl_align_text": F.normalize(
                 self.vl_align_proj_t(text_mean_post), p=2, dim=-1
             ),
         }
 
-        if dest_tokens is not None:
-            # Run destination spatial tokens through the same visual adapter
-            # used for the current view so both sides of the destination
-            # cosine loss live in matching post-adapter, post-pool space.
-            dest_adapted = self.t5_visual_adapter(dest_tokens)   # [B, S, H]
-            outputs["destination_features"] = dest_adapted.mean(dim=1)
+        if dest_pool is not None:
+            # Pre-T5 destination pool: matches ``destination_anchor`` in space
+            # (both are post-adapter, mean-over-spatial-positions), so the
+            # cosine loss measures a single coherent quantity.
+            outputs["destination_features"] = dest_pool
 
         # Contrastive paraphrase combinations: shared anchor (joint_mean)
         # shifted by a (sigmoid-gated) paraphrase-hint encoding.

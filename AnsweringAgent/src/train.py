@@ -766,13 +766,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                     loss = ce_loss_weight * ce_loss + reg_loss
                         
                     # Add destination loss if destination view is available.
-                    # Both sides of the cosine live in the post-T5 / post-adapter
-                    # visual space ("destination_anchor" = pooled visual portion of
-                    # the joint encoder output; "destination_features" = destination
-                    # view passed through the same t5_visual_adapter and pooled).
-                    # This is the key fix: previously the anchor was a text-pooled
-                    # feature and the target was a raw-visual feature, so the cosine
-                    # spanned two different distributions and provided weak signal.
+                    # Both sides of the cosine live in the pre-T5 / post-adapter
+                    # visual space ("destination_anchor" = pooled current-view
+                    # adapter output; "destination_features" = pooled destination-
+                    # view adapter output). Sourcing both from the adapter (not
+                    # from T5's encoder states) ensures the gradient lands on the
+                    # visual pathway directly, preventing the failure mode where
+                    # T5 self-attention satisfies the loss by routing text content
+                    # through the visual positions.
                     if destination_view is not None:
                         dest_anchor = outputs.get(
                             "destination_anchor", outputs["raw_adapted_features"]
@@ -845,11 +846,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                             logger.info(f"🔍 Available output keys: {list(outputs.keys())}")
 
                     # Vision-language alignment loss (CLIP-style, in-batch).
-                    # This is the "starter signal" that forces the visual pathway
-                    # to produce sample-discriminative features from epoch 1, so
-                    # the contrastive / CE losses can no longer be solved by
-                    # ignoring vision and falling back to the LM prior (which is
-                    # what caused the mode collapse in the previous run).
+                    # ``vl_align_visual`` is sourced from the pre-T5, current-view-
+                    # only pooled adapter output, so the gradient from this loss
+                    # lands directly on the feature extractor and adapter (T5 is
+                    # not in the path on the visual side). This is what prevents
+                    # the failure mode where pooled losses are satisfied by T5
+                    # routing text content through visual positions while the
+                    # actual visual prefix stays a near-constant fingerprint.
                     vl_align_loss = torch.tensor(0.0, device=device)
                     if "vl_align_visual" in outputs and "vl_align_text" in outputs:
                         v = outputs["vl_align_visual"]

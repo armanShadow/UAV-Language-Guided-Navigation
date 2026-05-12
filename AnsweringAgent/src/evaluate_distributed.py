@@ -262,9 +262,10 @@ def evaluate_dataset_distributed(model, dataloader, criterion, device, tokenizer
                         loss = ce_weight * ce_loss + reg_loss
                         
                         # Add destination loss if destination view is available (matches training).
-                        # Uses destination_anchor (post-T5 visual pool) vs destination_features
-                        # (destination view passed through the same t5_visual_adapter and pooled),
-                        # so both sides of the cosine live in the same post-adapter visual space.
+                        # Uses destination_anchor (pre-T5, current-view-only, post-adapter pool)
+                        # vs destination_features (destination view through the same adapter,
+                        # pooled), so both sides of the cosine live in the same pre-T5
+                        # post-adapter visual space.
                         destination_cosine_loss = torch.tensor(0.0, device=device)
                         if destination_view is not None:
                             dest_anchor = outputs.get(
