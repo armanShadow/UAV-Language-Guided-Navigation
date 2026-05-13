@@ -43,14 +43,14 @@ class TrainingConfig:
     mixed_precision: bool = False  # DISABLED - was causing hang at backward pass
     device: str = 'cuda'
     seed: int = 42
-    checkpoint_frequency: int = 100  # Save every 100 epochs (much less frequent)
+    checkpoint_frequency: int = 200  # Save every 200 epochs (much less frequent)
     scheduler_factor: float = 0.5
     scheduler_patience: int = 20  # More patience for longer training
     scheduler_verbose: bool = True
     gradient_accumulation_steps: int = 3  # Increased from 2 to compensate for smaller batch
     # Early stopping parameters
     early_stopping: bool = True
-    early_stopping_patience: int = 20  # Much more patience for long 3-phase training
+    early_stopping_patience: int = 40  # Much more patience for long 3-phase training
     early_stopping_min_delta: float = 0.002  # Smaller delta for long training
     # Validation parameters
     per_gpu_batch_size: int = 6  # Reduced from 8 for unfrozen decoder
